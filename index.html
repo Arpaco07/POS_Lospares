@@ -438,14 +438,14 @@ async function renderResumen(){
     const yy=v=>py+gh-(v/maxH)*gh;
     const pts=hrs.map((h,i)=>`${xx(i).toFixed(1)},${yy(val(h)).toFixed(1)}`).join(" ");
     const area=`${px},${py+gh} ${pts} ${px+gw},${py+gh}`;
-    const dots=hrs.map((h,i)=>val(h)>0?`<circle cx="${xx(i).toFixed(1)}" cy="${yy(val(h)).toFixed(1)}" r="3.5" fill="#e1622c"/>`:'').join("");
-    const xlab=[8,12,16,20,24].map(h=>{const i=hrs.indexOf(h);return `<text x="${xx(i).toFixed(1)}" y="${H-4}" font-size="11" fill="#8a857c" text-anchor="middle">${h===24?'12am':(h>12?h-12+'pm':h+'am')}</text>`;}).join("");
+    const dots=hrs.map((h,i)=>val(h)>0?`<circle cx="${xx(i).toFixed(1)}" cy="${yy(val(h)).toFixed(1)}" r="6" fill="#e1622c"/>`:'').join("");
+    const xlab=[8,12,16,20,24].map(h=>{const i=hrs.indexOf(h);return `<text x="${xx(i).toFixed(1)}" y="${H-6}" font-size="22" fill="#8a857c" text-anchor="middle">${h===24?'12am':(h>12?h-12+'pm':h+'am')}</text>`;}).join("");
     const svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
       <line x1="${px}" y1="${py+gh}" x2="${px+gw}" y2="${py+gh}" stroke="#e7e5e0"/>
       <line x1="${px}" y1="${py}" x2="${px}" y2="${py+gh}" stroke="#e7e5e0"/>
-      <text x="${px-6}" y="${py+6}" font-size="10" fill="#8a857c" text-anchor="end">$${maxH.toFixed(0)}</text>
+      <text x="${px-6}" y="${py+8}" font-size="20" fill="#8a857c" text-anchor="end">$${maxH.toFixed(0)}</text>
       <polygon points="${area}" fill="rgba(225,98,44,.15)"/>
-      <polyline points="${pts}" fill="none" stroke="#e1622c" stroke-width="2.5" stroke-linejoin="round"/>
+      <polyline points="${pts}" fill="none" stroke="#e1622c" stroke-width="4" stroke-linejoin="round"/>
       ${dots}${xlab}</svg>`;
     $("main").innerHTML=`<div class="pad"><h2>Resumen del día</h2>
       <div class="kpis">
