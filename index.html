@@ -122,6 +122,7 @@
 <script>
   const SUPABASE_URL   = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
   const SUPABASE_LLAVE = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  const LOGO = "data:image/png;base64,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";
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
@@ -215,7 +216,6 @@ async function renderInicio(){
       <button class="tile accion" onclick="nuevaMesaNombre()">＋ Mesa con nombre</button>
       <button class="tile accion" onclick="abrirRapida('PARA_LLEVAR')">Para llevar</button>
       <button class="tile accion" onclick="abrirRapida('MOSTRADOR')">Boutique<small>carne cruda</small></button>
-      <button class="tile gris" onclick="renderResumen()">📊 Resumen del día</button>
     </div></div>`;
 }
 function tileMesa(m,oc){
@@ -312,9 +312,14 @@ async function verCuenta(){
       const imp=x.es_cortesia?'CORTESÍA':'$'+Number(x.importe).toFixed(2);
       return `<div class="r"><span>${nom}${x.peso_kg?` (${x.peso_kg}kg)`:''}${m?` · ${m}`:''}</span><span>${imp}</span></div>`;}).join("");
     // cuerpo del ticket (se usa para mostrar y para imprimir)
-    const tk=`<div style="text-align:center;font-weight:800">LOS PARES 84×88</div>
-      <div style="text-align:center;font-size:11px">Tuxtepec, Oaxaca</div>
-      <div class="tenue" style="margin:8px 0;font-size:11px">${state.mesaNom} · Folio ${c.folio||''}<br>${new Date().toLocaleString('es-MX')}</div>
+    const tk=`<div style="text-align:center"><img src="${LOGO}" alt="Los Pares" style="width:150px;max-width:70%;margin:0 auto 4px;display:block"></div>
+      <div style="text-align:center;font-weight:800;letter-spacing:1px">LOS PARES 84×88</div>
+      <div style="text-align:center;font-size:11px">Restaurante de carnes · Cortes premium</div>
+      <div style="text-align:center;font-size:11px">Tuxtepec, Oaxaca · Tel/WhatsApp 287 881 8488</div>
+      <div style="text-align:center;font-size:11px">IG @lospares8488 · FB Los Pares 84/88</div>
+      <hr>
+      <div class="r" style="font-size:11px"><span>${state.mesaNom}</span><span>Folio ${c.folio||''}</span></div>
+      <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Atendió: ${state.mesero.nombre}</div>
       <hr>${filas}<hr>
       <div class="r"><span>Subtotal</span><span>$${Number(c.subtotal).toFixed(2)}</span></div>
       ${Number(c.descuento_total)>0?`<div class="r"><span>Descuentos</span><span>- $${Number(c.descuento_total).toFixed(2)}</span></div>`:''}
@@ -410,12 +415,16 @@ async function cobrarYCerrar(){
 
 /* ---- RESUMEN DEL DÍA ---- */
 async function renderResumen(){
-  state.vista="resumen";$("footer").style.display="none";$("btnVolver").style.display="inline-block";$("ctx").textContent="Resumen del día";
+  state.vista="resumen";$("footer").style.display="none";$("btnVolver").style.display="inline-block";$("ctx").textContent="Resumen";
+  if(!state.resumenFecha){const n=new Date();state.resumenFecha=new Date(n.getFullYear(),n.getMonth(),n.getDate());}
   $("main").innerHTML=`<div class="pad"><div class="cargando">Calculando…</div></div>`;
   try{
-    const hoy=new Date();const ini=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate()).toISOString();
+    const d0=state.resumenFecha;const ini=d0.toISOString();
+    const fin=new Date(d0.getFullYear(),d0.getMonth(),d0.getDate()+1).toISOString();
+    const hoyStr=new Date();const esHoy=d0.toDateString()===new Date(hoyStr.getFullYear(),hoyStr.getMonth(),hoyStr.getDate()).toDateString();
+    const fechaTxt=d0.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});
     const ab=await sb.from("cuenta").select("id",{count:'exact',head:true}).eq("estado","ABIERTA");
-    const{data:cerr}=await sb.from("cuenta").select("id,total,propina,cerrada_en").eq("estado","CERRADA").gte("cerrada_en",ini);
+    const{data:cerr}=await sb.from("cuenta").select("id,total,propina,cerrada_en").eq("estado","CERRADA").gte("cerrada_en",ini).lt("cerrada_en",fin);
     const ids=(cerr||[]).map(c=>c.id);
     let pagos=[],cort=[];
     if(ids.length){
@@ -447,11 +456,16 @@ async function renderResumen(){
       <polygon points="${area}" fill="rgba(225,98,44,.15)"/>
       <polyline points="${pts}" fill="none" stroke="#e1622c" stroke-width="4" stroke-linejoin="round"/>
       ${dots}${xlab}</svg>`;
-    $("main").innerHTML=`<div class="pad"><h2>Resumen del día</h2>
+    $("main").innerHTML=`<div class="pad">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <button onclick="cambiarDia(-1)" style="background:#fff;border:1px solid var(--gris2);border-radius:10px;padding:10px 14px;font-weight:800">‹</button>
+        <div style="flex:1;text-align:center"><div style="font-weight:800;font-size:17px">${esHoy?'Hoy':fechaTxt}</div><div class="tenue" style="font-size:12px;text-transform:capitalize">${fechaTxt}</div></div>
+        <button onclick="cambiarDia(1)" ${esHoy?'disabled style="opacity:.35;background:#fff;border:1px solid var(--gris2);border-radius:10px;padding:10px 14px;font-weight:800"':'style="background:#fff;border:1px solid var(--gris2);border-radius:10px;padding:10px 14px;font-weight:800"'}>›</button>
+      </div>
       <div class="kpis">
-        <div class="kpi"><div class="l">Vendido hoy</div><div class="v">$${ventas.toFixed(2)}</div></div>
+        <div class="kpi"><div class="l">Vendido</div><div class="v">$${ventas.toFixed(2)}</div></div>
         <div class="kpi"><div class="l">Mesas cerradas</div><div class="v">${(cerr||[]).length}</div></div>
-        <div class="kpi"><div class="l">Mesas abiertas</div><div class="v">${ab.count??'—'}</div></div>
+        <div class="kpi"><div class="l">Mesas abiertas ahora</div><div class="v">${ab.count??'—'}</div></div>
         <div class="kpi"><div class="l">Propinas</div><div class="v">$${prop.toFixed(2)}</div></div>
       </div>
       <div class="sec-t">¿Cómo pagaron?</div>
@@ -463,10 +477,11 @@ async function renderResumen(){
       </div>
       <div class="sec-t">Venta por hora</div>
       <div class="barras">${svg}</div>
-      <p class="tenue" style="margin-top:14px">Se actualiza al recargar. Es el corte informativo del día; el corte formal (turno/día) lo agregamos en su módulo.</p>
+      <p class="tenue" style="margin-top:14px">Puedes ver días anteriores con las flechas. Es el corte informativo; el corte formal (turno/día) y la edición de días pasados (con PIN) van en el módulo de administrador.</p>
     </div>`;
   }catch(e){err("No se pudo calcular el resumen.",e);}
 }
+window.cambiarDia=(delta)=>{const d=state.resumenFecha;state.resumenFecha=new Date(d.getFullYear(),d.getMonth(),d.getDate()+delta);renderResumen();};
 
 /* ---- util ---- */
 function volver(){
