@@ -131,24 +131,57 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
 /* ---- Rango de fechas ---- */
 function d0(dt){return new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());}
 function iso(dt){return dt.toISOString();}
-function rangoHoy(){const h=d0(new Date());return {tipo:'HOY',ini:h,fin:new Date(h.getFullYear(),h.getMonth(),h.getDate()+1),label:'Hoy'};}
+function fechaBonita(dt){return dt.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});}
+function esMismoDia(a,b){return d0(a).getTime()===d0(b).getTime();}
+function rangoDia(dt){const h=d0(dt);const hoy=esMismoDia(dt,new Date());return {tipo:'DIA',ancla:h,ini:h,fin:new Date(h.getFullYear(),h.getMonth(),h.getDate()+1),label:hoy?'Hoy':fechaBonita(h),unDia:true};}
+function rangoHoy(){return rangoDia(new Date());}
 function rangoSemana(){const h=d0(new Date());return {tipo:'SEMANA',ini:new Date(h.getFullYear(),h.getMonth(),h.getDate()-6),fin:new Date(h.getFullYear(),h.getMonth(),h.getDate()+1),label:'Últimos 7 días'};}
 function rangoMes(){const n=new Date();return {tipo:'MES',ini:new Date(n.getFullYear(),n.getMonth(),1),fin:new Date(n.getFullYear(),n.getMonth()+1,1),label:'Este mes'};}
 function rangoCustom(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');return {tipo:'RANGO',ini:A,fin:new Date(B.getFullYear(),B.getMonth(),B.getDate()+1),label:`${a} a ${b}`};}
 window.setRango=(t)=>{state.rango=t==='HOY'?rangoHoy():t==='SEMANA'?rangoSemana():rangoMes();render();};
 window.setCustom=()=>{const a=$("f1").value,b=$("f2").value;if(!a||!b){alert("Elige las dos fechas");return;}state.rango=rangoCustom(a,b);render();};
+window.navDia=(delta)=>{const base=state.rango.tipo==='DIA'?state.rango.ancla:new Date();const nd=new Date(base.getFullYear(),base.getMonth(),base.getDate()+delta);if(nd>d0(new Date()))return;state.rango=rangoDia(nd);render();};
 function barraRango(){
-  const r=state.rango;
-  return `<div class="rango">
-    <button class="${r.tipo==='HOY'?'on':''}" onclick="setRango('HOY')">Hoy</button>
-    <button class="${r.tipo==='SEMANA'?'on':''}" onclick="setRango('SEMANA')">Semana</button>
-    <button class="${r.tipo==='MES'?'on':''}" onclick="setRango('MES')">Mes</button>
-    <input type="date" id="f1"><input type="date" id="f2">
-    <button onclick="setCustom()">Ver rango</button>
-    <span class="tenue">${r.label}</span></div>`;
+  const r=state.rango;const esDia=r.tipo==='DIA';
+  const finDeHoy=esDia&&esMismoDia(r.ancla,new Date());
+  return `<div class="rango" style="justify-content:space-between">
+      <button onclick="navDia(-1)">‹ Día anterior</button>
+      <div style="font-weight:800;font-size:16px;text-transform:capitalize;text-align:center;flex:1">${esDia?r.label:r.label}</div>
+      <button onclick="navDia(1)" ${finDeHoy?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
+    </div>
+    <div class="rango">
+      <button class="${r.tipo==='DIA'&&finDeHoy?'on':''}" onclick="setRango('HOY')">Hoy</button>
+      <button class="${r.tipo==='SEMANA'?'on':''}" onclick="setRango('SEMANA')">Semana</button>
+      <button class="${r.tipo==='MES'?'on':''}" onclick="setRango('MES')">Mes</button>
+      <input type="date" id="f1"><input type="date" id="f2">
+      <button onclick="setCustom()">Ver rango</button>
+    </div>`;
+}
+/* gráfica de área por hora (un solo día) */
+function chartHoras(cerr){
+  const horas={};cerr.forEach(c=>{const h=new Date(c.cerrada_en).getHours();horas[h]=(horas[h]||0)+Number(c.total);});
+  const maxH=Math.max(1,...Object.values(horas));
+  const hrs=[8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24];
+  const val=h=>horas[h===24?0:h]||0;
+  const W=680,H=200,px=44,py=20,gw=W-px*2,gh=H-py*2;
+  const xx=i=>px+gw*i/(hrs.length-1),yy=v=>py+gh-(v/maxH)*gh;
+  const pts=hrs.map((h,i)=>`${xx(i).toFixed(1)},${yy(val(h)).toFixed(1)}`).join(" ");
+  const area=`${px},${py+gh} ${pts} ${px+gw},${py+gh}`;
+  const dots=hrs.map((h,i)=>val(h)>0?`<circle cx="${xx(i).toFixed(1)}" cy="${yy(val(h)).toFixed(1)}" r="5" fill="#e1622c"/>`:'').join("");
+  const xlab=[8,12,16,20,24].map(h=>{const i=hrs.indexOf(h);return `<text x="${xx(i).toFixed(1)}" y="${H-6}" font-size="20" fill="#8a857c" text-anchor="middle">${h===24?'12am':(h>12?h-12+'pm':h+'am')}</text>`;}).join("");
+  return `<div class="barras"><svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    <line x1="${px}" y1="${py+gh}" x2="${px+gw}" y2="${py+gh}" stroke="#e7e5e0"/>
+    <text x="${px-6}" y="${py+8}" font-size="18" fill="#8a857c" text-anchor="end">$${maxH.toFixed(0)}</text>
+    <polygon points="${area}" fill="rgba(225,98,44,.15)"/>
+    <polyline points="${pts}" fill="none" stroke="#e1622c" stroke-width="4" stroke-linejoin="round"/>${dots}${xlab}</svg></div>`;
 }
 
 /* ---- Datos del rango ---- */
+async function abiertasNow(){
+  const{data,error}=await sb.from("cuenta").select("id,total").eq("estado","ABIERTA");
+  if(error)return {n:0,total:0};
+  return {n:(data||[]).length,total:(data||[]).reduce((a,c)=>a+Number(c.total),0)};
+}
 async function datosRango(){
   const{data:cerr,error}=await sb.from("cuenta").select("id,total,mesero_id,cerrada_en")
     .eq("estado","CERRADA").gte("cerrada_en",iso(state.rango.ini)).lt("cerrada_en",iso(state.rango.fin));
@@ -176,19 +209,31 @@ async function render(){
 }
 
 /* ---- VENTAS ---- */
-function pintarVentas({cerr,pagos,cort}){
+async function pintarVentas({cerr,pagos,cort}){
   let ef=0,tar=0,tra=0,otr=0,prop=0;
   pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';const v=Number(p.importe);
     if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v;prop+=Number(p.propina||0);});
   const cortT=cort.reduce((a,x)=>a+Number(x.importe),0);
   const ventas=cerr.reduce((a,c)=>a+Number(c.total),0);
-  // desglose por día
-  const porDia={};cerr.forEach(c=>{const k=new Date(c.cerrada_en).toLocaleDateString('es-MX');porDia[k]=(porDia[k]||0)+Number(c.total);});
-  const dias=Object.entries(porDia);const maxD=Math.max(1,...dias.map(d=>d[1]));
-  const barras=dias.map(([dia,v])=>`<div class="bar"><span class="h">${dia}</span><span class="track"><span class="fill" style="width:${Math.round(v/maxD*100)}%"></span></span><span class="v">$${v.toFixed(0)}</span></div>`).join("");
+  const ab=await abiertasNow();
+  // gráfica: un día -> por hora ; varios días -> por día
+  let grafica;
+  if(state.rango.unDia){ grafica=chartHoras(cerr); }
+  else{
+    const porDia={};cerr.forEach(c=>{const k=new Date(c.cerrada_en).toLocaleDateString('es-MX');porDia[k]=(porDia[k]||0)+Number(c.total);});
+    const dias=Object.entries(porDia);const maxD=Math.max(1,...dias.map(d=>d[1]));
+    const barras=dias.map(([dia,v])=>`<div class="bar"><span class="h">${dia}</span><span class="track"><span class="fill" style="width:${Math.round(v/maxD*100)}%"></span></span><span class="v">$${v.toFixed(0)}</span></div>`).join("");
+    grafica=`<div class="barras">${barras||'<span class="tenue">Sin ventas en el periodo.</span>'}</div>`;
+  }
   $("main").innerHTML=`<div class="pad"><h2>Ventas</h2>${barraRango()}
+    <div class="sec-t">En este momento</div>
     <div class="kpis">
-      <div class="kpi big"><div class="l">Vendido</div><div class="v">$${ventas.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Mesas abiertas ahora</div><div class="v">${ab.n}</div></div>
+      <div class="kpi big"><div class="l">Consumo en curso (sin cobrar)</div><div class="v">$${ab.total.toFixed(2)}</div></div>
+    </div>
+    <div class="sec-t">Cobrado en el periodo</div>
+    <div class="kpis">
+      <div class="kpi big"><div class="l">Vendido (cobrado)</div><div class="v">$${ventas.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Cuentas cerradas</div><div class="v">${cerr.length}</div></div>
       <div class="kpi"><div class="l">Propinas</div><div class="v">$${prop.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Cortesías (regalado)</div><div class="v">$${cortT.toFixed(2)}</div></div>
@@ -200,8 +245,8 @@ function pintarVentas({cerr,pagos,cort}){
       <div class="kpi"><div class="l">Transferencia</div><div class="v">$${tra.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Otro</div><div class="v">$${otr.toFixed(2)}</div></div>
     </div>
-    <div class="sec-t">Venta por día</div>
-    <div class="barras">${barras||'<span class="tenue">Sin ventas en el periodo.</span>'}</div></div>`;
+    <div class="sec-t">${state.rango.unDia?'Venta por hora (picos y horas muertas)':'Venta por día'}</div>
+    ${grafica}</div>`;
 }
 
 /* ---- PROPINAS (70% mesero / 30% bote cocina) ---- */
@@ -228,22 +273,26 @@ function pintarPropinas({cerr,pagos}){
 
 /* ---- CANCELACIONES ---- */
 async function pintarCancelaciones(){
-  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando cuentas…</div></div>`;
+  $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}<div class="cargando">Cargando cuentas…</div></div>`;
   try{
-    const hoyIni=iso(d0(new Date()));
-    const{data,error}=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,abierta_en")
-      .or(`estado.eq.ABIERTA,and(estado.eq.CERRADA,cerrada_en.gte.${hoyIni})`).order("id",{ascending:false}).limit(60);
-    if(error)throw error;
+    // abiertas (siempre, estado actual) + cerradas dentro del rango elegido
+    const rAb=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id").eq("estado","ABIERTA").order("id",{ascending:false});
+    const rCe=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,cerrada_en").eq("estado","CERRADA")
+      .gte("cerrada_en",iso(state.rango.ini)).lt("cerrada_en",iso(state.rango.fin)).order("cerrada_en",{ascending:false}).limit(200);
+    if(rAb.error)throw rAb.error; if(rCe.error)throw rCe.error;
     let mesaNom={};try{const m=await sb.from("mesa").select("id,numero,nombre");(m.data||[]).forEach(x=>mesaNom[x.id]=x.numero?("Mesa "+x.numero):x.nombre);}catch(e){}
-    const items=(data||[]).map(c=>{
+    const fila=(c,etiqueta)=>{
       const et=c.tipo_venta==="MESA"?(mesaNom[c.mesa_id]||"Mesa"):(c.tipo_venta==="PARA_LLEVAR"?"Para llevar":"Boutique");
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
-      return `<div class="cta"><div class="info"><div class="n">${et} · <span class="tenue">${c.estado==='ABIERTA'?'Abierta':'Cerrada hoy'}</span></div>
+      return `<div class="cta"><div class="info"><div class="n">${et} · <span class="tenue">${etiqueta}</span></div>
         <small>${c.folio||''} · ${mesero}</small></div><div class="t">$${Number(c.total).toFixed(2)}</div>
-        <button onclick="cancelar(${c.id})">Cancelar</button></div>`;}).join("");
-    $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>
-      <p class="tenue">Cuentas abiertas y las cerradas de hoy. Cancelar pide motivo y queda registrado con tu nombre.</p>
-      ${items||'<div class="proximamente">No hay cuentas para mostrar.</div>'}</div>`;
+        <button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
+    const abiertas=(rAb.data||[]).map(c=>fila(c,'Abierta ahora')).join("");
+    const cerradas=(rCe.data||[]).map(c=>fila(c,'Cerrada')).join("");
+    $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}
+      <p class="tenue">Cancelar pide motivo y queda registrado con tu nombre.</p>
+      <div class="sec-t">Abiertas ahora</div>${abiertas||'<div class="proximamente">No hay cuentas abiertas.</div>'}
+      <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
 window.cancelar=async(id)=>{
