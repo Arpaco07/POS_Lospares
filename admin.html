@@ -86,6 +86,7 @@
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
   <button data-v="menu" onclick="irA('menu')">Menú</button>
+  <button data-v="empleados" onclick="irA('empleados')">Empleados</button>
   <button data-v="factura" onclick="irA('factura')">Facturación</button>
 </nav>
 <main id="main"><div class="cargando">Cargando…</div></main>
@@ -218,7 +219,8 @@ async function datosRango(){
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
   if(state.vista==='menu'){return pintarMenu();}
-  if(state.vista==='factura'){return $("main").innerHTML=`<div class="pad"><h2>Facturación</h2><div class="proximamente">Facturación CFDI 4.0 — módulo final.</div></div>`;}
+  if(state.vista==='empleados'){return pintarEmpleados();}
+  if(state.vista==='factura'){return pintarFactura();}
   $("main").innerHTML=`<div class="pad"><div class="cargando">Calculando…</div></div>`;
   try{
     const d=await datosRango();
@@ -400,6 +402,72 @@ window.toggleVis=async(id,vis)=>{
     const p=window._prods.find(x=>x.id===id);if(p)p.visible_comandero=!vis;dibujarMenu($("mbuscar")?.value||"");
   }catch(e){err("No se pudo cambiar.",e);}
 };
+
+/* ---- EMPLEADOS (alta / rol / PIN) ---- */
+const ROLES=[["MESERO","Mesero"],["CAJERO","Cajero"],["ADMIN","Administrador"],["COCINA","Cocina"]];
+async function pintarEmpleados(){
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando…</div></div>`;
+  try{
+    const{data,error}=await sb.from("empleado").select("id,clave,nombre,rol_id,es_admin,activo").order("nombre");
+    if(error)throw error;
+    let roles={};try{const r=await sb.from("rol").select("id,clave,nombre");(r.data||[]).forEach(x=>roles[x.id]=x);}catch(e){}
+    window._emps=data||[]; window._roles=roles;
+    const filas=(data||[]).map(e=>{
+      const rn=roles[e.rol_id]?.nombre||'';
+      return `<div class="cta ${e.activo?'':'oculto'}"><div class="info"><div class="n">${e.nombre} ${e.es_admin?'<span class="tenue">· admin</span>':''}</div>
+        <small>${rn}${e.activo?'':' · inactivo'}</small></div>
+        <button onclick="editarEmp(${e.id})">Editar</button>
+        <button onclick="pinEmp(${e.id},'${(e.nombre||'').replace(/'/g,"")}')">PIN</button></div>`;}).join("");
+    $("main").innerHTML=`<div class="pad"><h2>Empleados</h2>
+      <button class="nuevo" onclick="nuevoEmp()">＋ Nuevo empleado</button>
+      ${filas}
+      <p class="tenue" style="margin-top:10px">Para tus responsables de caja ponles rol <b>Cajero</b>: pueden hacer corte pero no cancelar ni editar. Solo <b>Administrador</b> cancela/modifica.</p></div>`;
+  }catch(e){err("No se pudieron leer los empleados.",e);}
+}
+function formEmp(e){
+  const rolClave=window._roles[e.rol_id]?.clave||'MESERO';
+  const opts=ROLES.map(r=>`<option value="${r[0]}" ${rolClave===r[0]?'selected':''}>${r[1]}</option>`).join("");
+  $("modal").innerHTML=`<h3>${e.id?'Editar empleado':'Nuevo empleado'}</h3>
+    <label>Nombre</label><input id="enom" value="${(e.nombre||'').replace(/"/g,'&quot;')}">
+    <label>Rol</label><select id="erol">${opts}</select>
+    <label class="chk"><input type="checkbox" id="eadm" ${e.es_admin?'checked':''}> Es administrador (puede cancelar/modificar)</label>
+    <label class="chk"><input type="checkbox" id="eact" ${e.activo!==false?'checked':''}> Activo</label>
+    <div class="acc"><button class="cancelar" onclick="cerrarModal()">Cancelar</button><button class="ok" onclick="guardarEmp(${e.id||'null'})">Guardar</button></div>`;
+  $("mbg").classList.add("on");
+}
+window.nuevoEmp=()=>formEmp({rol_id:null,es_admin:false,activo:true});
+window.editarEmp=(id)=>{const e=window._emps.find(x=>x.id===id);if(e)formEmp(e);};
+window.guardarEmp=async(id)=>{
+  const nom=$("enom").value.trim();if(!nom){alert("Ponle nombre");return;}
+  try{const r=await sb.rpc("guardar_empleado",{p_id:id,p_nombre:nom,p_rol_clave:$("erol").value,p_es_admin:$("eadm").checked,p_activo:$("eact").checked});
+    if(r.error)throw r.error;
+    if(!id){const nuevoId=r.data;const pin=prompt("PIN para el nuevo empleado (4 dígitos):");if(pin){await sb.rpc("cambiar_pin",{p_id:nuevoId,p_pin:pin});}}
+    cerrarModal();okmsg("Empleado guardado");pintarEmpleados();
+  }catch(e){err("No se pudo guardar.",e);}
+};
+window.pinEmp=async(id,nombre)=>{
+  const pin=prompt(`Nuevo PIN para ${nombre} (4 dígitos):`);if(!pin)return;
+  if(pin.length<3){alert("PIN muy corto");return;}
+  try{const r=await sb.rpc("cambiar_pin",{p_id:id,p_pin:pin});if(r.error)throw r.error;okmsg("PIN actualizado");}catch(e){err("No se pudo cambiar el PIN.",e);}
+};
+
+/* ---- FACTURACIÓN (portal / configuración) ---- */
+function pintarFactura(){
+  $("main").innerHTML=`<div class="pad"><h2>Facturación (CFDI 4.0)</h2>
+    <div class="kpi" style="margin-bottom:14px"><div class="l">Datos fiscales del emisor (de la constancia de Carla)</div>
+      <div style="margin-top:8px;line-height:1.7">
+        <b>RFC:</b> AUHC8806083I9<br>
+        <b>Nombre:</b> Carla Arguello Hernández<br>
+        <b>Régimen:</b> 612 · Personas Físicas con Actividades Empresariales y Profesionales<br>
+        <b>CP (lugar de expedición):</b> 68370 · Tuxtepec, Oaxaca<br>
+        <b>Actividad:</b> Restaurantes-bar con servicio de meseros</div></div>
+    <div class="sec-t">Cómo funcionará (autofacturación)</div>
+    <p class="tenue" style="line-height:1.6">El cliente entra a un portal, escribe el <b>folio de su ticket</b> y sus datos fiscales (RFC, razón social, uso CFDI), y el sistema <b>timbra</b> la factura con el PAC. Solo se puede facturar dentro del <b>mes en curso</b>.</p>
+    <div class="sec-t">Falta un paso tuyo (contratación)</div>
+    <p class="tenue" style="line-height:1.6">Para timbrar de verdad necesitas una cuenta con un <b>PAC</b> (proveedor autorizado de certificación) y comprar <b>timbres</b>. Opciones comunes en México: <b>Facturama, SW sapien, Fiscalapi, Prodigia</b>. Cuando tengas la cuenta y las credenciales del PAC, conectamos el portal y empieza a timbrar.</p>
+    <div class="kpi" style="margin-top:8px"><div class="l">Estado</div><div class="v" style="font-size:18px;color:var(--tenue)">Listo el diseño · pendiente contratar PAC</div></div>
+    <p class="tenue" style="margin-top:12px">También necesitarás el <b>Certificado de Sello Digital (CSD)</b> de Carla ante el SAT. Eso también lo cargamos en el PAC.</p></div>`;
+}
 
 /* ---- util ---- */
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
