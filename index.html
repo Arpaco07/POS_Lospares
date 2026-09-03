@@ -120,13 +120,20 @@
 </head>
 <body>
 <script>
-  const SUPABASE_URL   = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
-  const SUPABASE_LLAVE = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  /* ===== NUBE (Supabase): respaldo + acceso desde el cel ===== */
+  const CLOUD_URL   = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
+  const CLOUD_LLAVE = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  /* ===== CAJITA LOCAL (déjalo VACÍO hasta montar la mini PC) =====
+     Cuando exista, pon aquí su dirección y llave, ej:
+       const LOCAL_URL   = "http://192.168.1.50:8000";
+       const LOCAL_LLAVE = "llave-anon-de-la-cajita"; */
+  const LOCAL_URL   = "";
+  const LOCAL_LLAVE = "";
   const LOGO = "data:image/png;base64,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";
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b></span>
+  <span class="marca">Los <b>Pares</b></span> <span id="modo"></span>
   <span class="ctx" id="ctx"></span>
 </header>
 <main id="main"><div class="cargando">Cargando…</div></main>
@@ -141,7 +148,24 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $=(id)=>document.getElementById(id);
-let sb=null;
+let sb=null, modo="NUBE";
+async function conectar(){
+  if(LOCAL_URL && LOCAL_LLAVE){
+    try{
+      const loc=window.supabase.createClient(LOCAL_URL,LOCAL_LLAVE);
+      const ok=await Promise.race([
+        loc.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
+        new Promise(r=>setTimeout(()=>r(false),1500))
+      ]);
+      if(ok){modo="LOCAL";return loc;}
+    }catch(e){}
+  }
+  modo="NUBE";
+  return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
+}
+function badgeModo(){return modo==="LOCAL"
+  ?'<span style="background:#2e7d46;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">● LOCAL</span>'
+  :'<span style="background:#2f6fb0;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">☁ NUBE</span>';}
 const SECCIONES=[{clave:"DESAYUNO",nombre:"Desayuno"},{clave:"COMIDA",nombre:"Comida"},{clave:"BEBIDAS",nombre:"Bebidas"},{clave:"BOUTIQUE",nombre:"Boutique"}];
 const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:null,mesaTipo:null,cuentaId:null,
              seccionSel:null,grupoSel:null,filtro:"",cobro:null,propina:0,pagos:[]};
@@ -149,8 +173,8 @@ const cache={mesas:[],productos:[],prodById:{},areaById:{},modsPorProd:{},ordenG
 
 window.addEventListener("DOMContentLoaded",init);
 async function init(){
-  if(SUPABASE_URL.startsWith("PON_AQUI")||SUPABASE_LLAVE.startsWith("PON_AQUI")) return setup();
-  try{ sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_LLAVE); await cargarCatalogo(); renderLogin(); }
+  if(!CLOUD_LLAVE || CLOUD_LLAVE.startsWith("PON_AQUI")) return setup();
+  try{ sb=await conectar(); const b=$("modo"); if(b)b.innerHTML=badgeModo(); await cargarCatalogo(); renderLogin(); }
   catch(e){ grande("No se pudo cargar.",e); }
   $("btnVolver").onclick=volver; $("btnCuenta").onclick=verCuenta; $("btnEnviar").onclick=enviar; $("btnCobrar").onclick=renderCobro;
 }
@@ -216,6 +240,7 @@ async function renderInicio(){
       <button class="tile accion" onclick="nuevaMesaNombre()">＋ Mesa con nombre</button>
       <button class="tile accion" onclick="abrirRapida('PARA_LLEVAR')">Para llevar</button>
       <button class="tile accion" onclick="abrirRapida('MOSTRADOR')">Boutique<small>carne cruda</small></button>
+      ${(state.mesero.rol==='CAJERO'||state.mesero.rol==='ADMIN'||state.mesero.es_admin)?`<button class="tile" style="background:#2b2b2b;color:#fff;border-color:#2b2b2b" onclick="renderCorteCaja()">🧾 Corte de caja</button>`:''}
     </div></div>`;
 }
 function tileMesa(m,oc){
@@ -484,9 +509,88 @@ async function renderResumen(){
 window.cambiarDia=(delta)=>{const d=state.resumenFecha;state.resumenFecha=new Date(d.getFullYear(),d.getMonth(),d.getDate()+delta);renderResumen();};
 
 /* ---- util ---- */
+/* ---- CORTE DE CAJA (cajero/admin) ---- */
+function tipoFormaMap(){const m={};cache.formas.forEach(f=>m[f.id]=f.tipo);return m;}
+async function tallyTurno(turnoId){
+  const {data:cerr}=await sb.from("cuenta").select("id,total").eq("turno_id",turnoId).eq("estado","CERRADA");
+  const {data:abi}=await sb.from("cuenta").select("id",{count:'exact',head:true}).eq("turno_id",turnoId).eq("estado","ABIERTA");
+  const ids=(cerr||[]).map(c=>c.id);const tipo=tipoFormaMap();
+  let ef=0,tar=0,tra=0,prop=0,cort=0;
+  if(ids.length){
+    const {data:pg}=await sb.from("pago").select("importe,propina,forma_pago_id").in("cuenta_id",ids);
+    (pg||[]).forEach(p=>{const t=tipo[p.forma_pago_id]||'OTRO';const v=Number(p.importe);if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;prop+=Number(p.propina||0);});
+    const {data:co}=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids);
+    cort=(co||[]).reduce((a,x)=>a+Number(x.importe),0);
+  }
+  return {ef,tar,tra,prop,cort,ventas:(cerr||[]).reduce((a,c)=>a+Number(c.total),0),n:(cerr||[]).length,abiertas:(abi?.count)||0};
+}
+async function renderCorteCaja(){
+  state.vista="corte";$("footer").style.display="none";$("btnVolver").style.display="inline-block";$("ctx").textContent="Corte de caja";
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando…</div></div>`;
+  try{
+    const {data:tt}=await sb.from("turno").select("id,fondo_inicial,abierto_en").eq("estado","ABIERTO").order("abierto_en",{ascending:false}).limit(1);
+    const turno=(tt&&tt[0])||null;
+    if(!turno){
+      $("main").innerHTML=`<div class="pad"><h2>Corte de caja</h2>
+        <p class="tenue">No hay turno abierto. Abre tu turno al empezar, con el fondo de caja con el que inicias.</p>
+        <label style="font-weight:700;font-size:13px">Fondo inicial ($)</label>
+        <input id="fondo" type="number" step="0.01" value="0" style="width:100%;padding:12px;border:1px solid var(--gris2);border-radius:10px;margin:6px 0 14px">
+        <button onclick="abrirTurno()" style="width:100%;background:var(--naranja);color:#fff;padding:14px;border-radius:12px;font-weight:800">Abrir turno</button>
+        <button onclick="verCorteDia()" style="width:100%;padding:14px;border-radius:12px;font-weight:700;border:1px solid var(--gris2);background:#fff;margin-top:12px">Ver corte del día</button></div>`;
+      return;
+    }
+    const t=await tallyTurno(turno.id);const efEsper=Number(turno.fondo_inicial)+t.ef;
+    $("main").innerHTML=`<div class="pad"><h2>Corte de caja</h2>
+      <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo $${Number(turno.fondo_inicial).toFixed(2)}</p>
+      ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s) en este turno. Ciérralas (cobra) antes de cortar.</div>`:''}
+      <div class="tot">
+        <div class="row"><span>Fondo inicial</span><span>$${Number(turno.fondo_inicial).toFixed(2)}</span></div>
+        <div class="row"><span>Efectivo cobrado</span><span>$${t.ef.toFixed(2)}</span></div>
+        <div class="row grande"><span>Efectivo esperado en caja</span><span>$${efEsper.toFixed(2)}</span></div>
+      </div>
+      <div class="sec-t">Resumen del turno</div>
+      <div class="tot">
+        <div class="row"><span>Tarjeta</span><span>$${t.tar.toFixed(2)}</span></div>
+        <div class="row"><span>Transferencia</span><span>$${t.tra.toFixed(2)}</span></div>
+        <div class="row"><span>Propinas</span><span>$${t.prop.toFixed(2)}</span></div>
+        <div class="row"><span>Cortesías (regalado)</span><span>$${t.cort.toFixed(2)}</span></div>
+        <div class="row"><span>Cuentas cerradas</span><span>${t.n}</span></div>
+        <div class="row grande"><span>Venta del turno</span><span>$${t.ventas.toFixed(2)}</span></div>
+      </div>
+      <button onclick="hacerCorteTurno(${turno.id})" ${t.abiertas>0?'disabled':''} style="width:100%;background:var(--verde);color:#fff;padding:15px;border-radius:12px;font-weight:800;margin-top:16px;${t.abiertas>0?'opacity:.4':''}">Hacer corte y cerrar turno</button>
+      <button onclick="verCorteDia()" style="width:100%;padding:14px;border-radius:12px;font-weight:700;border:1px solid var(--gris2);background:#fff;margin-top:12px">Ver corte del día</button></div>`;
+  }catch(e){err("No se pudo cargar el corte.",e);}
+}
+window.abrirTurno=async()=>{const f=parseFloat($("fondo").value)||0;
+  try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.mesero.clave,p_fondo:f});if(r.error)throw r.error;flash("Turno abierto");renderCorteCaja();}catch(e){err("No se pudo abrir turno.",e);}};
+window.hacerCorteTurno=async(id)=>{ if(!confirm("¿Hacer el corte y cerrar el turno? Ya no se podrá modificar."))return;
+  try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.mesero.clave});if(r.error)throw r.error;
+    const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;flash("Corte hecho, turno cerrado ✓");renderCorteCaja();
+  }catch(e){err("No se pudo hacer el corte.",e);}};
+window.verCorteDia=async()=>{
+  try{const n=new Date();const ini=new Date(n.getFullYear(),n.getMonth(),n.getDate()).toISOString();
+    const {data:cerr}=await sb.from("cuenta").select("id,total").eq("estado","CERRADA").gte("cerrada_en",ini);
+    const ids=(cerr||[]).map(c=>c.id);const tipo=tipoFormaMap();let ef=0,tar=0,tra=0,prop=0,cort=0;
+    if(ids.length){const {data:pg}=await sb.from("pago").select("importe,propina,forma_pago_id").in("cuenta_id",ids);
+      (pg||[]).forEach(p=>{const t=tipo[p.forma_pago_id]||'OTRO';const v=Number(p.importe);if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;prop+=Number(p.propina||0);});
+      const {data:co}=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids);cort=(co||[]).reduce((a,x)=>a+Number(x.importe),0);}
+    const ventas=(cerr||[]).reduce((a,c)=>a+Number(c.total),0);
+    $("modal").innerHTML=`<h3>Corte del día</h3><div class="ticket">
+      <div class="r"><span>Efectivo</span><span>$${ef.toFixed(2)}</span></div>
+      <div class="r"><span>Tarjeta</span><span>$${tar.toFixed(2)}</span></div>
+      <div class="r"><span>Transferencia</span><span>$${tra.toFixed(2)}</span></div>
+      <div class="r"><span>Propinas</span><span>$${prop.toFixed(2)}</span></div>
+      <div class="r"><span>Cortesías</span><span>$${cort.toFixed(2)}</span></div>
+      <div class="r"><span>Cuentas</span><span>${(cerr||[]).length}</span></div>
+      <div class="r" style="font-size:18px;font-weight:800;margin-top:6px"><span>VENTA DEL DÍA</span><span>$${ventas.toFixed(2)}</span></div></div>
+      <div class="acciones"><button class="ok" onclick="cerrarModal()">Listo</button></div>`;
+    $("modalBg").classList.add("on");
+  }catch(e){err("No se pudo ver el corte del día.",e);}};
+
 function volver(){
   if($("modalBg").classList.contains("on"))return cerrarModal();
   if(state.vista==="cobro"){return renderComanda();}
+  if(state.vista==="corte"){return renderInicio();}
   if(state.vista==="resumen"){return renderInicio();}
   if(state.cuentaId){state.cuentaId=null;return renderInicio();}
   if(state.mesero){return renderLogin();}
