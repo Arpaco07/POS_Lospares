@@ -74,10 +74,13 @@
 </head>
 <body>
 <script>
-  const SUPABASE_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
-  const SUPABASE_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
+  const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  /* CAJITA LOCAL — vacío hasta montar la mini PC */
+  const LOCAL_URL="";
+  const LOCAL_LLAVE="";
 </script>
-<header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
@@ -91,13 +94,30 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $=(id)=>document.getElementById(id);
-let sb=null;
+let sb=null, modo="NUBE";
+async function conectar(){
+  if(LOCAL_URL && LOCAL_LLAVE){
+    try{
+      const loc=window.supabase.createClient(LOCAL_URL,LOCAL_LLAVE);
+      const ok=await Promise.race([
+        loc.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
+        new Promise(r=>setTimeout(()=>r(false),1500))
+      ]);
+      if(ok){modo="LOCAL";return loc;}
+    }catch(e){}
+  }
+  modo="NUBE";
+  return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
+}
+function badgeModo(){return modo==="LOCAL"
+  ?'<span style="background:#2e7d46;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">● LOCAL</span>'
+  :'<span style="background:#2f6fb0;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">☁ NUBE</span>';}
 const state={admin:null,pin:"",vista:"ventas",rango:null};
 const cache={empleados:{},formas:{},areas:{}};
 
 window.addEventListener("DOMContentLoaded",init);
 async function init(){
-  try{ sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_LLAVE);
+  try{ sb=await conectar(); const b=$("modo"); if(b)b.innerHTML=badgeModo();
     const e=await sb.from("empleado").select("id,clave,nombre,es_admin");
     (e.data||[]).forEach(x=>cache.empleados[x.id]=x);
     const f=await sb.from("forma_pago").select("id,tipo,nombre");
