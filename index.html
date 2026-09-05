@@ -129,6 +129,8 @@
        const LOCAL_LLAVE = "llave-anon-de-la-cajita"; */
   const LOCAL_URL   = "";
   const LOCAL_LLAVE = "";
+  /* Asistente de impresión (corre en la HP). Vacío = no imprime en papel. */
+  const PRINT_AGENT = "";
   const LOGO = "data:image/png;base64,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";
 </script>
 <header>
@@ -195,6 +197,7 @@ async function cargarCatalogo(){
   cache.productos=pro.filter(p=>p.visible_comandero!==false&&p.seccion_menu);
   cache.prodById=Object.fromEntries(cache.productos.map(p=>[p.id,p]));
   cache.areaById=Object.fromEntries(area.map(a=>[a.id,a.nombre]));
+  cache.areaClaveById=Object.fromEntries(area.map(a=>[a.id,a.clave]));
   cache.ordenGrupo={};
   for(const p of cache.productos){const k=p.seccion_menu+"|"+p.grupo_menu;const o=p.orden_menu==null?90:p.orden_menu;if(cache.ordenGrupo[k]==null||o<cache.ordenGrupo[k])cache.ordenGrupo[k]=o;}
   const gmById=Object.fromEntries(gm.map(g=>[g.id,g]));const optsByGm={};
@@ -333,9 +336,16 @@ async function verCuenta(){
     await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});
     const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();
     const mpl=await modsDe(l.map(x=>x.id));
-    const filas=l.map(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const m=(mpl[x.id]||[]).join(", ");
-      const imp=x.es_cortesia?'CORTESÍA':'$'+Number(x.importe).toFixed(2);
-      return `<div class="r"><span>${nom}${x.peso_kg?` (${x.peso_kg}kg)`:''}${m?` · ${m}`:''}</span><span>${imp}</span></div>`;}).join("");
+    // agrupar renglones iguales (mismo producto, mismo termino/nota, mismo precio, mismo estado cortesia)
+    const grupos={};
+    l.forEach(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const m=(mpl[x.id]||[]).join(", ");
+      const clave=[x.producto_id,x.peso_kg||'',m,x.es_cortesia?'C':'', Number(x.importe).toFixed(2)].join("|");
+      if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,mods:m,cort:x.es_cortesia,importe:Number(x.importe),cant:0,suma:0};
+      grupos[clave].cant+=1; grupos[clave].suma+=Number(x.importe);});
+    const filas=Object.values(grupos).map(g=>{
+      const etq=(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.mods?` · ${g.mods}`:'');
+      const imp=g.cort?'CORTESÍA':'$'+g.suma.toFixed(2);
+      return `<div class="r"><span>${etq}</span><span>${imp}</span></div>`;}).join("");
     // cuerpo del ticket (se usa para mostrar y para imprimir)
     const tk=`<div style="text-align:center"><img src="${LOGO}" alt="Los Pares" style="width:150px;max-width:70%;margin:0 auto 4px;display:block"></div>
       <div style="text-align:center;font-weight:800;letter-spacing:1px">LOS PARES 84×88</div>
@@ -351,6 +361,12 @@ async function verCuenta(){
       <div class="r" style="font-size:18px;font-weight:800;margin-top:6px"><span>TOTAL</span><span>$${Number(c.total).toFixed(2)}</span></div>
       <div style="text-align:center;margin-top:12px;font-size:11px">¡Gracias por su visita!<br>WhatsApp 287 881 8488 · @lospares8488</div>`;
     window._ticket=tk;
+    window._ticketData={ area:'CAJA',
+      encabezado:{mesa:state.mesaNom, folio:c.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre},
+      items:Object.values(grupos).map(g=>({etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.mods?' · '+g.mods:''), imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2)})),
+      subtotal:'$'+Number(c.subtotal).toFixed(2),
+      descuento:Number(c.descuento_total)>0?'$'+Number(c.descuento_total).toFixed(2):'',
+      total:'$'+Number(c.total).toFixed(2) };
     $("modal").innerHTML=`<h3>Cuenta — ${state.mesaNom}</h3><div class="ticket">${tk}</div>
       <div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cerrar</button>
       <button class="ok" style="background:var(--negro)" onclick="imprimirTicket()">🖨️ Imprimir</button>
@@ -358,7 +374,17 @@ async function verCuenta(){
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudo mostrar la cuenta.",e);}
 }
-function imprimirTicket(){
+async function imprimirTicket(){
+  // Si hay asistente, imprime directo en la impresora de CAJA por IP (sin diálogo de Windows)
+  if(PRINT_AGENT && window._ticketData){
+    try{
+      const r=await fetch(PRINT_AGENT+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(window._ticketData)});
+      const j=await r.json();
+      if(j.ok){ flash("Ticket impreso en caja ✓"); return; }
+      flash("No se pudo imprimir en caja; abriendo impresión…");
+    }catch(e){ flash("Asistente sin responder; abriendo impresión…"); }
+  }
+  // Respaldo: diálogo de impresión del navegador (si no hay asistente)
   const w=window.open('','_blank','width=360,height=640');
   w.document.write(`<html><head><title>Ticket Los Pares</title><meta charset="UTF-8">
     <style>@page{size:80mm auto;margin:0}
@@ -373,9 +399,16 @@ function imprimirTicket(){
 async function enviar(){
   try{const{data:l,error}=await sb.from("cuenta_producto").select("id,peso_kg,producto_id,area_impresion_id").eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
-    const mpl=await modsDe(l.map(x=>x.id));const porArea={};
-    l.forEach(x=>{const a=cache.areaById[x.area_impresion_id]||"Solo ticket";const nom=cache.prodById[x.producto_id]?.nombre||"";const ex=(x.peso_kg?` (${x.peso_kg}kg)`:'')+((mpl[x.id]||[]).length?` — ${mpl[x.id].join(', ')}`:'');(porArea[a]||=[]).push(nom+ex);});
+    const mpl=await modsDe(l.map(x=>x.id));const porArea={};const porAreaImp={};
+    l.forEach(x=>{const a=cache.areaById[x.area_impresion_id]||"Solo ticket";const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";const nom=cache.prodById[x.producto_id]?.nombre||"";const ex=(x.peso_kg?`(${x.peso_kg}kg)`:'')+((mpl[x.id]||[]).length?` — ${mpl[x.id].join(', ')}`:'');
+      (porArea[a]||=[]).push(nom+(ex?' '+ex:''));
+      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:ex.replace(/^— /,'')});});
     const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"}).eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");if(up.error)throw up.error;
+    // imprimir en papel si el asistente está configurado (solo cocina/barra; caja/boutique salen en su impresora)
+    if(PRINT_AGENT){
+      try{ await fetch(PRINT_AGENT+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:porAreaImp})}); }
+      catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
+    }
     const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
     $("modal").innerHTML=`<h3>Enviado ✓</h3><p class="tenue">A cada estación:</p>${bl}<div class="acciones"><button class="ok" onclick="cerrarModal()">Listo</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo enviar.",e);}
