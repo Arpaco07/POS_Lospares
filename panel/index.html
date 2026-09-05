@@ -109,7 +109,7 @@ async function conectar(){
       const loc=window.supabase.createClient(LOCAL_URL,LOCAL_LLAVE);
       const ok=await Promise.race([
         loc.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
-        new Promise(r=>setTimeout(()=>r(false),1500))
+        new Promise(r=>setTimeout(()=>r(false),4500))
       ]);
       if(ok){modo="LOCAL";return loc;}
     }catch(e){}
