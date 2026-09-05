@@ -117,6 +117,13 @@
     .prods{grid-template-columns:repeat(auto-fill,minmax(48%,1fr))}
   }
 </style>
+<link rel="manifest" href="manifest_comandero.json">
+<link rel="apple-touch-icon" href="icono-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Comandero">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1c1c1c">
 </head>
 <body>
 <script>
@@ -125,8 +132,8 @@
   const CLOUD_LLAVE = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   /* ===== CAJITA LOCAL (déjalo VACÍO hasta montar la mini PC) =====
      Cuando exista, pon aquí su dirección y llave, ej:
-       const LOCAL_URL   = "";
-       const LOCAL_LLAVE = ""; */
+       const LOCAL_URL   = "http://192.168.1.50:8000";
+       const LOCAL_LLAVE = "llave-anon-de-la-cajita"; */
   const LOCAL_URL   = "";
   const LOCAL_LLAVE = "";
   /* Asistente de impresión (corre en la HP). Vacío = no imprime en papel. */
