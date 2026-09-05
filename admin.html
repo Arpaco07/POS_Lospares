@@ -71,14 +71,21 @@
   .mitem button{background:var(--gris);border:1px solid var(--gris2);border-radius:8px;padding:8px 11px;font-weight:700;font-size:13px}
   .nuevo{background:var(--verde);color:#fff;border-radius:11px;padding:13px;font-weight:800;width:100%;margin-bottom:12px}
 </style>
+<link rel="manifest" href="manifest_admin.json">
+<link rel="apple-touch-icon" href="icono-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Panel">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1c1c1c">
 </head>
 <body>
 <script>
   const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
   const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   /* CAJITA LOCAL — vacío hasta montar la mini PC */
-  const LOCAL_URL   = "";
-  const LOCAL_LLAVE = "";
+  const LOCAL_URL="";
+  const LOCAL_LLAVE="";
 </script>
 <header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
