@@ -403,6 +403,7 @@ async function imprimirTicket(){
 }
 
 /* ---- ENVIAR a cocina/barra ---- */
+window.trasEnviar=(ir)=>{ cerrarModal(); if(ir){ renderInicio(); } };
 async function enviar(){
   try{const{data:l,error}=await sb.from("cuenta_producto").select("id,peso_kg,producto_id,area_impresion_id").eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
@@ -417,7 +418,7 @@ async function enviar(){
       catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
     }
     const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
-    $("modal").innerHTML=`<h3>Enviado ✓</h3><p class="tenue">A cada estación:</p>${bl}<div class="acciones"><button class="ok" onclick="cerrarModal()">Listo</button></div>`;$("modalBg").classList.add("on");
+    $("modal").innerHTML=`<h3>Enviado ✓</h3><p class="tenue">A cada estación:</p>${bl}<div class="acciones"><button onclick="trasEnviar(false)">Seguir en la mesa</button><button class="ok" onclick="trasEnviar(true)">Ir a mesas</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo enviar.",e);}
 }
 
