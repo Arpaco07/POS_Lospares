@@ -402,25 +402,45 @@ async function imprimirTicket(){
   w.document.close();
 }
 
-/* ---- ENVIAR a cocina/barra ---- */
-window.trasEnviar=(ir)=>{ cerrarModal(); if(ir){ renderInicio(); } };
+/* ---- ENVIAR a cocina/barra (vista previa -> LISTO confirma e imprime) ---- */
+window._envio=null;
 async function enviar(){
-  try{const{data:l,error}=await sb.from("cuenta_producto").select("id,peso_kg,producto_id,area_impresion_id").eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");if(error)throw error;
+  try{
+    const{data:l,error}=await sb.from("cuenta_producto")
+      .select("id,peso_kg,producto_id,area_impresion_id")
+      .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
+    if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
-    const mpl=await modsDe(l.map(x=>x.id));const porArea={};const porAreaImp={};
-    l.forEach(x=>{const a=cache.areaById[x.area_impresion_id]||"Solo ticket";const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";const nom=cache.prodById[x.producto_id]?.nombre||"";const ex=(x.peso_kg?`(${x.peso_kg}kg)`:'')+((mpl[x.id]||[]).length?` — ${mpl[x.id].join(', ')}`:'');
+    const mpl=await modsDe(l.map(x=>x.id));
+    const porArea={};const porAreaImp={};
+    l.forEach(x=>{
+      const a=cache.areaById[x.area_impresion_id]||"Solo ticket";
+      const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";
+      const nom=cache.prodById[x.producto_id]?.nombre||"";
+      const ex=(x.peso_kg?`(${x.peso_kg}kg)`:'')+((mpl[x.id]||[]).length?` — ${mpl[x.id].join(', ')}`:'');
       (porArea[a]||=[]).push(nom+(ex?' '+ex:''));
-      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:ex.replace(/^— /,'')});});
-    const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"}).eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");if(up.error)throw up.error;
-    // imprimir en papel si el asistente está configurado (solo cocina/barra; caja/boutique salen en su impresora)
+      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:ex.replace(/^— /,'')});
+    });
+    window._envio={porAreaImp:porAreaImp};
+    const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
+    $("modal").innerHTML=`<h3>¿Enviar a cocina/barra?</h3><p class="tenue">Se va a imprimir:</p>${bl}<div class="acciones"><button onclick="cancelarEnvio()">‹ Regresar</button><button class="ok" onclick="confirmarEnvio()">LISTO — enviar</button></div>`;
+    $("modalBg").classList.add("on");
+  }catch(e){err("No se pudo preparar el envío.",e);}
+}
+window.cancelarEnvio=()=>{ window._envio=null; cerrarModal(); renderComanda(); };
+window.confirmarEnvio=async()=>{
+  const env=window._envio; if(!env){cerrarModal();return;}
+  try{
+    const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"})
+      .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
+    if(up.error)throw up.error;
     if(PRINT_AGENT){
-      try{ await fetch(PRINT_AGENT+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:porAreaImp})}); }
+      try{ await fetch(PRINT_AGENT+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:env.porAreaImp})}); }
       catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
     }
-    const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
-    $("modal").innerHTML=`<h3>Enviado ✓</h3><p class="tenue">A cada estación:</p>${bl}<div class="acciones"><button onclick="trasEnviar(false)">Seguir en la mesa</button><button class="ok" onclick="trasEnviar(true)">Ir a mesas</button></div>`;$("modalBg").classList.add("on");
+    window._envio=null; cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
   }catch(e){err("No se pudo enviar.",e);}
-}
+};
 
 /* ---- COBRAR (registrar cómo pagó y cerrar) ---- */
 async function renderCobro(){
