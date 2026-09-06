@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Factura — Los Pares 84×88</title>
+<style>
+  :root{--negro:#0d0d0d;--naranja:#d2691e;--dorado:#d4af37;--gris:#666;--gris2:#e4e4e0;--fondo:#f4f3ef;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--fondo);color:#1c1c1c}
+  header{background:var(--negro);color:#fff;padding:16px;text-align:center}
+  header .marca{font-weight:800;font-size:20px}
+  header .marca b{color:var(--naranja)}
+  header .sub{color:var(--dorado);font-size:12px;letter-spacing:2px;margin-top:2px}
+  .wrap{max-width:520px;margin:0 auto;padding:16px}
+  .card{background:#fff;border:1px solid var(--gris2);border-radius:14px;padding:16px;margin-bottom:14px}
+  h1{font-size:20px;margin:6px 0 2px}
+  .tenue{color:var(--gris);font-size:14px;line-height:1.5}
+  label{display:block;font-size:13px;color:var(--gris);margin:12px 0 4px;font-weight:600}
+  input,select{width:100%;padding:13px;font-size:16px;border:1px solid var(--gris2);border-radius:10px;background:#fff}
+  input[readonly]{background:#f0f0ec;color:#333}
+  .rfc{text-transform:uppercase}
+  button{width:100%;padding:15px;font-size:17px;font-weight:800;border:0;border-radius:12px;background:var(--naranja);color:#fff;margin-top:16px}
+  button:disabled{opacity:.5}
+  .ticket{display:flex;justify-content:space-between;align-items:center;background:#faf8f2;border:1px solid var(--dorado);border-radius:10px;padding:12px 14px;margin-top:8px}
+  .ticket .f{font-weight:700}
+  .ticket .t{font-size:20px;font-weight:800}
+  .aviso{border-radius:10px;padding:14px;margin-top:8px;font-size:15px;line-height:1.5}
+  .err{background:#fdeaea;color:#a12; border:1px solid #f3c2c2}
+  .ok{background:#e9f6ee;color:#1c6b39;border:1px solid #bfe3cd}
+  .cargando{text-align:center;color:var(--gris);padding:24px}
+  .pie{text-align:center;color:var(--gris);font-size:12px;padding:8px 0 24px}
+</style>
+</head>
+<body>
+<header>
+  <div class="marca">Los <b>Pares</b></div>
+  <div class="sub">8 4 · 8 8</div>
+</header>
+<div class="wrap" id="app">
+  <div class="card"><div class="cargando">Cargando tu ticket…</div></div>
+</div>
+<div class="pie">Facturación electrónica CFDI 4.0 · Los Pares 84×88 · Tuxtepec, Oaxaca</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
+  const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  const sb=window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
+  const $=(id)=>document.getElementById(id);
+
+  const USOS=[["G03","G03 Gastos en general"],["G01","G01 Adquisición de mercancías"],["D01","D01 Honorarios médicos"],["I01","I01 Construcciones"],["S01","S01 Sin efectos fiscales"],["P01","P01 Por definir"],["CP01","CP01 Pagos"]];
+  const REG=[["612","612 Personas físicas act. empresarial"],["605","605 Sueldos y salarios"],["601","601 General de ley personas morales"],["626","626 RESICO"],["621","621 Incorporación fiscal"],["616","616 Sin obligaciones fiscales"],["603","603 Personas morales sin fines de lucro"]];
+  const opts=(a,s)=>a.map(o=>`<option value="${o[0]}" ${o[0]===s?'selected':''}>${o[1]}</option>`).join("");
+
+  async function init(){ pintarBuscar(); }
+
+  function pintarBuscar(msg){
+    $("app").innerHTML=`
+      <div class="card">
+        <h1>Factura tu consumo</h1>
+        <p class="tenue">Escribe el <b>folio</b> y el <b>total</b> tal como aparecen en tu ticket.</p>
+        ${msg?`<div class="aviso err">${msg}</div>`:''}
+        <label>Folio del ticket</label>
+        <input id="folio" placeholder="Ej. L-000123" style="text-transform:uppercase" autocomplete="off">
+        <label>Total del ticket</label>
+        <input id="total" placeholder="Ej. 522.00" inputmode="decimal">
+        <button id="btnb" onclick="buscar()">Buscar mi ticket</button>
+      </div>
+      <div class="card"><div class="tenue">Solo puedes facturar dentro del <b>mes en curso</b>. Cuida tu ticket: quien tenga el folio y el total puede facturarlo.</div></div>`;
+  }
+
+  window.buscar=async()=>{
+    const folio=($("folio").value||'').trim().toUpperCase();
+    const total=parseFloat(($("total").value||'').replace(/[^0-9.]/g,''));
+    if(!folio||isNaN(total)){ alert("Escribe el folio y el total de tu ticket."); return; }
+    const b=$("btnb"); b.disabled=true; b.textContent="Buscando…";
+    try{
+      const{data,error}=await sb.rpc("ticket_por_folio_total",{p_folio:folio,p_total:total});
+      if(error)throw error;
+      const r=data&&data[0];
+      if(!r||!r.facturable){ b.disabled=false; b.textContent="Buscar mi ticket"; return pintarBuscar((r&&r.motivo)||"No se pudo validar tu ticket."); }
+      pintarForm(r);
+    }catch(e){ b.disabled=false; b.textContent="Buscar mi ticket"; pintarBuscar("No se pudo consultar. Revisa tu conexión."); console.error(e); }
+  };
+
+  function pintarForm(r){
+    $("app").innerHTML=`
+      <div class="card">
+        <h1>Tus datos fiscales</h1>
+        <div class="ticket"><span class="f">Ticket ${r.folio}</span><span class="t">$${Number(r.total).toFixed(2)}</span></div>
+        <label>RFC</label>
+        <input id="rfc" class="rfc" placeholder="Tu RFC" maxlength="13" autocomplete="off">
+        <label>Razón social / Nombre (como en tu constancia)</label>
+        <input id="razon" placeholder="Nombre o razón social">
+        <label>Régimen fiscal</label>
+        <select id="reg">${opts(REG,'612')}</select>
+        <label>Código postal (de tu domicilio fiscal)</label>
+        <input id="cp" placeholder="CP" inputmode="numeric" maxlength="5">
+        <label>Uso del CFDI</label>
+        <select id="uso">${opts(USOS,'G03')}</select>
+        <label>Correo (ahí te llega la factura)</label>
+        <input id="correo" placeholder="tucorreo@ejemplo.com" inputmode="email">
+        <button id="btn" onclick="enviar('${r.folio.replace(/'/g,"")}',${Number(r.total)})">Facturar</button>
+      </div>
+      <div class="card"><div class="tenue">Revisa que tus datos coincidan con tu Constancia de Situación Fiscal del SAT.</div></div>`;
+  }
+
+  window.enviar=async(folio,total)=>{
+    const rfc=($("rfc").value||'').trim().toUpperCase();
+    const razon=($("razon").value||'').trim();
+    const reg=$("reg").value, cp=($("cp").value||'').trim(), uso=$("uso").value;
+    const correo=($("correo").value||'').trim();
+    if(rfc.length<12||!razon||cp.length<4||!correo){ alert("Revisa tus datos: RFC, nombre, CP y correo son obligatorios."); return; }
+    const b=$("btn"); b.disabled=true; b.textContent="Enviando…";
+    try{
+      const{error}=await sb.rpc("autofacturar_folio",{p_folio:folio,p_total:total,p_rfc:rfc,p_razon:razon,p_regimen:reg,p_cp:cp,p_uso:uso,p_correo:correo});
+      if(error)throw error;
+      $("app").innerHTML=`<div class="card"><h1>¡Listo! ✓</h1>
+        <div class="aviso ok">Recibimos tus datos para el ticket <b>${folio}</b>.<br><br>Tu factura se generará y se enviará a <b>${correo}</b>. Si no la ves en unos minutos, revisa tu bandeja de spam.</div>
+        <div class="tenue" style="margin-top:12px">Gracias por tu visita. — Los Pares 84×88</div></div>`;
+    }catch(e){
+      b.disabled=false; b.textContent="Facturar";
+      alert("No se pudo facturar: "+((e&&(e.message||e.hint))||"Intenta de nuevo."));
+      console.error(e);
+    }
+  };
+
+    init();
+</script>
+</body>
+</html>
