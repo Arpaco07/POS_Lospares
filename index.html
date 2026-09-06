@@ -487,6 +487,7 @@ window.confirmarEnvio=async()=>{
 /* ---- COBRAR (registrar cómo pagó y cerrar) ---- */
 async function renderCobro(){
   state.vista="cobro";state.propina=0;state.pagos=[];$("footer").style.display="none";$("btnVolver").style.display="inline-block";
+  try{ await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId}); }catch(e){}
   try{const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;}catch(e){return err("No se pudo leer la cuenta.",e);}
   pintarCobro();
 }
@@ -525,7 +526,7 @@ window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
 async function resolverAdmin(){const pin=prompt("PIN de administrador:");if(!pin)return null;
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}if(!data[0].es_admin){alert("Ese PIN no es de administrador");return null;}return data[0].clave;}catch(e){err("No se pudo validar.",e);return null;}}
 window.accionCortesia=async()=>{let l;try{l=await lineasCuenta();}catch(e){return;}const it=l.filter(x=>!x.es_cortesia);if(!it.length){alert("No hay productos para cortesía.");return;}
-  $("modal").innerHTML=`<h3>Cortesía — elige el producto</h3>`+it.map(x=>`<button class="op" onclick="darCortesia(${x.id})">${cache.prodById[x.producto_id]||''} — $${Number(x.importe).toFixed(2)}</button>`).join("")+`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;$("modalBg").classList.add("on");};
+  $("modal").innerHTML=`<h3>Cortesía — elige el producto</h3>`+it.map(x=>`<button class="op" onclick="darCortesia(${x.id})">${cache.prodById[x.producto_id]?.nombre||'Producto'} — $${Number(x.importe).toFixed(2)}</button>`).join("")+`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;$("modalBg").classList.add("on");};
 window.darCortesia=async(linea)=>{cerrarModal();const a=await resolverAdmin();if(!a)return;try{const r=await sb.rpc("marcar_cortesia",{p_linea:linea,p_admin_clave:a});if(r.error)throw r.error;const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;state.pagos=[];pintarCobro();flash("Cortesía aplicada");}catch(e){err("No se pudo.",e);}};
 window.accionDescuento=async()=>{$("modal").innerHTML=`<h3>Descuento a la cuenta</h3><button class="op" onclick="pedirDesc('PORCENTAJE')">Por porcentaje (%)</button><button class="op" onclick="pedirDesc('MONTO')">Por monto ($)</button><button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;$("modalBg").classList.add("on");};
 window.pedirDesc=async(tipo)=>{cerrarModal();const v=parseFloat(prompt(tipo==='PORCENTAJE'?"¿Qué % ?":"¿Cuántos pesos?","0"));if(isNaN(v)||v<=0)return;const a=await resolverAdmin();if(!a)return;
@@ -827,13 +828,27 @@ window.verCorteDia=async()=>{
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudo ver el corte del día.",e);}};
 
-function volver(){
+async function limpiarSiVacia(cid){
+  if(!cid) return;
+  try{
+    const {data:prods}=await sb.from("cuenta_producto").select("id").eq("cuenta_id",cid).neq("estado","CANCELADO").limit(1);
+    if(prods && prods.length) return;                 // tiene productos: no tocar
+    const {data:pgs}=await sb.from("pago").select("id").eq("cuenta_id",cid).limit(1);
+    if(pgs && pgs.length) return;                      // tiene pagos: no tocar
+    const {data:cta}=await sb.from("cuenta").select("estado,mesa_id").eq("id",cid).single();
+    if(cta && cta.estado==="ABIERTA"){
+      await sb.from("cuenta").update({estado:"CANCELADA",cerrada_en:new Date().toISOString()}).eq("id",cid);
+      if(state.mesaTipo==="TEMPORAL" && cta.mesa_id){ await sb.from("mesa").update({activa:false}).eq("id",cta.mesa_id); }
+    }
+  }catch(e){ /* si falla, no estorbamos la navegacion */ }
+}
+async function volver(){
   if($("modalBg").classList.contains("on"))return cerrarModal();
   if(state.vista==="division"){return renderCobro();}
   if(state.vista==="cobro"){return renderComanda();}
   if(state.vista==="corte"){return renderInicio();}
   if(state.vista==="resumen"){return renderInicio();}
-  if(state.cuentaId){state.cuentaId=null;return renderInicio();}
+  if(state.cuentaId){const cid=state.cuentaId;state.cuentaId=null;await limpiarSiVacia(cid);return renderInicio();}
   if(state.mesero){return renderLogin();}
 }
 function esc(s){return String(s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
