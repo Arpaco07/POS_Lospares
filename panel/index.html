@@ -476,23 +476,106 @@ window.pinEmp=async(id,nombre)=>{
   try{const r=await sb.rpc("cambiar_pin",{p_id:id,p_pin:pin});if(r.error)throw r.error;okmsg("PIN actualizado");}catch(e){err("No se pudo cambiar el PIN.",e);}
 };
 
-/* ---- FACTURACIÓN (portal / configuración) ---- */
-function pintarFactura(){
-  $("main").innerHTML=`<div class="pad"><h2>Facturación (CFDI 4.0)</h2>
-    <div class="kpi" style="margin-bottom:14px"><div class="l">Datos fiscales del emisor (de la constancia de Carla)</div>
-      <div style="margin-top:8px;line-height:1.7">
-        <b>RFC:</b> AUHC8806083I9<br>
-        <b>Nombre:</b> Carla Arguello Hernández<br>
-        <b>Régimen:</b> 612 · Personas Físicas con Actividades Empresariales y Profesionales<br>
-        <b>CP (lugar de expedición):</b> 68370 · Tuxtepec, Oaxaca<br>
-        <b>Actividad:</b> Restaurantes-bar con servicio de meseros</div></div>
-    <div class="sec-t">Cómo funcionará (autofacturación)</div>
-    <p class="tenue" style="line-height:1.6">El cliente entra a un portal, escribe el <b>folio de su ticket</b> y sus datos fiscales (RFC, razón social, uso CFDI), y el sistema <b>timbra</b> la factura con el PAC. Solo se puede facturar dentro del <b>mes en curso</b>.</p>
-    <div class="sec-t">Falta un paso tuyo (contratación)</div>
-    <p class="tenue" style="line-height:1.6">Para timbrar de verdad necesitas una cuenta con un <b>PAC</b> (proveedor autorizado de certificación) y comprar <b>timbres</b>. Opciones comunes en México: <b>Facturama, SW sapien, Fiscalapi, Prodigia</b>. Cuando tengas la cuenta y las credenciales del PAC, conectamos el portal y empieza a timbrar.</p>
-    <div class="kpi" style="margin-top:8px"><div class="l">Estado</div><div class="v" style="font-size:18px;color:var(--tenue)">Listo el diseño · pendiente contratar PAC</div></div>
-    <p class="tenue" style="margin-top:12px">También necesitarás el <b>Certificado de Sello Digital (CSD)</b> de Carla ante el SAT. Eso también lo cargamos en el PAC.</p></div>`;
+/* ---- FACTURACIÓN (CFDI 4.0) ---- */
+const USOS_CFDI=[["G03","G03 Gastos en general"],["G01","G01 Adquisición de mercancías"],["D01","D01 Honorarios médicos"],["I01","I01 Construcciones"],["S01","S01 Sin efectos fiscales"],["P01","P01 Por definir"],["CP01","CP01 Pagos"]];
+const REGIMENES=[["612","612 Personas físicas act. empresarial"],["605","605 Sueldos y salarios"],["601","601 General de ley personas morales"],["626","626 RESICO"],["621","621 Incorporación fiscal"],["616","616 Sin obligaciones fiscales"],["603","603 Personas morales sin fines de lucro"]];
+function opts(arr,sel){return arr.map(o=>`<option value="${o[0]}" ${o[0]===sel?'selected':''}>${o[1]}</option>`).join("");}
+
+function camposCliente(cli){
+  cli=cli||{};
+  return `<div class="kpi" style="margin:8px 0">
+    <input class="buscar" id="fRazon" placeholder="Razón social / Nombre" value="${(cli.razon_social||'').replace(/"/g,'&quot;')}">
+    <label class="l" style="margin-top:8px;display:block">Régimen fiscal del cliente</label>
+    <select id="fReg" class="buscar">${opts(REGIMENES,cli.regimen_fiscal||'612')}</select>
+    <input class="buscar" id="fCp" placeholder="Código postal" value="${(cli.cp||'').replace(/"/g,'&quot;')}" style="margin-top:8px">
+    <label class="l" style="margin-top:8px;display:block">Uso del CFDI</label>
+    <select id="fUso" class="buscar">${opts(USOS_CFDI,cli.uso_cfdi||'G03')}</select>
+    <input class="buscar" id="fCorreo" placeholder="Correo (para enviar la factura)" value="${(cli.correo||'').replace(/"/g,'&quot;')}" style="margin-top:8px">
+    <button class="cerrar" onclick="facPreparar()" style="margin-top:10px;width:100%">Preparar factura</button>
+  </div>`;
 }
+
+async function pintarFactura(){
+  const f = state.fac || (state.fac={cuenta:null,cli:null,folio:''});
+  let facturas=[];
+  try{const{data}=await sb.from("factura").select("id,folio_ticket,rfc_receptor,razon_social,total,estado,creado_en").order("id",{ascending:false}).limit(15);facturas=data||[];}catch(e){}
+  const listaFac = facturas.length
+    ? facturas.map(x=>`<div class="lin"><div class="info"><div class="n">${x.folio_ticket||'—'} · ${x.rfc_receptor||''}</div><small>${x.razon_social||''} · ${x.creado_en?new Date(x.creado_en).toLocaleDateString('es-MX'):''}</small></div><span class="imp">$${Number(x.total||0).toFixed(2)} <span class="tag">${x.estado}</span></span></div>`).join("")
+    : '<div class="proximamente">Aún no hay facturas.</div>';
+
+  const c=f.cuenta;
+  let bloque='';
+  if(c){
+    if(c.estado!=='CERRADA'){
+      bloque=`<div class="aviso err" style="margin:8px 0">El ticket <b>${c.folio}</b> no está cobrado (estado ${c.estado}). Solo se factura una cuenta ya cobrada.</div>`;
+    }else if(c.ya_facturada){
+      bloque=`<div class="aviso err" style="margin:8px 0">El ticket <b>${c.folio}</b> ya tiene factura. Revisa la lista de abajo.</div>`;
+    }else{
+      bloque=`<div class="kpi" style="margin:8px 0"><div class="l">Ticket encontrado</div>
+        <div style="margin-top:6px">Folio <b>${c.folio}</b> · Total <b>$${Number(c.total).toFixed(2)}</b> · ${c.fecha?new Date(c.fecha).toLocaleString('es-MX'):''}</div></div>
+        <div class="sec-t">2) Datos del cliente</div>
+        <input class="buscar" id="fRfc" placeholder="RFC del cliente" style="text-transform:uppercase" value="${(f.cli&&f.cli.rfc||'').replace(/"/g,'&quot;')}">
+        <button onclick="facBuscarCliente()">Buscar RFC</button>
+        <div id="fCli">${camposCliente(f.cli)}</div>`;
+    }
+  }
+
+  $("main").innerHTML=`<div class="pad"><h2>Facturación (CFDI 4.0)</h2>
+    <div class="sec-t">1) Busca el ticket</div>
+    <input class="buscar" id="fFolio" placeholder="Folio del ticket (ej. L-000009)" value="${(f.folio||'').replace(/"/g,'&quot;')}">
+    <button onclick="facBuscarTicket()">Buscar ticket</button>
+    ${bloque}
+    <div class="sec-t" style="margin-top:16px">Facturas recientes</div>
+    ${listaFac}
+    <div class="kpi" style="margin-top:14px"><div class="l">Emisor</div>
+      <div style="margin-top:6px;line-height:1.6"><b>RFC:</b> AUHC8806083I9 · <b>Régimen:</b> 612 · <b>CP:</b> 68370<br>Carla Arguello Hernández · Restaurantes-bar con servicio de meseros</div></div>
+    <p class="tenue" style="margin-top:10px">El timbrado real se activa al conectar el <b>PAC</b>. Por ahora la factura queda <b>preparada (PENDIENTE)</b> con todos sus datos y su desglose de IVA.</p>
+  </div>`;
+}
+
+window.facBuscarTicket=async()=>{
+  const folio=($("fFolio").value||'').trim();
+  if(!folio){okmsg("Escribe el folio del ticket");return;}
+  state.fac.folio=folio; state.fac.cuenta=null; state.fac.cli=null;
+  try{
+    const{data,error}=await sb.rpc("cuenta_por_folio",{p_folio:folio});
+    if(error)throw error;
+    if(!data||!data.length){ okmsg("No se encontró ese folio"); return pintarFactura(); }
+    state.fac.cuenta=data[0];
+    pintarFactura();
+  }catch(e){err("No se pudo buscar el ticket.",e);}
+};
+
+window.facBuscarCliente=async()=>{
+  const rfc=($("fRfc").value||'').trim().toUpperCase();
+  if(!rfc){okmsg("Escribe el RFC");return;}
+  try{
+    const{data,error}=await sb.rpc("buscar_cliente",{p_rfc:rfc});
+    if(error)throw error;
+    if(data&&data.length){ state.fac.cli=data[0]; okmsg("Cliente encontrado"); }
+    else{ state.fac.cli={rfc:rfc}; okmsg("Cliente nuevo: llena sus datos"); }
+    pintarFactura();
+  }catch(e){err("No se pudo buscar el cliente.",e);}
+};
+
+window.facPreparar=async()=>{
+  const c=state.fac.cuenta; if(!c){okmsg("Primero busca el ticket");return;}
+  const rfc=($("fRfc").value||'').trim().toUpperCase();
+  const razon=($("fRazon").value||'').trim();
+  const reg=$("fReg").value, cp=($("fCp").value||'').trim(), uso=$("fUso").value;
+  const correo=($("fCorreo").value||'').trim()||null;
+  if(!rfc||!razon||!cp){okmsg("Faltan datos: RFC, razón social y CP");return;}
+  try{
+    const g=await sb.rpc("guardar_cliente",{p_rfc:rfc,p_razon:razon,p_regimen:reg,p_cp:cp,p_uso:uso,p_correo:correo,p_tel:null});
+    if(g.error)throw g.error;
+    const cliId=g.data;
+    const p=await sb.rpc("preparar_factura",{p_cuenta:c.cuenta_id,p_cliente_id:cliId,p_correo:correo});
+    if(p.error)throw p.error;
+    okmsg("Factura preparada ✓ (pendiente de timbrar)");
+    state.fac={cuenta:null,cli:null,folio:''};
+    pintarFactura();
+  }catch(e){err("No se pudo preparar la factura.",e);}
+};
 
 /* ---- util ---- */
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
