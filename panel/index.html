@@ -315,7 +315,7 @@ async function pintarCancelaciones(){
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
       return `<div class="cta"><div class="info"><div class="n">${et} · <span class="tenue">${etiqueta}</span></div>
         <small>${c.folio||''} · ${mesero}</small></div><div class="t">$${Number(c.total).toFixed(2)}</div>
-        <button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
+        ${c.estado==="ABIERTA"?`<button onclick="cambiarMesero(${c.id})">Cambiar mesero</button>`:""}<button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
     const abiertas=(rAb.data||[]).map(c=>fila(c,'Abierta ahora')).join("");
     const cerradas=(rCe.data||[]).map(c=>fila(c,'Cerrada')).join("");
     $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}
@@ -324,6 +324,24 @@ async function pintarCancelaciones(){
       <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
+window.cambiarMesero=async(id)=>{
+  try{
+    const{data:emps,error}=await sb.from("empleado").select("clave,nombre").eq("activo",true).order("nombre");
+    if(error)throw error;
+    const lista=(emps||[]).map((e,i)=>`${i+1}. ${e.nombre}`).join("\n");
+    const sel=prompt("¿A qué mesero le paso esta mesa?\n\n"+lista+"\n\nEscribe el NÚMERO:");
+    if(sel===null)return;
+    const idx=parseInt(sel,10)-1;
+    if(isNaN(idx)||idx<0||idx>=emps.length){alert("Número no válido.");return;}
+    const destino=emps[idx];
+    const motivo=prompt("Motivo del cambio (ej: terminó su turno):");
+    if(motivo===null)return;
+    const r=await sb.rpc("reasignar_mesero",{p_cuenta:id,p_nuevo_clave:destino.clave,p_admin_clave:state.admin.clave,p_motivo:motivo});
+    if(r.error)throw r.error;
+    okmsg("Mesa reasignada a "+destino.nombre);
+    pintarCancelaciones();
+  }catch(e){err("No se pudo cambiar el mesero.",e);}
+};
 window.cancelar=async(id)=>{
   const motivo=prompt("Motivo de la cancelación:");if(motivo===null)return;
   try{const r=await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});if(r.error)throw r.error;
