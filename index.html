@@ -253,9 +253,19 @@ async function renderInicio(){
       ${(state.mesero.rol==='CAJERO'||state.mesero.rol==='ADMIN'||state.mesero.es_admin)?`<button class="tile" style="background:#2b2b2b;color:#fff;border-color:#2b2b2b" onclick="renderCorteCaja()">🧾 Corte de caja</button>`:''}
     </div></div>`;
 }
+function baseSep(nom){ const num=String(nom||'').match(/\d+/); return num?num[0]:(nom+" "); }
+function hijasDe(m){
+  const b=baseSep(m.nombre);
+  const re=new RegExp("^"+b.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[A-L]$");
+  return cache.mesas.filter(x=>x.tipo==="TEMPORAL"&&x.activa!==false&&re.test(x.nombre));
+}
 function tileMesa(m,oc){
   const o=oc[m.id];
-  if(m.tipo==="FIJA") return `<button class="tile mesa ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})"><span class="n">${m.numero}</span>${o?'<span class="est">Ocupada</span>':'<span class="tenue" style="font-size:12px">Libre</span>'}</button>`;
+  const hj=hijasDe(m);
+  if(m.tipo==="FIJA"){
+    if(hj.length&&!o) return `<button class="tile mesa ocupada" style="opacity:.8;border-style:dashed" onclick="avisoSeparada('${esc(m.nombre)}')"><span class="n">${m.numero}</span><span class="est">👥 Separada</span></button>`;
+    return `<button class="tile mesa ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})">${!o?`<span class="quitar" title="Cuentas separadas" onclick="event.stopPropagation();separarMesa(${m.id},'${esc(m.nombre)}')">👥</span>`:''}<span class="n">${m.numero}</span>${o?'<span class="est">Ocupada</span>':'<span class="tenue" style="font-size:12px">Libre</span>'}</button>`;
+  }
   if(m.tipo==="PRIVADO") return `<button class="tile mesa priv ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})"><span class="n" style="font-size:15px">PRIVADO</span>${o?'<span class="est">Ocupada</span>':''}</button>`;
   return `<button class="tile mesa nombrada ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})">${!o?`<span class="quitar" onclick="event.stopPropagation();quitarMesa(${m.id})">✕</span>`:''}<span class="n" style="font-size:14px">${m.nombre}</span>${o?'<span class="est">Abierta</span>':'<span class="tenue" style="font-size:12px">Vacía</span>'}</button>`;
 }
@@ -268,8 +278,40 @@ window.nuevaMesaNombre=async()=>{
 window.quitarMesa=async(id)=>{ if(!confirm("¿Quitar esta mesa con nombre?")) return;
   try{ await sb.from("mesa").update({activa:false}).eq("id",id); await recargarMesas(); renderInicio(); }catch(e){ err("No se pudo quitar.",e); }
 };
-window.abrirMesa=async(id,nom,tipo,cta)=>{ state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;
-  if(cta){state.cuentaId=cta;return renderComanda();} await crearCuenta("MESA",id,nom,tipo); };
+window.abrirMesa=async(id,nom,tipo,cta)=>{
+  state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;
+  if(cta){state.cuentaId=cta;return renderComanda();}
+  await crearCuenta("MESA",id,nom,tipo);
+};
+window.avisoSeparada=(nom)=>{
+  const m=cache.mesas.find(x=>x.nombre===nom);
+  const hj=m?hijasDe(m):[];
+  $("modal").innerHTML=`<h3>${nom} — cuentas separadas</h3>
+    <p class="tenue">Esta mesa está dividida. Usa una de estas cuentas:</p>
+    ${hj.map(x=>`<button class="op" onclick="cerrarModal();irACuentaSep(${x.id},'${esc(x.nombre)}')">👤 ${x.nombre}</button>`).join("")}
+    <button class="op" style="text-align:center" onclick="cerrarModal()">Cerrar</button>`;
+  $("modalBg").classList.add("on");
+};
+window.irACuentaSep=async(id,nom)=>{
+  let cta=null;
+  try{const{data}=await sb.from("cuenta").select("id").eq("mesa_id",id).eq("estado","ABIERTA").limit(1);if(data&&data.length)cta=data[0].id;}catch(e){}
+  abrirMesa(id,nom,"TEMPORAL",cta);
+};
+window.separarMesa=async(mesaId,nom)=>{
+  const n=parseInt(prompt("Cuentas separadas para "+nom+"\n¿Cuántas?  (Cancelar si fue sin querer)","2"),10);
+  if(isNaN(n)||n<2){ if(!isNaN(n)) alert("Deben ser al menos 2."); return; }
+  if(n>12){ alert("Máximo 12."); return; }
+  const num=nom.match(/\d+/);
+  const base=num?num[0]:(nom+" ");
+  const letras="ABCDEFGHIJKL";
+  try{
+    const nuevas=[];
+    for(let i=0;i<n;i++) nuevas.push({nombre:base+letras[i],tipo:"TEMPORAL",activa:true});
+    const{error}=await sb.from("mesa").insert(nuevas); if(error)throw error;
+    await recargarMesas(); renderInicio();
+    flash(nom+" separada en "+n+" cuentas: "+base+"A a "+base+letras[n-1]);
+  }catch(e){ err("No se pudieron crear las cuentas separadas.",e); }
+};
 window.abrirRapida=async(t)=>{ state.tipoVenta=t;state.mesaId=null;state.mesaTipo=null;state.mesaNom=t==="PARA_LLEVAR"?"Para llevar":"Boutique"; await crearCuenta(t,null,state.mesaNom,null); };
 async function crearCuenta(t,id,nom,tipo){
   try{const{data,error}=await sb.rpc("abrir_cuenta",{p_tipo_venta:t,p_mesa_id:id,p_mesero_clave:state.mesero.clave});if(error)throw error;
@@ -323,7 +365,7 @@ async function agregar(p,cant,peso,op){try{const{data:l,error}=await sb.rpc("agr
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
 
-async function lineasCuenta(){const{data,error}=await sb.from("cuenta_producto").select("id,peso_kg,importe,es_cortesia,estado,producto_id").eq("cuenta_id",state.cuentaId).neq("estado","CANCELADO").order("id");if(error)throw error;return data||[];}
+async function lineasCuenta(){const{data,error}=await sb.from("cuenta_producto").select("id,peso_kg,importe,es_cortesia,estado,producto_id,subcuenta_id").eq("cuenta_id",state.cuentaId).neq("estado","CANCELADO").order("id");if(error)throw error;return data||[];}
 async function modsDe(ids){const{data}=await sb.from("cuenta_producto_modificador").select("cuenta_producto_id,nombre").in("cuenta_producto_id",ids);const m={};(data||[]).forEach(x=>{(m[x.cuenta_producto_id]||=[]).push(x.nombre);});return m;}
 
 /* ---- Ver comanda (editar) ---- */
@@ -462,7 +504,7 @@ async function pintarCobro(){
   $("ctx").innerHTML=`Cobrar<small>${state.mesaNom}</small>`;
   $("main").innerHTML=`<div class="pad"><h2>Cobrar — ${state.mesaNom}</h2>
     <div class="cuenta" style="border:1px solid var(--gris2);border-radius:14px;overflow:hidden">${filas||'<div class="lin">Sin productos</div>'}</div>
-    <div class="acbar"><button onclick="verCuenta()">🧾 Ver ticket</button><button onclick="accionCortesia()">Cortesía</button><button onclick="accionDescuento()">Descuento</button></div>
+    <div class="acbar"><button onclick="verCuenta()">🧾 Ver ticket</button><button onclick="accionCortesia()">Cortesía</button><button onclick="accionDescuento()">Descuento</button><button onclick="accionDividir()">✂ Dividir cuenta</button></div>
     <div class="tot">
       <div class="row"><span>Subtotal</span><span>$${Number(state.cobro.subtotal).toFixed(2)}</span></div>
       ${Number(state.cobro.descuento_total)>0?`<div class="row"><span>Descuentos</span><span>- $${Number(state.cobro.descuento_total).toFixed(2)}</span></div>`:''}
@@ -488,6 +530,143 @@ window.darCortesia=async(linea)=>{cerrarModal();const a=await resolverAdmin();if
 window.accionDescuento=async()=>{$("modal").innerHTML=`<h3>Descuento a la cuenta</h3><button class="op" onclick="pedirDesc('PORCENTAJE')">Por porcentaje (%)</button><button class="op" onclick="pedirDesc('MONTO')">Por monto ($)</button><button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;$("modalBg").classList.add("on");};
 window.pedirDesc=async(tipo)=>{cerrarModal();const v=parseFloat(prompt(tipo==='PORCENTAJE'?"¿Qué % ?":"¿Cuántos pesos?","0"));if(isNaN(v)||v<=0)return;const a=await resolverAdmin();if(!a)return;
   try{const r=await sb.rpc("aplicar_descuento_cuenta",{p_cuenta:state.cuentaId,p_tipo:tipo,p_valor:v,p_admin_clave:a,p_motivo:null});if(r.error)throw r.error;const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;state.pagos=[];pintarCobro();flash("Descuento aplicado");}catch(e){err("No se pudo.",e);}};
+/* ================= DIVIDIR CUENTA ================= */
+window.accionDividir=async()=>{
+  try{
+    const{data:partes,error}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    if(error)throw error;
+    if(partes&&partes.length){ cerrarModal(); return pintarDivision(); }
+    $("modal").innerHTML=`<h3>Dividir la cuenta</h3>
+      <p class="tenue">¿Cómo quieren pagar?</p>
+      <button class="op" onclick="pedirPartes('IGUAL')">➗ En partes iguales</button>
+      <button class="op" onclick="pedirPartes('CONSUMO')">🍽 Cada quien lo suyo (por consumo)</button>
+      <button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
+    $("modalBg").classList.add("on");
+  }catch(e){err("No se pudo abrir la división.",e);}
+};
+window.pedirPartes=async(modo)=>{
+  cerrarModal();
+  const n=parseInt(prompt("¿Entre cuántas personas?","2"),10);
+  if(isNaN(n)||n<2){ if(!isNaN(n)) alert("Deben ser al menos 2 personas."); return; }
+  if(n>20){ alert("Máximo 20 personas."); return; }
+  try{
+    const fn = modo==='IGUAL' ? "dividir_igual" : "dividir_consumo";
+    const r=await sb.rpc(fn,{p_cuenta:state.cuentaId,p_partes:n});
+    if(r.error)throw r.error;
+    flash("Cuenta dividida en "+n);
+    pintarDivision();
+  }catch(e){err("No se pudo dividir.",e);}
+};
+async function pintarDivision(){
+  state.vista="division";$("footer").style.display="none";$("btnVolver").style.display="inline-block";
+  $("ctx").innerHTML=`Dividir<small>${state.mesaNom}</small>`;
+  try{
+    const{data:partes,error}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    if(error)throw error;
+    if(!partes||!partes.length){ return renderCobro(); }
+    const modo=partes[0].modo;
+    let sinAsignar=[];
+    if(modo==='CONSUMO'){
+      const l=await lineasCuenta();
+      sinAsignar=l.filter(x=>!x.subcuenta_id);
+    }
+    const falta=partes.filter(p=>!p.pagada).length;
+    const tarjetas=partes.map(p=>{
+      const debe=Number(p.debe), pagado=Number(p.pagado), resta=Math.max(debe-pagado,0);
+      return `<div class="cuenta" style="border:1px solid var(--gris2);border-radius:14px;padding:12px;margin-bottom:10px">
+        <div class="lin" style="border:0;padding:0"><div class="info">
+          <div class="n">${p.etiqueta} ${p.pagada?'<span class="cort">PAGADA</span>':''}</div>
+          <small>Folio ${p.folio||''}${modo==='CONSUMO'?' · '+p.productos+' producto(s)':''}</small>
+        </div><span class="imp">$${debe.toFixed(2)}</span></div>
+        ${p.pagada?`<div class="tenue" style="font-size:12px;margin-top:6px">Propina $${Number(p.propina).toFixed(2)}</div>`
+          :`<div class="acbar" style="margin-top:8px">
+              ${modo==='CONSUMO'?`<button onclick="asignarProductos(${p.subcuenta_id},'${esc(p.etiqueta)}')">Asignar productos</button>`:''}
+              <button class="cerrar" ${debe<=0?'disabled':''} onclick="cobrarParte(${p.subcuenta_id},'${esc(p.etiqueta)}',${debe})">Cobrar $${resta.toFixed(2)}</button>
+            </div>`}
+      </div>`;}).join("");
+    const pend = sinAsignar.length
+      ? `<div class="aviso err" style="margin:10px 0"><b>Faltan ${sinAsignar.length} producto(s) por asignar</b><br>${sinAsignar.map(x=>cache.prodById[x.producto_id]?.nombre||'').join(', ')}</div>` : '';
+    $("main").innerHTML=`<div class="pad">
+      <h2>Dividir — ${state.mesaNom}</h2>
+      <p class="tenue">${modo==='IGUAL'?'Partes iguales.':'Cada quien paga lo suyo.'} Faltan ${falta} por pagar.</p>
+      ${pend}${tarjetas}
+      <div class="acbar"><button onclick="deshacerDivision()">Deshacer división</button><button onclick="renderCobro()">‹ Volver al cobro</button></div>
+    </div>`;
+  }catch(e){err("No se pudo mostrar la división.",e);}
+}
+window.deshacerDivision=async()=>{
+  if(!confirm("¿Quitar la división y volver a una sola cuenta?"))return;
+  try{const r=await sb.rpc("quitar_division",{p_cuenta:state.cuentaId});if(r.error)throw r.error;
+    flash("División quitada"); renderCobro();
+  }catch(e){err("No se pudo deshacer.",e);}
+};
+window.asignarProductos=async(sub,etiqueta)=>{
+  try{
+    const l=await lineasCuenta();
+    if(!l.length){alert("No hay productos.");return;}
+    const filas=l.map(x=>{
+      const nom=cache.prodById[x.producto_id]?.nombre||'';
+      const mio=x.subcuenta_id===sub;
+      const otro=x.subcuenta_id&&!mio;
+      return `<button class="op" onclick="toggleParte(${x.id},${sub},${mio})" ${otro?'style="opacity:.45"':''}>
+        ${mio?'✅':'⬜'} ${nom} — $${Number(x.importe).toFixed(2)}${otro?' (de otra persona)':''}</button>`;
+    }).join("");
+    $("modal").innerHTML=`<h3>${etiqueta} — ¿qué pidió?</h3><p class="tenue">Toca para marcar o quitar.</p>${filas}
+      <div class="acciones"><button class="ok" onclick="cerrarModal();pintarDivision()">Listo</button></div>`;
+    $("modalBg").classList.add("on");
+  }catch(e){err("No se pudieron leer los productos.",e);}
+};
+window.toggleParte=async(linea,sub,quitar)=>{
+  try{const r=await sb.rpc("asignar_a_parte",{p_linea:linea,p_sub:quitar?null:sub});if(r.error)throw r.error;
+    const etiqueta=$("modal").querySelector("h3").textContent.split(" — ")[0];
+    asignarProductos(sub,etiqueta);
+  }catch(e){err("No se pudo asignar.",e);}
+};
+window.cobrarParte=async(sub,etiqueta,debe)=>{
+  const prop=parseFloat(prompt(`Propina de ${etiqueta} (en pesos, 0 si no dejó):`,"0"));
+  if(isNaN(prop)||prop<0)return;
+  const fp=cache.formas.map(f=>`<button class="op" onclick="finParte(${sub},'${f.clave}','${esc(f.nombre)}',${debe},${prop})">${f.nombre}</button>`).join("");
+  $("modal").innerHTML=`<h3>${etiqueta} — $${(debe+prop).toFixed(2)}</h3>
+    <p class="tenue">Consumo $${debe.toFixed(2)}${prop>0?` + propina $${prop.toFixed(2)}`:''}. ¿Cómo pagó?</p>${fp}
+    <button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
+  $("modalBg").classList.add("on");
+};
+window.finParte=async(sub,clave,nombre,debe,prop)=>{
+  cerrarModal();
+  let ref=null;
+  if(clave!=='EF'){ ref=prompt("Referencia (últimos 4 dígitos, opcional):")||null; }
+  try{
+    const r=await sb.rpc("pagar_parte",{p_sub:sub,p_forma_clave:clave,p_importe:debe,p_propina:prop,p_empleado_clave:state.mesero.clave,p_ref:ref});
+    if(r.error)throw r.error;
+    await imprimirParte(sub,nombre,debe,prop);
+    const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    const faltan=(partes||[]).filter(p=>!p.pagada).length;
+    if(faltan===0){
+      if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
+      $("modal").innerHTML=`<h3>Mesa cobrada ✓</h3><p class="tenue">Todas las partes quedaron pagadas.</p>
+        <div class="acciones"><button class="ok" onclick="cerrarModal();renderInicio()">Listo</button></div>`;
+      $("modalBg").classList.add("on");
+    }else{ flash("Cobrado ✓ — faltan "+faltan); pintarDivision(); }
+  }catch(e){err("No se pudo cobrar la parte.",e);}
+};
+async function imprimirParte(sub,formaNom,debe,prop){
+  if(!PRINT_AGENT)return;
+  try{
+    const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    const p=(partes||[]).find(x=>x.subcuenta_id===sub); if(!p)return;
+    let items=[];
+    if(p.modo==='CONSUMO'){
+      const l=await lineasCuenta();
+      items=l.filter(x=>x.subcuenta_id===sub).map(x=>({nombre:cache.prodById[x.producto_id]?.nombre||'',importe:Number(x.importe)}));
+    }else{
+      items=[{nombre:p.etiqueta+" (parte igual)",importe:Number(p.debe)}];
+    }
+    await fetch(PRINT_AGENT+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({encabezado:{mesa:state.mesaNom+" · "+p.etiqueta,folio:p.folio||'',fecha:new Date().toLocaleString('es-MX'),mesero:state.mesero.nombre},
+        items:items,subtotal:debe,propina:prop,total:debe+prop,pago:formaNom})});
+  }catch(e){ /* si el asistente está apagado, no truena */ }
+}
+
 async function cobrarYCerrar(){
   try{for(let i=0;i<state.pagos.length;i++){const p=state.pagos[i];const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:p.importe,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});if(r.error)throw r.error;}
     const c=await sb.rpc("cerrar_cuenta",{p_cuenta:state.cuentaId});if(c.error)throw c.error;
@@ -650,6 +829,7 @@ window.verCorteDia=async()=>{
 
 function volver(){
   if($("modalBg").classList.contains("on"))return cerrarModal();
+  if(state.vista==="division"){return renderCobro();}
   if(state.vista==="cobro"){return renderComanda();}
   if(state.vista==="corte"){return renderInicio();}
   if(state.vista==="resumen"){return renderInicio();}
