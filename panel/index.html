@@ -94,12 +94,14 @@
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
   <button data-v="menu" onclick="irA('menu')">Menú</button>
   <button data-v="empleados" onclick="irA('empleados')">Empleados</button>
+  <button data-v="reportes" onclick="irA('reportes')">Reportes</button>
   <button data-v="factura" onclick="irA('factura')">Facturación</button>
 </nav>
 <main id="main"><div class="cargando">Cargando…</div></main>
 <div class="modal-bg" id="mbg"><div class="modal" id="modal"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script>
 const $=(id)=>document.getElementById(id);
 let sb=null, modo="NUBE";
@@ -211,7 +213,7 @@ async function abiertasNow(){
   return {n:(data||[]).length,total:(data||[]).reduce((a,c)=>a+Number(c.total),0)};
 }
 async function datosRango(){
-  const{data:cerr,error}=await sb.from("cuenta").select("id,total,mesero_id,cerrada_en")
+  const{data:cerr,error}=await sb.from("cuenta").select("id,total,mesero_id,cerrada_en,num_comensales,tipo_venta")
     .eq("estado","CERRADA").gte("cerrada_en",iso(state.rango.ini)).lt("cerrada_en",iso(state.rango.fin));
   if(error)throw error;
   const ids=(cerr||[]).map(c=>c.id);
@@ -223,8 +225,107 @@ async function datosRango(){
   return {cerr:cerr||[],pagos,cort};
 }
 
+state.rep={cat:null,sub:null};
+async function pintarReportes(){
+  $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
+  let filas=[],formas=[];
+  try{
+    const desde=iso(state.rango.ini), hasta=iso(state.rango.fin);
+    const r=await sb.rpc("reporte_ventas",{p_desde:desde,p_hasta:hasta}); if(r.error)throw r.error; filas=r.data||[];
+    const fp=await sb.rpc("reporte_formas_pago",{p_desde:desde,p_hasta:hasta}); formas=fp.data||[];
+  }catch(e){ return err("No se pudo calcular el reporte.",e); }
+
+  window._repData={filas, formas, rango:state.rango.label};
+  const totalGeneral=filas.reduce((a,x)=>a+Number(x.importe),0);
+  const piezasTot=filas.reduce((a,x)=>a+Number(x.cantidad),0);
+
+  // agrupar por categoria
+  const cats={};
+  filas.forEach(x=>{ (cats[x.categoria]||={imp:0,pz:0,subs:{}}); cats[x.categoria].imp+=Number(x.importe); cats[x.categoria].pz+=Number(x.cantidad);
+    const sc=(cats[x.categoria].subs[x.subgrupo]||={imp:0,pz:0,prods:[]}); sc.imp+=Number(x.importe); sc.pz+=Number(x.cantidad); sc.prods.push(x); });
+
+  let cuerpo="";
+  if(!filas.length){ cuerpo='<div class="proximamente">No hubo ventas en el periodo.</div>'; }
+  else if(!state.rep.cat){
+    // nivel 1: categorias
+    cuerpo=`<div class="sec-t">Por categoría (toca para ver el detalle)</div>`+
+      Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).map(([c,v])=>
+        `<button class="op" style="display:flex;justify-content:space-between" onclick="repCat('${esc(c)}')"><span>${c} · <span class="tenue">${v.pz} pz</span></span><b>$${v.imp.toFixed(2)}</b></button>`).join("");
+  } else if(state.rep.cat && !state.rep.sub){
+    // nivel 2: subgrupos de la categoria
+    const v=cats[state.rep.cat]||{subs:{}};
+    cuerpo=`<button onclick="repVolver()" style="margin-bottom:8px">‹ Categorías</button><div class="sec-t">${state.rep.cat} — por subgrupo</div>`+
+      Object.entries(v.subs).sort((a,b)=>b[1].imp-a[1].imp).map(([sg,sv])=>
+        `<button class="op" style="display:flex;justify-content:space-between" onclick="repSub('${esc(sg)}')"><span>${sg} · <span class="tenue">${sv.pz} pz</span></span><b>$${sv.imp.toFixed(2)}</b></button>`).join("");
+  } else {
+    // nivel 3: productos del subgrupo
+    const sv=(cats[state.rep.cat]?.subs[state.rep.sub])||{prods:[]};
+    cuerpo=`<button onclick="repSubVolver()" style="margin-bottom:8px">‹ ${state.rep.cat}</button><div class="sec-t">${state.rep.cat} › ${state.rep.sub}</div>`+
+      sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).map(p=>
+        `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} vendidos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("");
+  }
+
+  const formasHtml = formas.length? formas.map(f=>`<div class="row"><span>${f.forma}</span><span>$${Number(f.importe).toFixed(2)}</span></div>`).join("") : '<div class="tenue">Sin pagos.</div>';
+
+  $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button></h2>${barraRango()}
+    <div class="kpis">
+      <div class="kpi big"><div class="l">Venta del periodo</div><div class="v">$${totalGeneral.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Piezas vendidas</div><div class="v">${piezasTot}</div></div>
+    </div>
+    ${cuerpo}
+    <div class="sec-t" style="margin-top:16px">¿Cómo pagaron?</div><div class="tot">${formasHtml}</div>
+  </div>`;
+}
+window.repPDF=()=>{
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay datos para el PDF.");return;}
+  try{
+    const { jsPDF } = window.jspdf;
+    const doc=new jsPDF({unit:'mm',format:'letter'}); const PW=215.9,PH=279.4; const M=v=>'$'+Number(v||0).toFixed(2);
+    doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('LOS PARES 84x88',PW/2,15,{align:'center'});
+    doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('REPORTE DE VENTAS',PW/2,22,{align:'center'});
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text(R.rango+'  ·  '+new Date().toLocaleString('es-MX'),PW/2,27,{align:'center'});
+    // armar jerarquia
+    const cats={};
+    R.filas.forEach(x=>{(cats[x.categoria]||={imp:0,pz:0,subs:{}});cats[x.categoria].imp+=Number(x.importe);cats[x.categoria].pz+=Number(x.cantidad);
+      const sc=(cats[x.categoria].subs[x.subgrupo]||={imp:0,pz:0,prods:[]});sc.imp+=Number(x.importe);sc.pz+=Number(x.cantidad);sc.prods.push(x);});
+    let y=36;
+    const nueva=()=>{doc.addPage();y=18;};
+    const chk=(h)=>{if(y+h>PH-15)nueva();};
+    Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).forEach(([cat,cv])=>{
+      chk(12); doc.setFillColor(30,30,30);doc.rect(14,y,PW-28,7,'F');
+      doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(10);
+      doc.text(cat,16,y+5);doc.text(cv.pz+' pz   '+M(cv.imp),PW-16,y+5,{align:'right'});doc.setTextColor(0);y+=10;
+      Object.entries(cv.subs).sort((a,b)=>b[1].imp-a[1].imp).forEach(([sg,sv])=>{
+        chk(8); doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(60);
+        doc.text(sg,18,y);doc.text(sv.pz+' pz · '+M(sv.imp),PW-16,y,{align:'right'});doc.setTextColor(0);y+=5;
+        doc.setFont('helvetica','normal');doc.setFontSize(9);
+        sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).forEach(p=>{
+          chk(5); doc.text('   '+p.producto,20,y);
+          doc.text(Number(p.cantidad)+'',150,y,{align:'right'});
+          doc.text(M(p.importe),PW-16,y,{align:'right'});y+=4.6;
+        });
+        y+=1.5;
+      });
+      y+=2;
+    });
+    // total y formas de pago
+    chk(20); const tot=R.filas.reduce((a,x)=>a+Number(x.importe),0);
+    doc.setFillColor(30,30,30);doc.rect(14,y,PW-28,9,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(12);
+    doc.text('VENTA TOTAL',18,y+6);doc.text(M(tot),PW-18,y+6,{align:'right'});doc.setTextColor(0);y+=14;
+    if(R.formas&&R.formas.length){ doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('¿Cómo pagaron?',16,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);
+      R.formas.forEach(f=>{chk(5);doc.text(f.forma,18,y);doc.text(M(f.importe),PW-16,y,{align:'right'});y+=4.6;}); }
+    doc.save('reporte_ventas_lospares.pdf');
+  }catch(e){ alert("No se pudo generar el PDF."); console.error(e); }
+};
+window.repCat=(c)=>{state.rep={cat:c,sub:null};pintarReportes();};
+window.repSub=(sg)=>{state.rep.sub=sg;pintarReportes();};
+window.repVolver=()=>{state.rep={cat:null,sub:null};pintarReportes();};
+window.repSubVolver=()=>{state.rep.sub=null;pintarReportes();};
+
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
+  if(state.vista==='reportes'){return pintarReportes();}
   if(state.vista==='menu'){return pintarMenu();}
   if(state.vista==='empleados'){return pintarEmpleados();}
   if(state.vista==='factura'){return pintarFactura();}
@@ -244,6 +345,8 @@ async function pintarVentas({cerr,pagos,cort}){
     if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v;prop+=Number(p.propina||0);});
   const cortT=cort.reduce((a,x)=>a+Number(x.importe),0);
   const ventas=cerr.reduce((a,c)=>a+Number(c.total),0);
+  const mesasAtendidas=cerr.filter(c=>c.tipo_venta==='MESA').length;
+  const comensales=cerr.filter(c=>c.tipo_venta==='MESA').reduce((a,c)=>a+Number(c.num_comensales||0),0);
   const ab=await abiertasNow();
   // gráfica: un día -> por hora ; varios días -> por día
   let grafica;
@@ -264,6 +367,8 @@ async function pintarVentas({cerr,pagos,cort}){
     <div class="kpis">
       <div class="kpi big"><div class="l">Vendido (cobrado)</div><div class="v">$${ventas.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Cuentas cerradas</div><div class="v">${cerr.length}</div></div>
+      <div class="kpi"><div class="l">Mesas atendidas</div><div class="v">${mesasAtendidas}</div></div>
+      <div class="kpi"><div class="l">Comensales</div><div class="v">${comensales}</div></div>
       <div class="kpi"><div class="l">Propinas</div><div class="v">$${prop.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Cortesías (regalado)</div><div class="v">$${cortT.toFixed(2)}</div></div>
     </div>
@@ -315,7 +420,7 @@ async function pintarCancelaciones(){
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
       return `<div class="cta"><div class="info"><div class="n">${et} · <span class="tenue">${etiqueta}</span></div>
         <small>${c.folio||''} · ${mesero}</small></div><div class="t">$${Number(c.total).toFixed(2)}</div>
-        ${c.estado==="ABIERTA"?`<button onclick="cambiarMesero(${c.id})">Cambiar mesero</button>`:""}<button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
+        ${c.estado==="ABIERTA"?`<button onclick="cambiarMesero(${c.id})">Cambiar mesero</button>`:`<button onclick="reabrir(${c.id})">Reabrir</button>`}<button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
     const abiertas=(rAb.data||[]).map(c=>fila(c,'Abierta ahora')).join("");
     const cerradas=(rCe.data||[]).map(c=>fila(c,'Cerrada')).join("");
     $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}
@@ -324,6 +429,15 @@ async function pintarCancelaciones(){
       <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
+window.reabrir=async(id)=>{
+  if(!confirm("¿Reabrir esta cuenta ya cobrada? Volverá a estar ABIERTA para corregirla."))return;
+  const motivo=prompt("Motivo de reapertura (ej. se cobró de más):"); if(motivo===null)return;
+  try{
+    const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});
+    if(r.error)throw r.error;
+    okmsg("Cuenta reabierta"); pintarCancelaciones();
+  }catch(e){err("No se pudo reabrir.",e);}
+};
 window.cambiarMesero=async(id)=>{
   try{
     const{data:emps,error}=await sb.from("empleado").select("clave,nombre").eq("activo",true).order("nombre");
