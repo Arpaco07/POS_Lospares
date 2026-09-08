@@ -233,8 +233,13 @@ async function pintarReportes(){
     const desde=iso(state.rango.ini), hasta=iso(state.rango.fin);
     const r=await sb.rpc("reporte_ventas",{p_desde:desde,p_hasta:hasta}); if(r.error)throw r.error; filas=r.data||[];
     const fp=await sb.rpc("reporte_formas_pago",{p_desde:desde,p_hasta:hasta}); formas=fp.data||[];
-  }catch(e){ return err("No se pudo calcular el reporte.",e); }
-
+  }catch(e){
+    const msg=(e&&(e.message||e.hint||e.details))||"error desconocido";
+    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}
+      <div class="aviso err" style="margin-top:10px">No se pudo cargar el reporte.<br><b>${msg}</b><br><br>
+      Si dice que la función no existe, hay que correr en el Studio local el archivo <b>29_reportes.sql</b> (versión por rango de fechas).</div></div>`;
+    return;
+  }
   window._repData={filas, formas, rango:state.rango.label};
   const totalGeneral=filas.reduce((a,x)=>a+Number(x.importe),0);
   const piezasTot=filas.reduce((a,x)=>a+Number(x.cantidad),0);
