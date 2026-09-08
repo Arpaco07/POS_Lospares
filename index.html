@@ -348,20 +348,27 @@ function pintarProductos(){
     return `<button class="prod" onclick="tocarProducto(${p.id})"><div><span class="nom">${p.nombre}</span>${grp}</div><div class="fila"><span class="pr">${precio}</span>${et}</div></button>`;
   }).join("");
 }
-window.tocarProducto=(id)=>{const p=cache.prodById[id];const m=cache.modsPorProd[id]||[];if(p.venta_por==="PESO"||m.length){modalProd(p,m);}else{agregar(p,1,null,[]);}};
+window.tocarProducto=(id)=>{const p=cache.prodById[id];const m=cache.modsPorProd[id]||[];modalProd(p,m);};
 function modalProd(p,mods){
-  const sel={};let peso=p.venta_por==="PESO"?`<div class="grupo-mod"><div class="t">Peso (kg)</div><input class="peso-in" id="pesoIn" type="number" step="0.001" min="0" placeholder="0.000" inputmode="decimal"><div class="tenue" style="text-align:center;margin-top:4px">$${p.precio} por kilo</div></div>`:"";
+  const sel={};const esPeso=p.venta_por==="PESO";
+  let peso=esPeso?`<div class="grupo-mod"><div class="t">Peso (kg)</div><input class="peso-in" id="pesoIn" type="number" step="0.001" min="0" placeholder="0.000" inputmode="decimal"><div class="tenue" style="text-align:center;margin-top:4px">$${p.precio} por kilo</div></div>`:"";
+  const cantBloque=esPeso?"":`<div class="grupo-mod"><div class="t">Cantidad</div><div style="display:flex;align-items:center;justify-content:center;gap:18px"><button class="opt" style="width:54px;font-size:24px" onclick="cambiarCant(-1)">−</button><span id="cantTxt" style="font-size:24px;font-weight:800;min-width:44px;text-align:center">1</span><button class="opt" style="width:54px;font-size:24px" onclick="cambiarCant(1)">+</button></div></div>`;
   const mh=mods.map(g=>{sel[g.id]=new Set();const o=g.opciones.map(o=>`<button class="opt" data-g="${g.id}" data-o="${o.id}" onclick="tocarOpcion(this,${g.id},${g.max_selec})">${o.nombre}${o.precio_extra>0?` +$${o.precio_extra}`:''}</button>`).join("");return `<div class="grupo-mod"><div class="t">${g.nombre}${g.obligatorio?' *':''}</div><div class="opts">${o}</div></div>`;}).join("");
-  $("modal").innerHTML=`<h3>${p.nombre}</h3><div class="tenue">${p.venta_por==="PESO"?'Se cobra por peso':'$'+p.precio}</div>${peso}${mh}<div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cancelar</button><button class="ok" id="okAg">Agregar</button></div>`;
-  window._sel=sel;window._mods=mods;window._prod=p;$("okAg").onclick=confirmarAg;$("modalBg").classList.add("on");
+  const nota=`<div class="grupo-mod"><div class="t">Comentario para cocina (opcional)</div><textarea id="notaIn" rows="2" placeholder="Ej. salsa aparte, sin cebolla, la crema flotando..." style="width:100%;padding:11px;font-size:15px;border:1px solid var(--gris2);border-radius:10px;resize:none;font-family:inherit;box-sizing:border-box"></textarea></div>`;
+  $("modal").innerHTML=`<h3>${p.nombre}</h3><div class="tenue">${esPeso?'Se cobra por peso':'$'+p.precio}</div>${peso}${cantBloque}${mh}${nota}<div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cancelar</button><button class="ok" id="okAg">Agregar</button></div>`;
+  window._sel=sel;window._mods=mods;window._prod=p;window._cant=1;$("okAg").onclick=confirmarAg;$("modalBg").classList.add("on");
 }
+window.cambiarCant=(d)=>{window._cant=Math.max(1,(window._cant||1)+d);const t=$("cantTxt");if(t)t.textContent=window._cant;};
 window.tocarOpcion=(btn,gid,ms)=>{const set=window._sel[gid];if(ms<=1){document.querySelectorAll(`.opt[data-g="${gid}"]`).forEach(b=>b.classList.remove("on"));set.clear();}if(btn.classList.contains("on")){btn.classList.remove("on");set.delete(+btn.dataset.o);}else{btn.classList.add("on");set.add(+btn.dataset.o);}};
-async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._sel;let peso=null;
-  if(p.venta_por==="PESO"){peso=parseFloat($("pesoIn").value);if(!(peso>0)){alert("Escribe el peso.");return;}}
+async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._sel;let peso=null;const esPeso=p.venta_por==="PESO";
+  if(esPeso){peso=parseFloat($("pesoIn").value);if(!(peso>0)){alert("Escribe el peso.");return;}}
   for(const g of mods){if(g.obligatorio&&sel[g.id].size===0){alert(`Falta elegir: ${g.nombre}`);return;}}
-  const op=[];for(const g of mods)sel[g.id].forEach(o=>op.push(o));cerrarModal();await agregar(p,1,peso,op);}
+  const op=[];for(const g of mods)sel[g.id].forEach(o=>op.push(o));
+  const nota=($("notaIn")?.value||"").trim()||null;
+  const cant=esPeso?1:(window._cant||1);
+  cerrarModal();await agregar(p,cant,peso,op,nota);}
 window.cerrarModal=()=>$("modalBg").classList.remove("on");
-async function agregar(p,cant,peso,op){try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:null});if(error)throw error;
+async function agregar(p,cant,peso,op,nota){try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null});if(error)throw error;
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
 
@@ -449,7 +456,7 @@ window._envio=null;
 async function enviar(){
   try{
     const{data:l,error}=await sb.from("cuenta_producto")
-      .select("id,peso_kg,producto_id,area_impresion_id")
+      .select("id,peso_kg,producto_id,area_impresion_id,nota_libre")
       .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
     if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
@@ -459,9 +466,12 @@ async function enviar(){
       const a=cache.areaById[x.area_impresion_id]||"Solo ticket";
       const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";
       const nom=cache.prodById[x.producto_id]?.nombre||"";
-      const ex=(x.peso_kg?`(${x.peso_kg}kg)`:'')+((mpl[x.id]||[]).length?` — ${mpl[x.id].join(', ')}`:'');
-      (porArea[a]||=[]).push(nom+(ex?' '+ex:''));
-      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:ex.replace(/^— /,'')});
+      const pesoTxt=x.peso_kg?`(${x.peso_kg}kg)`:'';
+      const modsTxt=(mpl[x.id]||[]).join(', ');
+      const notaTxt=x.nota_libre||'';
+      const partes=[pesoTxt,modsTxt,notaTxt?('* '+notaTxt):''].filter(Boolean).join(' · ');
+      (porArea[a]||=[]).push(nom+(partes?' — '+partes:''));
+      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:partes});
     });
     window._envio={porAreaImp:porAreaImp};
     const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
