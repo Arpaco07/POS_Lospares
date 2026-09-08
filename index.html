@@ -303,10 +303,15 @@ window.quitarMesa=async(id)=>{ if(!confirm("¿Quitar esta mesa con nombre?")) re
   try{ await sb.from("mesa").update({activa:false}).eq("id",id); await recargarMesas(); renderInicio(); }catch(e){ err("No se pudo quitar.",e); }
 };
 window.abrirMesa=async(id,nom,tipo,cta)=>{
+  // si la mesa ya tiene cuenta abierta, entrar directo
+  if(cta){state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;state.cuentaId=cta;return renderComanda();}
+  // preguntar personas ANTES de crear nada
+  const raw=prompt("¿Cuántas personas en la mesa?","1");
+  if(raw===null) return;                         // Canceló -> NO abre la mesa
+  const n=parseInt(raw,10);
+  if(isNaN(n)||n<1){ alert("Escribe cuántas personas (mínimo 1) para abrir la mesa."); return; }  // inválido -> NO abre
+  // solo aquí se crea la cuenta y se activa la mesa
   state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;
-  if(cta){state.cuentaId=cta;return renderComanda();}
-  let n=parseInt(prompt("¿Cuántas personas en la mesa?","1"),10);
-  if(isNaN(n)||n<1) n=1;
   await crearCuenta("MESA",id,nom,tipo,n);
 };
 window.avisoSeparada=(nom)=>{
