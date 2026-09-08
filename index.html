@@ -851,8 +851,9 @@ window.cambiarDia=(delta)=>{const d=state.resumenFecha;state.resumenFecha=new Da
 /* ---- CORTE DE CAJA (cajero/admin) ---- */
 function tipoFormaMap(){const m={};cache.formas.forEach(f=>m[f.id]=f.tipo);return m;}
 // ====== WHATSAPP: numeros fijos (52 + 10 digitos). CAMBIAR AQUI si cambia el numero ======
-const WA_CARLA  = "522878818488";   // <-- numero de Carla (ejemplo, cambiar por el real)
-const WA_ARTURO = "522870000000";   // <-- numero de Arturo (cambiar por el real)
+const WA_CARLA  = "522871074899";   // Carla
+const WA_ARTURO = "522871070222";   // Arturo
+const WA_PARES  = "522878818488";   // WhatsApp del restaurante Los Pares
 
 function buildCorteDoc(d){
   const { jsPDF } = window.jspdf;
@@ -964,6 +965,7 @@ function pintarCorteCompleto(){
       <button onclick="descargarCorteFullPDF()">📄 PDF</button>
       <button onclick="enviarCorteFullWA(WA_CARLA)">📱 Carla</button>
       <button onclick="enviarCorteFullWA(WA_ARTURO)">📱 Arturo</button>
+      <button onclick="enviarCorteFullWA(WA_PARES)">📱 Los Pares</button>
     </div>
     ${esZ?`<button onclick="confirmarCorteZ()" style="width:100%;background:var(--verde);color:#fff;padding:15px;border-radius:12px;font-weight:800;margin-top:14px">🔒 Confirmar y cerrar turno</button>`:''}
     <button onclick="renderCorteCaja()" style="width:100%;padding:13px;border-radius:12px;font-weight:700;border:1px solid var(--gris2);background:#fff;margin-top:10px">‹ Volver</button>
@@ -1093,6 +1095,7 @@ async function renderCorteCaja(){
         <button onclick="descargarCortePDF()">📄 PDF</button>
         <button onclick="enviarCorteWA(WA_CARLA)">📱 Carla</button>
         <button onclick="enviarCorteWA(WA_ARTURO)">📱 Arturo</button>
+        <button onclick="enviarCorteWA(WA_PARES)">📱 Los Pares</button>
       </div>
       <div class="acbar" style="margin-top:16px">
         <button onclick="verCorteCompleto('TURNO',${turno.id})" style="background:#2f6fb0;color:#fff">📋 Corte X (consulta)</button>
@@ -1143,7 +1146,7 @@ window.verCorteDia=async()=>{
       <div class="r"><span>Cortesías</span><span>$${cort.toFixed(2)}</span></div>
       <div class="r"><span>Cuentas</span><span>${(cerr||[]).length}</span></div>
       <div class="r" style="font-size:18px;font-weight:800;margin-top:6px"><span>VENTA DEL DÍA</span><span>$${ventas.toFixed(2)}</span></div></div>
-      <div class="acbar" style="margin-top:10px"><button onclick="descargarCortePDF()">📄 PDF</button><button onclick="enviarCorteWA(WA_CARLA)">📱 Carla</button><button onclick="enviarCorteWA(WA_ARTURO)">📱 Arturo</button></div>
+      <div class="acbar" style="margin-top:10px"><button onclick="descargarCortePDF()">📄 PDF</button><button onclick="enviarCorteWA(WA_CARLA)">📱 Carla</button><button onclick="enviarCorteWA(WA_ARTURO)">📱 Arturo</button><button onclick="enviarCorteWA(WA_PARES)">📱 Los Pares</button></div>
       <div class="acciones"><button class="ok" onclick="cerrarModal()">Listo</button></div>`;
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudo ver el corte del día.",e);}};
