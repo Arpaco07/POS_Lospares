@@ -187,7 +187,7 @@ async function init(){
   if(!CLOUD_LLAVE || CLOUD_LLAVE.startsWith("PON_AQUI")) return setup();
   try{ sb=await conectar(); const b=$("modo"); if(b)b.innerHTML=badgeModo(); await cargarCatalogo(); renderLogin(); }
   catch(e){ grande("No se pudo cargar.",e); }
-  $("btnVolver").onclick=volver; $("btnCuenta").onclick=verCuenta; $("btnEnviar").onclick=enviar; $("btnCobrar").onclick=renderCobro; $("btnRefrescar").onclick=actualizarMenu;
+  $("btnVolver").onclick=volver; $("btnCuenta").onclick=verCuentaEditable; $("btnEnviar").onclick=enviar; $("btnCobrar").onclick=renderCobro; $("btnRefrescar").onclick=actualizarMenu;
 }
 function setup(){ $("main").innerHTML=`<div class="setup"><h2>Falta la llave</h2><p>Pega tu llave pública en <code>SUPABASE_LLAVE</code>.</p></div>`; }
 
@@ -417,10 +417,19 @@ async function verCuentaEditable(){
   try{const l=await lineasCuenta();if(!l.length){flash("La comanda está vacía");return;}
     const mpl=await modsDe(l.map(x=>x.id));
     const filas=l.map(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const sub=[x.peso_kg?`${x.peso_kg} kg`:null,(mpl[x.id]||[]).join(", ")||null,x.estado==='IMPRESO'?'enviado':null].filter(Boolean).join(" · ");
-      return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button>`:''}<button class="x" onclick="quitarLinea(${x.id})">✕</button></div>`;}).join("");
-    $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="ok" onclick="cerrarModal()">Seguir pidiendo</button></div>`;$("modalBg").classList.add("on");
+      return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}<button class="x" title="Repetir (pedir otro igual)" style="background:var(--verde)" onclick="repetirProducto(${x.producto_id})">🔁</button>${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button><button class="x" title="Quitar (aún no enviado)" onclick="quitarLinea(${x.id},'PENDIENTE','${esc(nom)}')">🗑</button>`:`<button class="x" title="Cancelar (ya enviado — pide admin)" style="background:#a12" onclick="quitarLinea(${x.id},'IMPRESO','${esc(nom)}')">✕</button>`}</div>`;}).join("");
+    $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="cancelar" onclick="cerrarModal()">Seguir pidiendo</button><button class="ok" style="background:var(--negro)" onclick="cerrarModal();verCuenta()">🧾 Ver ticket</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo leer la comanda.",e);}
 }
+window.repetirProducto=async(prodId)=>{
+  const p=cache.prodById[prodId]; if(!p){flash("Producto no disponible");return;}
+  const m=cache.modsPorProd[prodId]||[];
+  if(p.venta_por==="PESO" || m.length){          // por peso o con modificadores: abrir ventana para elegir
+    cerrarModal(); modalProd(p,m); return;
+  }
+  try{ await agregar(p,1,null,[],null); await refrescarTotal(); flash(p.nombre+" repetido ✓"); verCuentaEditable(); }
+  catch(e){ err("No se pudo repetir.",e); }
+};
 window.moverProducto=async(linea)=>{
   // cargar mesas/cuentas ABIERTAS distintas a la actual
   let dest=[];
@@ -444,7 +453,28 @@ window.finMover=async(linea,destino)=>{
     await refrescarTotal(); flash("Producto movido ✓"); verCuentaEditable();
   }catch(e){ err("No se pudo mover.",e); }
 };
-window.quitarLinea=async(id)=>{try{const d=await sb.from("cuenta_producto").delete().eq("id",id);if(d.error)throw d.error;await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});cerrarModal();await refrescarTotal();verCuentaEditable();}catch(e){err("No se pudo quitar.",e);}};
+window.quitarLinea=async(id,estado,nombre)=>{
+  nombre=nombre||"este producto";
+  if(estado==='PENDIENTE'){
+    // aún NO enviado a cocina: se quita directo, sin PIN
+    if(!confirm("¿Quitar "+nombre+"? (aún no se envía a cocina)"))return;
+    try{
+      const d=await sb.from("cuenta_producto").delete().eq("id",id); if(d.error)throw d.error;
+      await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});
+      await refrescarTotal(); flash("Producto quitado");
+      const l=await lineasCuenta(); if(l.length) verCuentaEditable(); else cerrarModal();
+    }catch(e){err("No se pudo quitar.",e);}
+  } else {
+    // YA enviado a cocina: cancelación con PIN de admin (queda registrado)
+    const a=await resolverAdmin(); if(!a)return;
+    const motivo=prompt("Motivo de la cancelación:")||null;
+    try{
+      const r=await sb.rpc("cancelar_producto",{p_linea:id,p_admin_clave:a,p_motivo:motivo}); if(r.error)throw r.error;
+      await refrescarTotal(); flash("Producto cancelado ✓");
+      const l=await lineasCuenta(); if(l.length) verCuentaEditable(); else cerrarModal();
+    }catch(e){err("No se pudo cancelar.",e);}
+  }
+};
 
 /* ---- CUENTA (ticket en pantalla, sin pedir pago) ---- */
 async function verCuenta(){
@@ -516,7 +546,7 @@ window._envio=null;
 async function enviar(){
   try{
     const{data:l,error}=await sb.from("cuenta_producto")
-      .select("id,peso_kg,producto_id,area_impresion_id,nota_libre")
+      .select("id,cantidad,peso_kg,producto_id,area_impresion_id,nota_libre")
       .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
     if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
@@ -525,13 +555,16 @@ async function enviar(){
     l.forEach(x=>{
       const a=cache.areaById[x.area_impresion_id]||"Solo ticket";
       const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";
-      const nom=cache.prodById[x.producto_id]?.nombre||"";
+      const nomBase=cache.prodById[x.producto_id]?.nombre||"";
+      const cant=Number(x.cantidad)||1;
+      const cantTxt = (cant>1 && !x.peso_kg) ? (cant+"x ") : "";   // "2x RIB EYE" (peso no lleva cantidad)
+      const nom=cantTxt+nomBase;
       const pesoTxt=x.peso_kg?`(${x.peso_kg}kg)`:'';
       const modsTxt=(mpl[x.id]||[]).join(', ');
       const notaTxt=x.nota_libre||'';
       const partes=[pesoTxt,modsTxt,notaTxt?('* '+notaTxt):''].filter(Boolean).join(' · ');
       (porArea[a]||=[]).push(nom+(partes?' — '+partes:''));
-      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,extra:partes});
+      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,cantidad:cant,extra:partes});
     });
     window._envio={porAreaImp:porAreaImp};
     const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
