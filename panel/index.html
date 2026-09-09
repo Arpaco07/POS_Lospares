@@ -226,6 +226,7 @@ async function datosRango(){
 }
 
 state.rep={cat:null,sub:null};
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function pintarReportes(){
   if(!state.rep) state.rep={cat:null,sub:null};
   $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
