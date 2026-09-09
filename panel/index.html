@@ -280,6 +280,47 @@ async function pintarReportes(){
     console.error("reporte:",e);
   }
 }
+window.repPDF=()=>{
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay datos para el PDF.");return;}
+  if(!window.jspdf){alert("No se pudo cargar el generador de PDF. Revisa tu conexión.");return;}
+  try{
+    const { jsPDF } = window.jspdf;
+    const doc=new jsPDF({unit:'mm',format:'letter'}); const PW=215.9,PH=279.4; const M=v=>'$'+Number(v||0).toFixed(2);
+    doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('LOS PARES 84x88',PW/2,15,{align:'center'});
+    doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('REPORTE DE VENTAS',PW/2,22,{align:'center'});
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text(R.rango+'  ·  '+new Date().toLocaleString('es-MX'),PW/2,27,{align:'center'});
+    const cats={};
+    R.filas.forEach(x=>{(cats[x.categoria]||={imp:0,pz:0,subs:{}});cats[x.categoria].imp+=Number(x.importe);cats[x.categoria].pz+=Number(x.cantidad);
+      const sc=(cats[x.categoria].subs[x.subgrupo]||={imp:0,pz:0,prods:[]});sc.imp+=Number(x.importe);sc.pz+=Number(x.cantidad);sc.prods.push(x);});
+    let y=36;
+    const nueva=()=>{doc.addPage();y=18;};
+    const chk=(h)=>{if(y+h>PH-15)nueva();};
+    Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).forEach(([cat,cv])=>{
+      chk(12); doc.setFillColor(30,30,30);doc.rect(14,y,PW-28,7,'F');
+      doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(10);
+      doc.text(cat,16,y+5);doc.text(cv.pz+' pz   '+M(cv.imp),PW-16,y+5,{align:'right'});doc.setTextColor(0);y+=10;
+      Object.entries(cv.subs).sort((a,b)=>b[1].imp-a[1].imp).forEach(([sg,sv])=>{
+        chk(8); doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(60);
+        doc.text(sg,18,y);doc.text(sv.pz+' pz . '+M(sv.imp),PW-16,y,{align:'right'});doc.setTextColor(0);y+=5;
+        doc.setFont('helvetica','normal');doc.setFontSize(9);
+        sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).forEach(p=>{
+          chk(5); doc.text('   '+p.producto,20,y);
+          doc.text(Number(p.cantidad)+'',150,y,{align:'right'});
+          doc.text(M(p.importe),PW-16,y,{align:'right'});y+=4.6;
+        });
+        y+=1.5;
+      });
+      y+=2;
+    });
+    chk(20); const tot=R.filas.reduce((a,x)=>a+Number(x.importe),0);
+    doc.setFillColor(30,30,30);doc.rect(14,y,PW-28,9,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(12);
+    doc.text('VENTA TOTAL',18,y+6);doc.text(M(tot),PW-18,y+6,{align:'right'});doc.setTextColor(0);y+=14;
+    if(R.formas&&R.formas.length){ doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Como pagaron?',16,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);
+      R.formas.forEach(f=>{chk(5);doc.text(f.forma,18,y);doc.text(M(f.importe),PW-16,y,{align:'right'});y+=4.6;}); }
+    doc.save('reporte_ventas_lospares.pdf');
+  }catch(e){ alert("No se pudo generar el PDF: "+((e&&e.message)||e)); console.error(e); }
+};
 window.repCat=(c)=>{state.rep={cat:c,sub:null};pintarReportes();};
 window.repSub=(sg)=>{state.rep.sub=sg;pintarReportes();};
 window.repVolver=()=>{state.rep={cat:null,sub:null};pintarReportes();};
