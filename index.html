@@ -391,10 +391,15 @@ function modalProd(p,mods){
   let peso=esPeso?`<div class="grupo-mod"><div class="t">Peso (kg)</div><input class="peso-in" id="pesoIn" type="number" step="0.001" min="0" placeholder="0.000" inputmode="decimal"><div class="tenue" style="text-align:center;margin-top:4px">$${p.precio} por kilo</div></div>`:"";
   const cantBloque=esPeso?"":`<div class="grupo-mod"><div class="t">Cantidad</div><div style="display:flex;align-items:center;justify-content:center;gap:18px"><button class="opt" style="width:54px;font-size:24px" onclick="cambiarCant(-1)">−</button><span id="cantTxt" style="font-size:24px;font-weight:800;min-width:44px;text-align:center">1</span><button class="opt" style="width:54px;font-size:24px" onclick="cambiarCant(1)">+</button></div></div>`;
   const mh=mods.map(g=>{sel[g.id]=new Set();const o=g.opciones.map(o=>`<button class="opt" data-g="${g.id}" data-o="${o.id}" onclick="tocarOpcion(this,${g.id},${g.max_selec})">${o.nombre}${o.precio_extra>0?` +$${o.precio_extra}`:''}</button>`).join("");return `<div class="grupo-mod"><div class="t">${g.nombre}${g.obligatorio?' *':''}</div><div class="opts">${o}</div></div>`;}).join("");
+  const tiempoSel=`<div class="grupo-mod"><div class="t">Tiempo de servicio</div><div class="opts" id="tiempoOpts">
+      <button class="opt on" data-ti="1" onclick="selTiempo(this,1)">1er tiempo</button>
+      <button class="opt" data-ti="2" onclick="selTiempo(this,2)">2do tiempo</button>
+      <button class="opt" data-ti="3" onclick="selTiempo(this,3)">3er tiempo</button></div></div>`;
   const nota=`<div class="grupo-mod"><div class="t">Comentario para cocina (opcional)</div><textarea id="notaIn" rows="2" placeholder="Ej. salsa aparte, sin cebolla, la crema flotando..." style="width:100%;padding:11px;font-size:15px;border:1px solid var(--gris2);border-radius:10px;resize:none;font-family:inherit;box-sizing:border-box"></textarea></div>`;
-  $("modal").innerHTML=`<h3>${p.nombre}</h3><div class="tenue">${esPeso?'Se cobra por peso':'$'+p.precio}</div>${peso}${cantBloque}${mh}${nota}<div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cancelar</button><button class="ok" id="okAg">Agregar</button></div>`;
-  window._sel=sel;window._mods=mods;window._prod=p;window._cant=1;$("okAg").onclick=confirmarAg;$("modalBg").classList.add("on");
+  $("modal").innerHTML=`<h3>${p.nombre}</h3><div class="tenue">${esPeso?'Se cobra por peso':'$'+p.precio}</div>${peso}${cantBloque}${mh}${tiempoSel}${nota}<div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cancelar</button><button class="ok" id="okAg">Agregar</button></div>`;
+  window._sel=sel;window._mods=mods;window._prod=p;window._cant=1;window._tiempo=1;$("okAg").onclick=confirmarAg;$("modalBg").classList.add("on");
 }
+window.selTiempo=(btn,t)=>{ window._tiempo=t; document.querySelectorAll('#tiempoOpts .opt').forEach(b=>b.classList.toggle('on', Number(b.dataset.ti)===t)); };
 window.cambiarCant=(d)=>{window._cant=Math.max(1,(window._cant||1)+d);const t=$("cantTxt");if(t)t.textContent=window._cant;};
 window.tocarOpcion=(btn,gid,ms)=>{const set=window._sel[gid];if(ms<=1){document.querySelectorAll(`.opt[data-g="${gid}"]`).forEach(b=>b.classList.remove("on"));set.clear();}if(btn.classList.contains("on")){btn.classList.remove("on");set.delete(+btn.dataset.o);}else{btn.classList.add("on");set.add(+btn.dataset.o);}};
 async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._sel;let peso=null;const esPeso=p.venta_por==="PESO";
@@ -403,9 +408,10 @@ async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._
   const op=[];for(const g of mods)sel[g.id].forEach(o=>op.push(o));
   const nota=($("notaIn")?.value||"").trim()||null;
   const cant=esPeso?1:(window._cant||1);
-  cerrarModal();await agregar(p,cant,peso,op,nota);}
+  const tiempo=window._tiempo||1;
+  cerrarModal();await agregar(p,cant,peso,op,nota,tiempo);}
 window.cerrarModal=()=>$("modalBg").classList.remove("on");
-async function agregar(p,cant,peso,op,nota){try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null});if(error)throw error;
+async function agregar(p,cant,peso,op,nota,tiempo){try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null,p_tiempo:tiempo||1});if(error)throw error;
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
 
@@ -546,8 +552,8 @@ window._envio=null;
 async function enviar(){
   try{
     const{data:l,error}=await sb.from("cuenta_producto")
-      .select("id,cantidad,peso_kg,producto_id,area_impresion_id,nota_libre")
-      .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
+      .select("id,cantidad,peso_kg,producto_id,area_impresion_id,nota_libre,tiempo")
+      .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE").order("tiempo");
     if(error)throw error;
     if(!l.length){flash("No hay nada nuevo que enviar");return;}
     const mpl=await modsDe(l.map(x=>x.id));
@@ -563,11 +569,17 @@ async function enviar(){
       const modsTxt=(mpl[x.id]||[]).join(', ');
       const notaTxt=x.nota_libre||'';
       const partes=[pesoTxt,modsTxt,notaTxt?('* '+notaTxt):''].filter(Boolean).join(' · ');
-      (porArea[a]||=[]).push(nom+(partes?' — '+partes:''));
-      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,cantidad:cant,extra:partes});
+      const ti=Number(x.tiempo)||1;
+      (porArea[a]||=[]).push({ti, txt:nom+(partes?' — '+partes:'')});
+      (porAreaImp[clave]||={mesa:state.mesaNom,mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,cantidad:cant,extra:partes,tiempo:ti});
     });
     window._envio={porAreaImp:porAreaImp};
-    const bl=Object.entries(porArea).map(([a,it])=>`<div class="grupo-mod"><div class="t">→ ${a}</div>${it.map(i=>`<div>• ${i}</div>`).join("")}</div>`).join("");
+    const TIEMPOS={1:'1er tiempo',2:'2do tiempo',3:'3er tiempo',4:'4to tiempo',5:'5to tiempo'};
+    const bl=Object.entries(porArea).map(([a,arr])=>{
+      const porTi={}; arr.forEach(o=>(porTi[o.ti]||=[]).push(o.txt));
+      const cuerpoTi=Object.keys(porTi).sort().map(ti=>`<div style="margin-top:4px"><b style="color:var(--naranja)">— ${TIEMPOS[ti]||('Tiempo '+ti)} —</b>${porTi[ti].map(t=>`<div>• ${t}</div>`).join("")}</div>`).join("");
+      return `<div class="grupo-mod"><div class="t">→ ${a}</div>${cuerpoTi}</div>`;
+    }).join("");
     $("modal").innerHTML=`<h3>¿Enviar a cocina/barra?</h3><p class="tenue">Se va a imprimir:</p>${bl}<div class="acciones"><button onclick="cancelarEnvio()">‹ Regresar</button><button class="ok" onclick="confirmarEnvio()">LISTO — enviar</button></div>`;
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudo preparar el envío.",e);}
@@ -1033,8 +1045,8 @@ function buildCorteFullDoc(){
   }
   const c=d.cuentas,cj=d.caja; const colL=14,colR=113,ancho=90,y0=42;
   let yl=bloque(colL,y0,ancho,'CUENTAS',[
-    {l:'Normales',v:c.normales},{l:'Canceladas',v:c.canceladas},{l:'Con descuento',v:c.con_descuento},
-    {l:'Comensales',v:c.comensales},{l:'Importe promedio',v:c.importe_promedio},{l:'Promedio x comensal',v:c.prom_x_comensal}]);
+    {l:'Normales (cerradas)',v:String(c.normales)},{l:'Canceladas',v:String(c.canceladas)},{l:'Con descuento',v:String(c.con_descuento)},
+    {l:'Comensales',v:String(c.comensales)},{l:'Importe promedio',v:c.importe_promedio},{l:'Promedio x comensal',v:c.prom_x_comensal}]);
   const cajaFilas=[]; if(cj.fondo_inicial)cajaFilas.push({l:'Fondo inicial',v:cj.fondo_inicial});
   cajaFilas.push({l:'+ Efectivo (ventas)',v:cj.efectivo_ventas},{l:'+ Depositos',v:cj.depositos},{l:'- Retiros',v:cj.retiros},
     {l:'- Propinas pagadas',v:cj.propinas_pagadas},{l:'= Efectivo esperado',v:esp,b:true,sep:true},{l:'Declarado',v:decl},
