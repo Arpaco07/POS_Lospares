@@ -89,6 +89,7 @@
 </script>
 <header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
+  <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
@@ -227,6 +228,48 @@ async function datosRango(){
 
 state.rep={cat:null,sub:null};
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+async function pintarMonitor(){
+  await cargarMonitor();
+  if(!window._monTimer){ window._monTimer=setInterval(()=>{ if(state.vista==='monitor') cargarMonitor(); }, 10000); }
+}
+async function cargarMonitor(){
+  let d;
+  try{ const r=await sb.rpc("monitor_dia",{p_fecha:new Date().toISOString().slice(0,10)}); if(r.error)throw r.error; d=r.data; }
+  catch(e){ $("main").innerHTML=`<div class="pad"><h2>Monitor</h2><div class="aviso err">No se pudo cargar: ${(e&&e.message)||e}</div></div>`; return; }
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const hora=new Date(d.actualizado).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const abiertas=(d.abiertas||[]).map(a=>{
+    const min=Math.max(0,Math.round((Date.now()-new Date(a.desde).getTime())/60000));
+    return `<div class="cta"><div class="info"><div class="n">${a.nombre} · <span class="tenue">${a.folio||''}</span></div><small>${a.mesero||''} · lleva ${min} min</small></div><div class="t">${M(a.total)}</div></div>`;
+  }).join("") || '<div class="tenue">No hay mesas abiertas ahora.</div>';
+  const top=(d.top_productos||[]).map((p,i)=>`<div class="row"><span>${i+1}. ${p.nombre} <span class="tenue">(${Number(p.cantidad)})</span></span><span>${M(p.importe)}</span></div>`).join("") || '<div class="tenue">Aún no hay ventas.</div>';
+
+  $("main").innerHTML=`<div class="pad">
+    <h2>📊 Monitor de ventas <span class="tenue" style="font-size:13px;font-weight:400">· en vivo, actualiza solo · ${hora}</span></h2>
+    <div class="kpis">
+      <div class="kpi big"><div class="l">Venta del día</div><div class="v">${M(d.venta_dia)}</div></div>
+      <div class="kpi"><div class="l">Cuentas cerradas</div><div class="v">${d.cuentas_cerradas}</div></div>
+      <div class="kpi"><div class="l">Comensales</div><div class="v">${d.comensales}</div></div>
+      <div class="kpi"><div class="l">Ticket promedio</div><div class="v">${M(d.ticket_promedio)}</div></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Mesas abiertas</div><div class="v">${d.num_abiertas}</div></div>
+      <div class="kpi"><div class="l">En piso (por cobrar)</div><div class="v">${M(d.total_abierto)}</div></div>
+      <div class="kpi"><div class="l">Propinas del día</div><div class="v">${M(d.propinas)}</div></div>
+    </div>
+    <div class="sec-t">¿Cómo va entrando el dinero? (cobrado)</div>
+    <div class="tot">
+      <div class="row"><span>Efectivo</span><span>${M(d.efectivo)}</span></div>
+      <div class="row"><span>Tarjeta</span><span>${M(d.tarjeta)}</span></div>
+      <div class="row"><span>Transferencia</span><span>${M(d.transferencia)}</span></div>
+      <div class="row"><span>Vales / Otros</span><span>${M(d.otros)}</span></div>
+      <div class="row" style="font-weight:800;border-top:1px solid var(--gris2);margin-top:4px;padding-top:6px"><span>Total cobrado</span><span>${M(Number(d.efectivo)+Number(d.tarjeta)+Number(d.transferencia)+Number(d.otros))}</span></div>
+    </div>
+    <div class="sec-t">Mesas abiertas ahora</div><div>${abiertas}</div>
+    <div class="sec-t" style="margin-top:14px">Lo más vendido hoy</div><div class="tot">${top}</div>
+    <p class="tenue" style="margin-top:10px">Se actualiza cada 10 segundos. Puedes dejar esta pantalla abierta.</p>
+  </div>`;
+}
 async function pintarReportes(){
   if(!state.rep) state.rep={cat:null,sub:null};
   $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
@@ -328,6 +371,8 @@ window.repSubVolver=()=>{state.rep.sub=null;pintarReportes();};
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
+  if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
+  if(state.vista==='monitor'){return pintarMonitor();}
   if(state.vista==='reportes'){return pintarReportes();}
   if(state.vista==='menu'){return pintarMenu();}
   if(state.vista==='empleados'){return pintarEmpleados();}
