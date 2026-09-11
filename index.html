@@ -429,14 +429,14 @@ async function agregar(p,cant,peso,op,nota,tiempo){try{const{data:l,error}=await
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
 
-async function lineasCuenta(){const{data,error}=await sb.from("cuenta_producto").select("id,peso_kg,importe,es_cortesia,estado,producto_id,subcuenta_id").eq("cuenta_id",state.cuentaId).neq("estado","CANCELADO").order("id");if(error)throw error;return data||[];}
+async function lineasCuenta(){const{data,error}=await sb.from("cuenta_producto").select("id,cantidad,peso_kg,importe,es_cortesia,estado,producto_id,subcuenta_id").eq("cuenta_id",state.cuentaId).neq("estado","CANCELADO").order("id");if(error)throw error;return data||[];}
 async function modsDe(ids){const{data}=await sb.from("cuenta_producto_modificador").select("cuenta_producto_id,nombre").in("cuenta_producto_id",ids);const m={};(data||[]).forEach(x=>{(m[x.cuenta_producto_id]||=[]).push(x.nombre);});return m;}
 
 /* ---- Ver comanda (editar) ---- */
 async function verCuentaEditable(){
   try{const l=await lineasCuenta();if(!l.length){flash("La comanda está vacía");return;}
     const mpl=await modsDe(l.map(x=>x.id));
-    const filas=l.map(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const sub=[x.peso_kg?`${x.peso_kg} kg`:null,(mpl[x.id]||[]).join(", ")||null,x.estado==='IMPRESO'?'enviado':null].filter(Boolean).join(" · ");
+    const filas=l.map(x=>{const nomBase=cache.prodById[x.producto_id]?.nombre||"";const cant=Number(x.cantidad)||1;const nom=(cant>1&&!x.peso_kg?cant+'x ':'')+nomBase;const sub=[x.peso_kg?`${x.peso_kg} kg`:null,(mpl[x.id]||[]).join(", ")||null,x.estado==='IMPRESO'?'enviado':null].filter(Boolean).join(" · ");
       return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}<button class="x" title="Repetir (pedir otro igual)" style="background:var(--verde)" onclick="repetirProducto(${x.producto_id})">🔁</button>${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button><button class="x" title="Quitar (aún no enviado)" onclick="quitarLinea(${x.id},'PENDIENTE','${esc(nom)}')">🗑</button>`:`<button class="x" title="Cancelar (ya enviado — pide admin)" style="background:#a12" onclick="quitarLinea(${x.id},'IMPRESO','${esc(nom)}')">✕</button>`}</div>`;}).join("");
     $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="cancelar" onclick="cerrarModal()">Seguir pidiendo</button><button class="ok" style="background:var(--negro)" onclick="cerrarModal();verCuenta()">🧾 Ver ticket</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo leer la comanda.",e);}
@@ -507,7 +507,7 @@ async function verCuenta(){
     l.forEach(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const m=(mpl[x.id]||[]).join(", ");
       const clave=[x.producto_id,x.peso_kg||'',m,x.es_cortesia?'C':'', Number(x.importe).toFixed(2)].join("|");
       if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,mods:m,cort:x.es_cortesia,importe:Number(x.importe),cant:0,suma:0};
-      grupos[clave].cant+=1; grupos[clave].suma+=Number(x.importe);});
+      grupos[clave].cant+=(Number(x.cantidad)||1); grupos[clave].suma+=Number(x.importe);});
     const filas=Object.values(grupos).map(g=>{
       const etq=(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.mods?` · ${g.mods}`:'');
       const imp=g.cort?'CORTESÍA':'$'+g.suma.toFixed(2);
@@ -623,7 +623,7 @@ async function renderCobro(){
 async function pintarCobro(){
   let l=[];try{l=await lineasCuenta();}catch(e){}
   const mpl=await modsDe(l.map(x=>x.id));
-  const filas=l.map(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";return `<div class="lin"><div class="info"><div class="n">${nom}</div></div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}</div>`;}).join("");
+  const filas=l.map(x=>{const nomBase=cache.prodById[x.producto_id]?.nombre||"";const cant=Number(x.cantidad)||1;const nom=(cant>1&&!x.peso_kg?cant+'x ':'')+nomBase;return `<div class="lin"><div class="info"><div class="n">${nom}</div></div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}</div>`;}).join("");
   const total=Number(state.cobro.total);const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);
   const restan=Math.max(total+state.propina-pagado,0);const cambio=Math.max(pagado-(total+state.propina),0);
   const pOn10=state.propina>0&&Math.abs(state.propina-total*0.10)<0.01;
