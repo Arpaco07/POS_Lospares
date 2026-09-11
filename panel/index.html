@@ -86,6 +86,7 @@
   /* CAJITA LOCAL — vacío hasta montar la mini PC */
   const LOCAL_URL="https://pos.lospares.com";
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+  const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
 <header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
@@ -106,17 +107,19 @@
 <script>
 const $=(id)=>document.getElementById(id);
 let sb=null, modo="NUBE";
+async function probarConexion(url,llave){
+  try{
+    const cli=window.supabase.createClient(url,llave);
+    const ok=await Promise.race([
+      cli.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
+      new Promise(r=>setTimeout(()=>r(false),4500))
+    ]);
+    return ok?cli:null;
+  }catch(e){ return null; }
+}
 async function conectar(){
-  if(LOCAL_URL && LOCAL_LLAVE){
-    try{
-      const loc=window.supabase.createClient(LOCAL_URL,LOCAL_LLAVE);
-      const ok=await Promise.race([
-        loc.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
-        new Promise(r=>setTimeout(()=>r(false),4500))
-      ]);
-      if(ok){modo="LOCAL";return loc;}
-    }catch(e){}
-  }
+  if(LOCAL_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
+  if(LOCAL_IP_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_IP_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
   modo="NUBE";
   return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
 }
