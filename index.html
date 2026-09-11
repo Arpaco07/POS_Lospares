@@ -136,8 +136,11 @@
        const LOCAL_LLAVE = "llave-anon-de-la-cajita"; */
   const LOCAL_URL = "https://pos.lospares.com";
   const LOCAL_LLAVE = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+  /* IP directa de la HP (funciona SIN internet, cuando el dominio no resuelve) */
+  const LOCAL_IP_URL = "http://192.168.88.254:8080";
   /* Asistente de impresión (corre en la HP). Vacío = no imprime en papel. */
   const PRINT_AGENT = "https://pos.lospares.com/print";
+  const PRINT_AGENT_IP = "http://192.168.88.254:9110";
   const LOGO = "data:image/png;base64,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";
 </script>
 <header>
@@ -159,19 +162,30 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script>
 const $=(id)=>document.getElementById(id);
-let sb=null, modo="NUBE";
+let sb=null, modo="NUBE", PRINT_URL="";
+async function probarConexion(url,llave){
+  try{
+    const cli=window.supabase.createClient(url,llave);
+    const ok=await Promise.race([
+      cli.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
+      new Promise(r=>setTimeout(()=>r(false),4500))
+    ]);
+    return ok?cli:null;
+  }catch(e){ return null; }
+}
 async function conectar(){
+  // 1) LOCAL por dominio bonito (pos.lospares.com) — necesita que el dominio resuelva
   if(LOCAL_URL && LOCAL_LLAVE){
-    try{
-      const loc=window.supabase.createClient(LOCAL_URL,LOCAL_LLAVE);
-      const ok=await Promise.race([
-        loc.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
-        new Promise(r=>setTimeout(()=>r(false),4500))
-      ]);
-      if(ok){modo="LOCAL";return loc;}
-    }catch(e){}
+    const c=await probarConexion(LOCAL_URL,LOCAL_LLAVE);
+    if(c){modo="LOCAL";PRINT_URL=PRINT_AGENT;return c;}
   }
-  modo="NUBE";
+  // 2) LOCAL por IP directa (funciona SIN internet)
+  if(LOCAL_IP_URL && LOCAL_LLAVE){
+    const c=await probarConexion(LOCAL_IP_URL,LOCAL_LLAVE);
+    if(c){modo="LOCAL";PRINT_URL=PRINT_AGENT_IP;return c;}
+  }
+  // 3) NUBE (solo si hay internet y la HP no responde)
+  modo="NUBE";PRINT_URL="";
   return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
 }
 function badgeModo(){return modo==="LOCAL"
@@ -528,9 +542,9 @@ async function verCuenta(){
 }
 async function imprimirTicket(){
   // Si hay asistente, imprime directo en la impresora de CAJA por IP (sin diálogo de Windows)
-  if(PRINT_AGENT && window._ticketData){
+  if(PRINT_URL && window._ticketData){
     try{
-      const r=await fetch(PRINT_AGENT+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(window._ticketData)});
+      const r=await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(window._ticketData)});
       const j=await r.json();
       if(j.ok){ flash("Ticket impreso en caja ✓"); return; }
       flash("No se pudo imprimir en caja; abriendo impresión…");
@@ -591,8 +605,8 @@ window.confirmarEnvio=async()=>{
     const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"})
       .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
     if(up.error)throw up.error;
-    if(PRINT_AGENT){
-      try{ await fetch(PRINT_AGENT+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:env.porAreaImp})}); }
+    if(PRINT_URL){
+      try{ await fetch(PRINT_URL+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:env.porAreaImp})}); }
       catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
     }
     window._envio=null; cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
@@ -794,7 +808,7 @@ window.finParte=async(sub,clave,nombre,debe,prop)=>{
   }catch(e){err("No se pudo cobrar la parte.",e);}
 };
 async function imprimirParte(sub,formaNom,debe,prop){
-  if(!PRINT_AGENT)return;
+  if(!PRINT_URL)return;
   try{
     const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
     const p=(partes||[]).find(x=>x.subcuenta_id===sub); if(!p)return;
@@ -805,7 +819,7 @@ async function imprimirParte(sub,formaNom,debe,prop){
     }else{
       items=[{nombre:p.etiqueta+" (parte igual)",importe:Number(p.debe)}];
     }
-    await fetch(PRINT_AGENT+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
+    await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({encabezado:{mesa:state.mesaNom+" · "+p.etiqueta,folio:p.folio||'',fecha:new Date().toLocaleString('es-MX'),mesero:state.mesero.nombre},
         items:items,subtotal:debe,propina:prop,total:debe+prop,pago:formaNom})});
   }catch(e){ /* si el asistente está apagado, no truena */ }
