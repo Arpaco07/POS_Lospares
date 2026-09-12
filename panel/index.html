@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Servidor — Los Pares 84×88</title>
 <style>
-  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#f3f2ef;--gris2:#e7e5e0;--texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--rojo:#c0392b;--blanco:#fff;--barra:58px;}
+  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#f3f2ef;--gris2:#e7e5e0;--texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--rojo:#c0392b;--blanco:#fff;--oro:#d4af37;--oro2:#8b6914;--barra:58px;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh}
   button{font-family:inherit;cursor:pointer;border:none;background:none}
-  header{height:var(--barra);background:var(--negro);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 14px}
-  header .marca{font-weight:700}.marca b{color:var(--naranja)}
-  header .tag{background:var(--naranja);color:#fff;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700}
-  header .ctx{margin-left:auto;font-size:14px;color:#d8d4cc}
+  header{height:var(--barra);background:linear-gradient(180deg,#232019,#141210);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:2px solid var(--oro);box-shadow:0 2px 10px rgba(0,0,0,.35)}
+  header .marca{font-weight:800;font-size:18px;letter-spacing:.3px;display:flex;align-items:baseline;gap:7px}.marca b{color:var(--naranja)}
+  header .marca .mnum{font-size:11px;font-weight:700;color:var(--oro);letter-spacing:2px;border:1px solid rgba(212,175,55,.5);border-radius:6px;padding:2px 6px;font-style:normal}
+  header .tag{background:transparent;color:var(--oro);border:1px solid rgba(212,175,55,.6);border-radius:999px;padding:3px 11px;font-size:11px;font-weight:800;letter-spacing:1px}
+  header .ctx{margin-left:auto;font-size:14px;color:#e9e3d3}
   nav{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;background:#fff;border-bottom:1px solid var(--gris2);padding:8px 12px}
   nav button{white-space:nowrap;padding:10px 16px;border-radius:10px;font-weight:700;color:var(--texto);background:var(--gris)}
   nav button.on{background:var(--negro);color:#fff}
@@ -41,13 +42,19 @@
   .cta{background:#fff;border:1px solid var(--gris2);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;margin-bottom:8px}
   .cta .info{flex:1}.cta .info .n{font-weight:700}.cta .info small{color:var(--tenue)}
   .cta .t{font-weight:800}.cta button{background:#fdecea;color:var(--rojo);border:1px solid #f5c6c0;border-radius:9px;padding:9px 13px;font-weight:700}
-  .pin{max-width:340px;margin:24px auto;text-align:center}
-  .pin .titulo{font-size:18px;font-weight:700;margin-bottom:14px}
-  .pin .dots{height:26px;margin-bottom:18px;letter-spacing:12px;font-size:34px}
+  .login{min-height:100%;background:radial-gradient(120% 90% at 50% 18%,#2a2620 0%,#161412 55%,#0c0b0a 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 16px 44px}
+  .login-logo{width:126px;height:126px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.55));margin-bottom:2px}
+  .login-marca{font-size:26px;font-weight:800;color:#f6f1e6;letter-spacing:.5px}
+  .login-marca b{color:var(--naranja)}
+  .login-sub{font-size:11px;font-weight:800;letter-spacing:3px;color:var(--oro);border:1px solid rgba(212,175,55,.5);border-radius:999px;padding:4px 13px;margin-top:8px}
+  .pin{width:100%;max-width:330px;margin:18px auto 0;text-align:center}
+  .pin .titulo{font-size:14px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#c9c1b0;margin-bottom:16px}
+  .pin .dots{height:26px;margin-bottom:20px;letter-spacing:14px;font-size:34px;color:var(--oro)}
   .pin .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  .pin .teclado button{background:#fff;border:1px solid var(--gris2);border-radius:14px;padding:20px 0;font-size:24px;font-weight:700}
-  .pin .teclado .ok{background:var(--naranja);color:#fff}
-  .pin .err{color:var(--rojo);font-weight:700;min-height:20px;margin-top:12px}
+  .pin .teclado button{background:linear-gradient(180deg,#2c2822,#211e19);border:1px solid rgba(212,175,55,.22);color:#f2ecdd;border-radius:16px;padding:20px 0;font-size:24px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+  .pin .teclado button:active{background:#39332a}
+  .pin .teclado .ok{background:linear-gradient(180deg,#e1622c,#c94f1e);color:#fff;border:none;box-shadow:0 3px 12px rgba(225,98,44,.45)}
+  .pin .err{color:#ff8a7a;font-weight:700;min-height:20px;margin-top:14px}
   .aviso{padding:12px 14px;border-radius:10px;margin:12px 0;font-size:14px}
   .aviso.ok{background:#e8f5ec;color:#1e6b38;border:1px solid #bfe2ca}
   .aviso.err{background:#fdecea;color:#a5281b;border:1px solid #f5c6c0}
@@ -88,7 +95,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b></span><span class="tag">PANEL SERVIDOR</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
@@ -124,8 +131,8 @@ async function conectar(){
   return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
 }
 function badgeModo(){return modo==="LOCAL"
-  ?'<span style="background:#2e7d46;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">● LOCAL</span>'
-  :'<span style="background:#2f6fb0;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">☁ NUBE</span>';}
+  ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">● LOCAL</span>'
+  :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">☁ NUBE</span>';}
 const state={admin:null,pin:"",vista:"ventas",rango:null};
 const cache={empleados:{},formas:{},areas:{}};
 
@@ -146,9 +153,13 @@ async function init(){
 function renderLogin(){
   state.admin=null;state.pin="";$("nav").style.display="none";$("ctx").textContent="";
   const t=[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="pinT('${n}')">${n}</button>`).join("");
-  $("main").innerHTML=`<div class="pin"><div class="titulo">PIN de administrador</div><div class="dots" id="dots"></div>
+  $("main").innerHTML=`<div class="login">
+    <img class="login-logo" src="../logo-pin.png" alt="Los Pares 84x88" onerror="this.style.display='none'">
+    <div class="login-marca">Los <b>Pares</b></div>
+    <div class="login-sub">PANEL · ADMIN</div>
+    <div class="pin"><div class="titulo">PIN de administrador</div><div class="dots" id="dots"></div>
     <div class="teclado">${t}<button onclick="pinB()">←</button><button onclick="pinT('0')">0</button><button class="ok" onclick="pinE()">Entrar</button></div>
-    <div class="err" id="err"></div></div>`;dots();
+    <div class="err" id="err"></div></div></div>`;dots();
 }
 function dots(){$("dots").textContent="•".repeat(state.pin.length);}
 window.pinT=(n)=>{if(state.pin.length<8){state.pin+=n;dots();$("err").textContent="";}};
