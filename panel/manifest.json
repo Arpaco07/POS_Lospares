@@ -1,16 +1,16 @@
 {
-  "id": "/panel/",
-  "name": "Panel Servidor Los Pares 84x88",
-  "short_name": "Panel Los Pares",
-  "start_url": "./index.html",
+  "name": "Los Pares — Panel",
+  "short_name": "Panel",
+  "description": "Panel de administración Los Pares 84×88",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "any",
   "background_color": "#1c1c1c",
-  "theme_color": "#e1622c",
+  "theme_color": "#1c1c1c",
   "icons": [
-    { "src": "../icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "../icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "../icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+    { "src": "../icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "../icon-512.png",          "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "../icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "../icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
