@@ -6,16 +6,17 @@
 <title>Los Pares 84×88 — Punto de venta</title>
 <style>
   :root{--negro:#1c1c1c;--naranja:#e1622c;--naranja2:#c94f1e;--gris:#f3f2ef;--gris2:#e7e5e0;
-    --texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--azul:#2f6fb0;--rojo:#c0392b;--blanco:#fff;--barra:60px;--footer:74px;}
+    --texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--azul:#2f6fb0;--rojo:#c0392b;--blanco:#fff;--oro:#d4af37;--oro2:#8b6914;--barra:60px;--footer:74px;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh;overscroll-behavior:none}
   button{font-family:inherit;cursor:pointer;border:none;background:none}
-  header{height:var(--barra);background:var(--negro);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 14px}
-  header .marca{font-weight:700}.marca b{color:var(--naranja)}
-  header .ctx{margin-left:auto;font-size:14px;color:#d8d4cc;text-align:right;line-height:1.2}
-  header .ctx small{display:block;color:#9a948a;font-size:12px}
-  header button.volver{background:#333;color:#fff;border-radius:8px;padding:8px 12px;font-size:14px}
+  header{height:var(--barra);background:linear-gradient(180deg,#232019,#141210);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:2px solid var(--oro);box-shadow:0 2px 10px rgba(0,0,0,.35)}
+  header .marca{font-weight:800;font-size:18px;letter-spacing:.3px;display:flex;align-items:baseline;gap:7px}.marca b{color:var(--naranja)}
+  header .marca .mnum{font-size:11px;font-weight:700;color:var(--oro);letter-spacing:2px;border:1px solid rgba(212,175,55,.5);border-radius:6px;padding:2px 6px;font-style:normal}
+  header .ctx{margin-left:auto;font-size:14px;color:#e9e3d3;text-align:right;line-height:1.2}
+  header .ctx small{display:block;color:#b7ad95;font-size:12px}
+  header button.volver{background:rgba(255,255,255,.10);color:#fff;border:1px solid rgba(212,175,55,.35);border-radius:8px;padding:8px 12px;font-size:14px}
   main{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch}.pad{padding:14px}
   h2{margin:4px 0 12px;font-size:18px}.tenue{color:var(--tenue)}
   .grid{display:grid;gap:10px}.grid.mesas{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
@@ -30,13 +31,18 @@
   .tile.accion small{display:block;font-weight:500;font-size:12px;opacity:.9}
   .tile.gris{background:#efeee9}
   .tile .quitar{position:absolute;top:4px;right:6px;color:var(--rojo);font-weight:800;font-size:14px;padding:2px 6px}
-  .pin{max-width:340px;margin:20px auto;text-align:center}
-  .pin .titulo{font-size:18px;font-weight:700;margin-bottom:14px}
-  .pin .dots{height:26px;margin-bottom:18px;letter-spacing:12px;font-size:34px}
+  .login{min-height:100%;background:radial-gradient(120% 90% at 50% 18%,#2a2620 0%,#161412 55%,#0c0b0a 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 16px 44px}
+  .login-logo{width:132px;height:132px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.55));margin-bottom:2px}
+  .login-marca{font-size:26px;font-weight:800;color:#f6f1e6;letter-spacing:.5px;margin-bottom:4px}
+  .login-marca b{color:var(--naranja)}
+  .pin{width:100%;max-width:330px;margin:16px auto 0;text-align:center}
+  .pin .titulo{font-size:14px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#c9c1b0;margin-bottom:16px}
+  .pin .dots{height:26px;margin-bottom:20px;letter-spacing:14px;font-size:34px;color:var(--oro)}
   .pin .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  .pin .teclado button{background:var(--blanco);border:1px solid var(--gris2);border-radius:14px;padding:20px 0;font-size:24px;font-weight:700}
-  .pin .teclado .ok{background:var(--naranja);color:#fff;border-color:var(--naranja)}
-  .pin .err{color:var(--rojo);font-weight:700;min-height:20px;margin-top:12px}
+  .pin .teclado button{background:linear-gradient(180deg,#2c2822,#211e19);border:1px solid rgba(212,175,55,.22);color:#f2ecdd;border-radius:16px;padding:20px 0;font-size:24px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+  .pin .teclado button:active{background:#39332a}
+  .pin .teclado .ok{background:linear-gradient(180deg,#e1622c,#c94f1e);color:#fff;border:none;box-shadow:0 3px 12px rgba(225,98,44,.45)}
+  .pin .err{color:#ff8a7a;font-weight:700;min-height:20px;margin-top:14px}
   .navtop{position:sticky;top:0;z-index:6;background:var(--gris);border-bottom:1px solid var(--gris2)}
   .seccbar{display:flex;gap:8px;padding:12px 14px 6px}
   .seccbar button{flex:1;padding:13px 6px;border-radius:12px;font-weight:700;font-size:15px;background:var(--blanco);border:1px solid var(--gris2);color:var(--texto)}
@@ -145,7 +151,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b></span> <span id="modo"></span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none;margin-left:auto">🔄 Menú</button>
 </header>
@@ -189,8 +195,8 @@ async function conectar(){
   return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
 }
 function badgeModo(){return modo==="LOCAL"
-  ?'<span style="background:#2e7d46;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">● LOCAL</span>'
-  :'<span style="background:#2f6fb0;color:#fff;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700">☁ NUBE</span>';}
+  ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">● LOCAL</span>'
+  :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">☁ NUBE</span>';}
 const SECCIONES=[{clave:"DESAYUNO",nombre:"Desayuno"},{clave:"COMIDA",nombre:"Comida"},{clave:"BEBIDAS",nombre:"Bebidas"},{clave:"BOUTIQUE",nombre:"Boutique"}];
 const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:null,mesaTipo:null,cuentaId:null,
              seccionSel:null,grupoSel:null,filtro:"",cobro:null,propina:0,pagos:[]};
@@ -246,9 +252,12 @@ function renderLogin(){
   Object.assign(state,{mesero:null,pin:"",cuentaId:null,mesaId:null,vista:"login"});
   $("footer").style.display="none";$("btnVolver").style.display="none";$("btnRefrescar").style.display="none";$("ctx").innerHTML="";
   const t=[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="pinT('${n}')">${n}</button>`).join("");
-  $("main").innerHTML=`<div class="pin"><div class="titulo">Escribe tu PIN</div><div class="dots" id="dots"></div>
+  $("main").innerHTML=`<div class="login">
+    <img class="login-logo" src="logo-pin.png" alt="Los Pares 84x88" onerror="this.style.display='none'">
+    <div class="login-marca">Los <b>Pares</b></div>
+    <div class="pin"><div class="titulo">Escribe tu PIN</div><div class="dots" id="dots"></div>
     <div class="teclado">${t}<button onclick="pinB()">←</button><button onclick="pinT('0')">0</button><button class="ok" onclick="pinE()">Entrar</button></div>
-    <div class="err" id="err"></div></div>`; dots();
+    <div class="err" id="err"></div></div></div>`; dots();
 }
 function dots(){$("dots").textContent="•".repeat(state.pin.length);}
 window.pinT=(n)=>{if(state.pin.length<8){state.pin+=n;dots();$("err").textContent="";}};
