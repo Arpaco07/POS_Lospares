@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Los Pares 84×88 — Punto de venta</title>
 <style>
-  :root{--negro:#1c1c1c;--naranja:#e1622c;--naranja2:#c94f1e;--gris:#f3f2ef;--gris2:#e7e5e0;
-    --texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--azul:#2f6fb0;--rojo:#c0392b;--blanco:#fff;--oro:#d4af37;--oro2:#8b6914;--barra:60px;--footer:74px;}
+  :root{--negro:#1c1c1c;--naranja:#e1622c;--naranja2:#c94f1e;--gris:#141210;--gris2:#39332b;
+    --texto:#efe7d6;--tenue:#a89e89;--verde:#2e7d46;--azul:#2f6fb0;--rojo:#c0392b;--blanco:#201d18;--oro:#d4af37;--oro2:#8b6914;--barra:60px;--footer:74px;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh;overscroll-behavior:none}
@@ -122,6 +122,24 @@
     .seccbar button{font-size:13px;padding:12px 4px}
     .prods{grid-template-columns:repeat(auto-fill,minmax(48%,1fr))}
   }
+  /* ===== Tema oscuro del comandero (Fase 3) ===== */
+  .buscar{background:var(--blanco);color:var(--texto)}
+  .buscar::placeholder{color:var(--tenue)}
+  .linea,.lin{border-bottom-color:var(--gris2)}
+  .chip.on{background:var(--oro);color:#1c1c1c;border-color:var(--oro)}
+  .opt.on{background:var(--oro);color:#1c1c1c;border-color:var(--oro)}
+  .tile.priv{background:#262320;border-color:#3a352b}
+  .tile.nombrada{background:#1b2530;border-color:#2f4257;color:var(--texto)}
+  .tile.gris{background:#26221c}
+  footer .b2{background:var(--oro);color:#1c1c1c}
+  th{background:#26221c}
+  .tot-row td{background:#26221c}
+  .pago{background:#26221c}
+  .peso-in{background:#26221c;color:var(--texto)}
+  .modal{background:var(--blanco)}
+  .setup{background:var(--blanco)}
+  .aviso.ok{background:rgba(46,125,70,.16);color:#8fd6a5;border-color:rgba(46,125,70,.45)}
+  .aviso.err{background:rgba(192,57,43,.16);color:#ff9c90;border-color:rgba(192,57,43,.45)}
 </style>
 <link rel="manifest" href="manifest_comandero.json">
 <link rel="apple-touch-icon" href="icono-180.png">
