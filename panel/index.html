@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Servidor — Los Pares 84×88</title>
 <style>
-  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#f3f2ef;--gris2:#e7e5e0;--texto:#1c1c1c;--tenue:#8a857c;--verde:#2e7d46;--rojo:#c0392b;--blanco:#fff;--oro:#d4af37;--oro2:#8b6914;--barra:58px;}
+  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#141210;--gris2:#39332b;--texto:#efe7d6;--tenue:#a89e89;--verde:#2e7d46;--rojo:#c0392b;--blanco:#201d18;--oro:#d4af37;--oro2:#8b6914;--barra:58px;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh}
-  button{font-family:inherit;cursor:pointer;border:none;background:none}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
   header{height:var(--barra);background:linear-gradient(180deg,#232019,#141210);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:2px solid var(--oro);box-shadow:0 2px 10px rgba(0,0,0,.35)}
   header .marca{font-weight:800;font-size:18px;letter-spacing:.3px;display:flex;align-items:baseline;gap:7px}.marca b{color:var(--naranja)}
   header .marca .mnum{font-size:11px;font-weight:700;color:var(--oro);letter-spacing:2px;border:1px solid rgba(212,175,55,.5);border-radius:6px;padding:2px 6px;font-style:normal}
@@ -77,6 +77,26 @@
   .mitem .pr{font-weight:800;color:var(--naranja)}
   .mitem button{background:var(--gris);border:1px solid var(--gris2);border-radius:8px;padding:8px 11px;font-weight:700;font-size:13px}
   .nuevo{background:var(--verde);color:#fff;border-radius:11px;padding:13px;font-weight:800;width:100%;margin-bottom:12px}
+  /* ===== Tema oscuro del panel (Fase 3) ===== */
+  nav{background:var(--blanco)}
+  nav button.on{background:var(--oro);color:#1c1c1c}
+  .rango button{background:var(--blanco)}
+  .rango input{background:var(--blanco);color:var(--texto)}
+  .kpi{background:var(--blanco)}
+  table{background:var(--blanco)}
+  th,td{border-bottom-color:var(--gris2)}
+  th{background:#26221c}
+  .tot-row td{background:#26221c}
+  .barras{background:var(--blanco)}
+  .cta{background:var(--blanco)}
+  .cta button{background:rgba(192,57,43,.16);color:#ff9c90;border-color:rgba(192,57,43,.45)}
+  .aviso.ok{background:rgba(46,125,70,.16);color:#8fd6a5;border-color:rgba(46,125,70,.45)}
+  .aviso.err{background:rgba(192,57,43,.16);color:#ff9c90;border-color:rgba(192,57,43,.45)}
+  .modal{background:var(--blanco)}
+  .modal input,.modal select{background:var(--blanco);color:var(--texto)}
+  .buscar{background:var(--blanco);color:var(--texto)}
+  .buscar::placeholder{color:var(--tenue)}
+  .mitem{background:var(--blanco)}
 </style>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icono-180.png">
