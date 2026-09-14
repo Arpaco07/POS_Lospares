@@ -465,7 +465,7 @@ async function verCuentaEditable(){
     const mpl=await modsDe(l.map(x=>x.id));
     const filas=l.map(x=>{const nomBase=cache.prodById[x.producto_id]?.nombre||"";const cant=Number(x.cantidad)||1;const nom=(cant>1&&!x.peso_kg?cant+'x ':'')+nomBase;const sub=[x.peso_kg?`${x.peso_kg} kg`:null,(mpl[x.id]||[]).join(", ")||null,x.estado==='IMPRESO'?'enviado':null].filter(Boolean).join(" · ");
       return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}<button class="x" title="Repetir (pedir otro igual)" style="background:var(--verde)" onclick="repetirProducto(${x.producto_id})">🔁</button>${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button><button class="x" title="Quitar (aún no enviado)" onclick="quitarLinea(${x.id},'PENDIENTE','${esc(nom)}')">🗑</button>`:`<button class="x" title="Cancelar (ya enviado — pide admin)" style="background:#a12" onclick="quitarLinea(${x.id},'IMPRESO','${esc(nom)}')">✕</button>`}</div>`;}).join("");
-    $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="cancelar" onclick="cerrarModal()">Seguir pidiendo</button><button class="ok" style="background:var(--negro)" onclick="cerrarModal();verCuenta()">🧾 Ver ticket</button></div>`;$("modalBg").classList.add("on");
+    $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="cancelar" onclick="cerrarModal()">Seguir pidiendo</button><button class="ok" style="background:#2f6fb0" onclick="reimprimir()">🖨️ Reimprimir</button><button class="ok" style="background:var(--negro)" onclick="cerrarModal();verCuenta()">🧾 Ver ticket</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo leer la comanda.",e);}
 }
 window.repetirProducto=async(prodId)=>{
@@ -638,6 +638,36 @@ window.confirmarEnvio=async()=>{
     }
     window._envio=null; cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
   }catch(e){err("No se pudo enviar.",e);}
+};
+/* ---- REIMPRIMIR: reenvía a cocina/barra lo YA enviado (no cobra ni duplica) ---- */
+window.reimprimir=async()=>{
+  if(!PRINT_URL){ flash("El asistente de impresión no está disponible (modo NUBE)."); return; }
+  try{
+    const{data:l,error}=await sb.from("cuenta_producto")
+      .select("id,cantidad,peso_kg,producto_id,area_impresion_id,nota_libre,tiempo")
+      .eq("cuenta_id",state.cuentaId).eq("estado","IMPRESO").order("tiempo");
+    if(error)throw error;
+    if(!l.length){ flash("No hay productos ya enviados para reimprimir."); return; }
+    if(!confirm("¿Reimprimir la comanda en cocina/barra?\n\nNo cobra ni duplica nada; solo vuelve a imprimir los productos ya enviados."))return;
+    const mpl=await modsDe(l.map(x=>x.id));
+    const porAreaImp={};
+    l.forEach(x=>{
+      const clave=cache.areaClaveById[x.area_impresion_id]||"CAJA";
+      const nomBase=cache.prodById[x.producto_id]?.nombre||"";
+      const cant=Number(x.cantidad)||1;
+      const cantTxt=(cant>1 && !x.peso_kg)?(cant+"x "):"";
+      const nom=cantTxt+nomBase;
+      const pesoTxt=x.peso_kg?`(${x.peso_kg}kg)`:'';
+      const modsTxt=(mpl[x.id]||[]).join(', ');
+      const notaTxt=x.nota_libre||'';
+      const partes=[pesoTxt,modsTxt,notaTxt?('* '+notaTxt):''].filter(Boolean).join(' · ');
+      const ti=Number(x.tiempo)||1;
+      (porAreaImp[clave]||={mesa:("REIMPRESIÓN · "+state.mesaNom),mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,cantidad:cant,extra:partes,tiempo:ti});
+    });
+    try{ await fetch(PRINT_URL+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:porAreaImp})}); }
+    catch(e){ /* si el asistente está apagado, no truena */ }
+    cerrarModal(); flash("Reimpreso en cocina/barra ✓"); renderComanda();
+  }catch(e){err("No se pudo reimprimir.",e);}
 };
 
 /* ---- COBRAR (registrar cómo pagó y cerrar) ---- */
