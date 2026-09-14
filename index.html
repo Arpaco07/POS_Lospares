@@ -315,7 +315,7 @@ async function renderInicio(){
       <button class="tile accion" onclick="nuevaMesaNombre()">＋ Mesa con nombre</button>
       <button class="tile accion" onclick="abrirRapida('PARA_LLEVAR')">Para llevar</button>
       <button class="tile accion" onclick="abrirRapida('MOSTRADOR')">Boutique<small>carne cruda</small></button>
-      ${(state.mesero.rol==='CAJERO'||state.mesero.rol==='ADMIN'||state.mesero.es_admin)?`<button class="tile" style="background:#2b2b2b;color:#fff;border-color:#2b2b2b" onclick="renderCorteCaja()">🧾 Corte de caja</button>`:''}
+      ${''}
     </div></div>`;
 }
 function baseSep(nom){ const num=String(nom||'').match(/\d+/); return num?num[0]:(nom+" "); }
@@ -864,8 +864,8 @@ async function hayTurnoAbierto(){
 }
 async function exigirTurno(){
   if(await hayTurnoAbierto()) return true;
-  alert("⚠️ Primero abre el TURNO del día.\n\nVe a 🧾 Corte de caja → Abrir turno (pon el fondo de caja) y luego cobra.\n\nSi no abres turno, la venta no aparece en el corte.");
-  renderCorteCaja(); return false;
+  alert("⚠️ No hay TURNO abierto.\n\nPídele al cajero o al administrador que abra el turno en el PANEL (Caja / Turno) antes de cobrar.");
+  return false;
 }
 async function cobrarYCerrar(){
   if(!(await exigirTurno()))return;
