@@ -120,6 +120,8 @@
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="cuentas" onclick="irA('cuentas')">Cuentas del día</button>
+
+  <button data-v="caja" onclick="irA('caja')">Caja / Turno</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
   <button data-v="menu" onclick="irA('menu')">Menú</button>
@@ -192,7 +194,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
     if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
     state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
     $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
-    document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && b.dataset.v!=='cuentas')?'none':''; });
+    const _permCajero=['cuentas','caja']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
     state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
@@ -417,6 +419,8 @@ async function render(){
   if(state.vista==='factura'){return pintarFactura();}
 
   if(state.vista==='cuentas'){return pintarCuentas();}
+
+  if(state.vista==='caja'){return pintarCaja();}
   $("main").innerHTML=`<div class="pad"><div class="cargando">Calculando…</div></div>`;
   try{
     const d=await datosRango();
@@ -866,6 +870,89 @@ window.anularCuentaP=async(id)=>{
   try{const r=await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});if(r.error)throw r.error;
     cerrarModal();okmsg("Cuenta anulada ✓");pintarCuentas();
   }catch(e){err("No se pudo anular.",e);}
+};
+/* ==== CAJA / TURNO — abrir turno, corte X/Z, dep/ret, WhatsApp (cajero+admin) ==== */
+const _WA={CARLA:"522871074899",ARTURO:"522871070222",PARES:"522878818488"};
+function tipoForma(id){return (cache.formas[id]&&cache.formas[id].tipo)||'OTRO';}
+async function tallyCaja(turnoId){
+  const {data:cerr}=await sb.from("cuenta").select("id,total").eq("turno_id",turnoId).eq("estado","CERRADA");
+  const {data:abi}=await sb.from("cuenta").select("id",{count:'exact',head:true}).eq("turno_id",turnoId).eq("estado","ABIERTA");
+  const ids=(cerr||[]).map(c=>c.id); let ef=0,tar=0,tra=0,prop=0,cort=0;
+  if(ids.length){
+    const {data:pg}=await sb.from("pago").select("importe,propina,forma_pago_id").in("cuenta_id",ids);
+    (pg||[]).forEach(p=>{const t=tipoForma(p.forma_pago_id);const v=Number(p.importe);if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;prop+=Number(p.propina||0);});
+    const {data:co}=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids);
+    cort=(co||[]).reduce((a,x)=>a+Number(x.importe),0);
+  }
+  let ret=0,dep=0;
+  try{const {data:mc}=await sb.from("movimiento_caja").select("tipo,monto").eq("turno_id",turnoId);
+    (mc||[]).forEach(m=>{if(m.tipo==='RETIRO')ret+=Number(m.monto);else if(m.tipo==='DEPOSITO')dep+=Number(m.monto);});}catch(e){}
+  return {ef,tar,tra,prop,cort,ret,dep,ventas:(cerr||[]).reduce((a,c)=>a+Number(c.total),0),n:(cerr||[]).length,abiertas:(abi&&abi.count)||0};
+}
+async function pintarCaja(){
+  const M=v=>'$'+Number(v||0).toFixed(2); const bb='width:auto;margin:0;padding:10px 14px';
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando caja…</div></div>`;
+  try{
+    const {data:tt}=await sb.from("turno").select("id,fondo_inicial,abierto_en").eq("estado","ABIERTO").order("abierto_en",{ascending:false}).limit(1);
+    const turno=(tt&&tt[0])||null;
+    if(!turno){
+      $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
+        <div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px;margin-bottom:12px">No hay turno abierto. Ábrelo al empezar el día, con el fondo de caja con el que inicias.</div>
+        <label style="font-weight:700;font-size:13px">Fondo inicial ($)</label>
+        <input id="fondoP" type="number" step="0.01" value="0" style="width:220px;display:block;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);margin:6px 0 14px">
+        <button class="nuevo" style="width:auto;max-width:260px" onclick="abrirTurnoP()">Abrir turno</button></div>`;
+      return;
+    }
+    const t=await tallyCaja(turno.id); const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret;
+    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
+    const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
+    $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
+      <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
+      ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s). Ciérralas (cóbralas) antes del Corte Z.</div>`:''}
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px">
+          <div class="sec-t">Efectivo en caja</div>
+          <table><tbody>
+            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('= Efectivo esperado',efEsper,true)}
+          </tbody></table>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="nuevo" style="${bb};background:#2f6fb0" onclick="movCajaP('DEPOSITO')">＋ Depósito</button>
+            <button class="nuevo" style="${bb};background:#8a6d1f" onclick="movCajaP('RETIRO')">− Retiro</button>
+          </div>
+        </div>
+        <div style="flex:1;min-width:280px">
+          <div class="sec-t">Resumen del turno</div>
+          <table><tbody>
+            ${row('Efectivo',t.ef)}${row('Tarjeta',t.tar)}${row('Transferencia',t.tra)}${row('Propinas',t.prop)}
+            <tr class="tenue"><td>· Mesero 70%</td><td class="n">${M(t.prop*0.7)}</td></tr>
+            <tr class="tenue"><td>· Bote cocina 30%</td><td class="n">${M(t.prop*0.3)}</td></tr>
+            ${row('Cortesías',t.cort)}${row('Cuentas cerradas',String(t.n))}${row('VENTA DEL TURNO',t.ventas,true)}
+          </tbody></table>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('CARLA')">📱 Carla</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('ARTURO')">📱 Arturo</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('PARES')">📱 Los Pares</button>
+        <button class="nuevo" style="${bb};background:#c0392b" ${t.abiertas>0?'disabled':''} onclick="corteZP(${turno.id})">🔒 Corte Z (cerrar turno)</button>
+      </div>
+      ${t.abiertas>0?'<p class="tenue" style="margin-top:6px">Para el Corte Z primero cobra las cuentas abiertas.</p>':''}
+    </div>`;
+  }catch(e){err("No se pudo cargar la caja.",e);}
+}
+window.abrirTurnoP=async()=>{const f=parseFloat($("fondoP").value)||0;
+  try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.admin.clave,p_fondo:f});if(r.error)throw r.error;okmsg("Turno abierto ✓");pintarCaja();}catch(e){err("No se pudo abrir turno.",e);}};
+window.movCajaP=async(tipo)=>{const et=tipo==='RETIRO'?'retiro (salida)':'depósito (entrada)';
+  const monto=parseFloat(prompt("Monto del "+et+" ($):","0")); if(isNaN(monto)||monto<=0){if(!isNaN(monto))alert("El monto debe ser mayor a 0.");return;}
+  const motivo=prompt("Motivo:")||null;
+  try{const r=await sb.rpc("registrar_movimiento_caja",{p_tipo:tipo,p_monto:monto,p_motivo:motivo,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;okmsg((tipo==='RETIRO'?"Retiro":"Depósito")+" registrado ✓");pintarCaja();}catch(e){err("No se pudo registrar el movimiento.",e);}};
+window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar."))return;
+  try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
+    const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;okmsg("Corte Z hecho, turno cerrado ✓");pintarCaja();}catch(e){err("No se pudo cerrar el turno.",e);}};
+window.waCaja=(quien)=>{ const d=window._cajaData; if(!d){alert("Primero abre la caja.");return;} const M=v=>'$'+Number(v||0).toFixed(2);
+  const t=`CORTE DE TURNO - Los Pares 84x88\n${d.fecha}\n\nEfectivo esperado: ${M(d.efEsper)}\n(Fondo ${M(d.fondo)} + efectivo ${M(d.ef)} + dep ${M(d.dep)} - ret ${M(d.ret)})\n\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVenta del turno: ${M(d.ventas)}\nPropinas: ${M(d.prop)} (Mesero ${M(d.prop*0.7)} / Bote ${M(d.prop*0.3)})\nCortesias: ${M(d.cort)}\nCuentas: ${d.n}`;
+  window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(t),'_blank');
 };
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
 function err(t,e){const m=(e&&(e.message||e.hint||e.details))||String(e);const d=document.createElement("div");d.className="aviso err";d.innerHTML=`<b>${t}</b><br>${m}`;d.style.cssText="position:fixed;bottom:20px;left:12px;right:12px;z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),6000);console.error(t,e);}
