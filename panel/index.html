@@ -119,6 +119,7 @@
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
+  <button data-v="cuentas" onclick="irA('cuentas')">Cuentas del día</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
   <button data-v="menu" onclick="irA('menu')">Menú</button>
@@ -153,7 +154,7 @@ async function conectar(){
 function badgeModo(){return modo==="LOCAL"
   ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">● LOCAL</span>'
   :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">☁ NUBE</span>';}
-const state={admin:null,pin:"",vista:"ventas",rango:null};
+const state={admin:null,pin:"",vista:"ventas",rango:null,soloLectura:false};
 const cache={empleados:{},formas:{},areas:{}};
 
 window.addEventListener("DOMContentLoaded",init);
@@ -187,9 +188,12 @@ window.pinB=()=>{state.pin=state.pin.slice(0,-1);dots();};
 window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy corto";return;}
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:state.pin});if(error)throw error;
     if(!data||!data.length){state.pin="";dots();$("err").textContent="PIN incorrecto";return;}
-    if(!data[0].es_admin){state.pin="";dots();$("err").textContent="Este panel es solo para administradores";return;}
-    state.admin=data[0];$("nav").style.display="flex";$("ctx").textContent=state.admin.nombre;
-    state.rango=rangoHoy();irA('ventas');
+    const u=data[0];
+    if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
+    state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
+    $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
+    document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && b.dataset.v!=='cuentas')?'none':''; });
+    state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
 
@@ -411,6 +415,8 @@ async function render(){
   if(state.vista==='menu'){return pintarMenu();}
   if(state.vista==='empleados'){return pintarEmpleados();}
   if(state.vista==='factura'){return pintarFactura();}
+
+  if(state.vista==='cuentas'){return pintarCuentas();}
   $("main").innerHTML=`<div class="pad"><div class="cargando">Calculando…</div></div>`;
   try{
     const d=await datosRango();
@@ -774,6 +780,93 @@ window.facPreparar=async()=>{
 };
 
 /* ---- util ---- */
+/* ==== CUENTAS DEL DÍA — ver (cajero) / corregir (solo admin) ==== */
+async function pintarCuentas(){
+  const r=state.rango||rangoHoy(); const M=v=>'$'+Number(v||0).toFixed(2);
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando cuentas…</div></div>`;
+  try{
+    const {data:cts,error}=await sb.from("cuenta")
+      .select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,cerrada_en")
+      .eq("estado","CERRADA").gte("cerrada_en",iso(r.ini)).lt("cerrada_en",iso(r.fin))
+      .order("cerrada_en",{ascending:false});
+    if(error)throw error;
+    const ids=(cts||[]).map(c=>c.id); let pagos=[];
+    if(ids.length){ const rp=await sb.from("pago").select("id,cuenta_id,forma_pago_id,importe,propina,referencia").in("cuenta_id",ids); pagos=rp.data||[]; }
+    window._ctasCache={cts:cts||[],pagos};
+    let tV=0,tP=0; const pf={};
+    (cts||[]).forEach(c=>tV+=Number(c.total));
+    pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';pf[t]=(pf[t]||0)+Number(p.importe);tP+=Number(p.propina||0);});
+    const filas=(cts||[]).map(c=>{
+      const mesero=cache.empleados[c.mesero_id]?.nombre||'';
+      const hora=c.cerrada_en?new Date(c.cerrada_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
+      const fps=pagos.filter(p=>p.cuenta_id===c.id).map(p=>cache.formas[p.forma_pago_id]?.nombre||'—').join(', ')||'—';
+      return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer"><td>${hora}</td><td>${esc(c.folio||('#'+c.id))}</td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>${esc(fps)}</td><td class="n">${M(c.total)}</td><td class="n">${M(c.propina)}</td></tr>`;
+    }).join("");
+    $("main").innerHTML=`<div class="pad">
+      <h2>Cuentas del día <span class="tenue" style="font-size:14px">· ${esc(r.label)}</span></h2>
+      ${state.soloLectura?`<div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px;margin-bottom:12px">Solo lectura. Las correcciones las hace un administrador (Carla).</div>`:''}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="kpi"><div class="l">Venta cobrada</div><div class="v">${M(tV)}</div></div>
+        <div class="kpi"><div class="l">Efectivo</div><div class="v">${M(pf.EFECTIVO||0)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta</div><div class="v">${M(pf.TARJETA||0)}</div></div>
+        <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(pf.TRANSFERENCIA||0)}</div></div>
+        <div class="kpi"><div class="l">Propinas</div><div class="v">${M(tP)}</div></div>
+      </div>
+      <table><thead><tr><th>Hora</th><th>Folio</th><th>Tipo</th><th>Mesero</th><th>Pago</th><th class="n">Total</th><th class="n">Propina</th></tr></thead>
+      <tbody>${filas||'<tr><td colspan="7" class="tenue">Sin cuentas cobradas en el periodo.</td></tr>'}</tbody></table>
+      <p class="tenue" style="margin-top:10px">Toca una cuenta para ver el detalle${state.soloLectura?'':' y corregir'}.</p>
+    </div>`;
+  }catch(e){err("No se pudieron cargar las cuentas.",e);}
+}
+window.verCuentaPanel=(id)=>{
+  const {cts,pagos}=window._ctasCache||{cts:[],pagos:[]}; const c=cts.find(x=>x.id===id); if(!c)return;
+  window._verId=id; const M=v=>'$'+Number(v||0).toFixed(2); const admin=!state.soloLectura;
+  const ps=pagos.filter(p=>p.cuenta_id===id);
+  const bcorr='padding:5px 10px;border-radius:8px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto);font-size:13px;font-weight:700';
+  const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gris2)">
+      <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
+      ${admin?`<span style="white-space:nowrap"><button style="${bcorr}" onclick="corrForma(${p.id})">Forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button></span>`:''}
+    </div>`;}).join("")||'<div class="tenue">Sin pagos registrados.</div>';
+  $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))}</h3>
+    <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} · Propina ${M(c.propina)}</p>
+    <div class="sec-t">Pagos registrados</div><div>${filas}</div>
+    ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
+        <button class="ok" style="background:#c0392b" onclick="anularCuentaP(${id})">✕ Anular cuenta</button>
+      </div>`:''}
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.corrForma=(pagoId)=>{
+  const opts=Object.values(cache.formas).map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700" onclick="finForma(${pagoId},${f.id})">${esc(f.nombre)}</button>`).join("");
+  $("modal").innerHTML=`<h3>Cambiar forma de pago</h3><p class="tenue">Elige la forma correcta:</p>${opts}<div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
+};
+window.finForma=async(pagoId,formaId)=>{
+  try{const r=await sb.rpc("corregir_forma_pago",{p_pago:pagoId,p_forma_id:formaId,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+    cerrarModal();okmsg("Forma de pago corregida ✓");pintarCuentas();
+  }catch(e){err("No se pudo corregir la forma de pago.",e);}
+};
+window.corrPropina=async(pagoId)=>{
+  const v=parseFloat(prompt("Propina correcta (en pesos):","0")); if(isNaN(v)||v<0)return;
+  try{const r=await sb.rpc("corregir_propina",{p_pago:pagoId,p_propina:v,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+    cerrarModal();okmsg("Propina corregida ✓");pintarCuentas();
+  }catch(e){err("No se pudo corregir la propina.",e);}
+};
+window.reabrirCuentaP=async(id)=>{
+  if(!confirm("¿Reabrir esta cuenta para re-cobrarla?\n\nSe quitarán los pagos actuales y volverá a estar ABIERTA en el comandero."))return;
+  try{const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:"correccion"});if(r.error)throw r.error;
+    cerrarModal();okmsg("Cuenta reabierta — cóbrala de nuevo en el comandero");pintarCuentas();
+  }catch(e){err("No se pudo reabrir.",e);}
+};
+window.anularCuentaP=async(id)=>{
+  const motivo=prompt("Motivo de la anulación:","")||null;
+  if(!confirm("¿ANULAR esta cuenta? Quedará cancelada."))return;
+  try{const r=await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});if(r.error)throw r.error;
+    cerrarModal();okmsg("Cuenta anulada ✓");pintarCuentas();
+  }catch(e){err("No se pudo anular.",e);}
+};
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
 function err(t,e){const m=(e&&(e.message||e.hint||e.details))||String(e);const d=document.createElement("div");d.className="aviso err";d.innerHTML=`<b>${t}</b><br>${m}`;d.style.cssText="position:fixed;bottom:20px;left:12px;right:12px;z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),6000);console.error(t,e);}
 function grande(t,e){const m=(e&&(e.message||e.hint))||String(e);$("main").innerHTML=`<div class="aviso err" style="margin:24px"><b>${t}</b><br>${m}</div>`;}
