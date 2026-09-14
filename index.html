@@ -681,6 +681,10 @@ window.agregarPago=(clave,nombre)=>{const total=Number(state.cobro.total)+state.
 window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
 async function resolverAdmin(){const pin=prompt("PIN de administrador:");if(!pin)return null;
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}if(!data[0].es_admin){alert("Ese PIN no es de administrador");return null;}return data[0].clave;}catch(e){err("No se pudo validar.",e);return null;}}
+async function resolverCaja(){const pin=prompt("PIN de cajero o administrador (para abrir turno):");if(!pin)return null;
+  try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}
+    const u=data[0]; if(!(u.rol==='CAJERO'||u.rol==='ADMIN'||u.es_admin)){alert("Ese PIN no es de cajero ni administrador");return null;} return u.clave;
+  }catch(e){err("No se pudo validar.",e);return null;}}
 window.accionCortesia=async()=>{let l;try{l=await lineasCuenta();}catch(e){return;}const it=l.filter(x=>!x.es_cortesia);if(!it.length){alert("No hay productos para cortesía.");return;}
   $("modal").innerHTML=`<h3>Cortesía — elige el producto</h3>`+it.map(x=>`<button class="op" onclick="darCortesia(${x.id})">${cache.prodById[x.producto_id]?.nombre||'Producto'} — $${Number(x.importe).toFixed(2)}</button>`).join("")+`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;$("modalBg").classList.add("on");};
 window.darCortesia=async(linea)=>{cerrarModal();const a=await resolverAdmin();if(!a)return;try{const r=await sb.rpc("marcar_cortesia",{p_linea:linea,p_admin_clave:a});if(r.error)throw r.error;const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;state.pagos=[];pintarCobro();flash("Cortesía aplicada");}catch(e){err("No se pudo.",e);}};
@@ -808,6 +812,7 @@ window.toggleParte=async(linea,sub,quitar)=>{
   }catch(e){err("No se pudo asignar.",e);}
 };
 window.cobrarParte=async(sub,etiqueta,debe)=>{
+  if(!(await exigirTurno()))return;
   const prop=parseFloat(prompt(`Propina de ${etiqueta} (en pesos, 0 si no dejó):`,"0"));
   if(isNaN(prop)||prop<0)return;
   const fp=cache.formas.map(f=>`<button class="op" onclick="finParte(${sub},'${f.clave}','${esc(f.nombre)}',${debe},${prop})">${f.nombre}</button>`).join("");
@@ -852,7 +857,18 @@ async function imprimirParte(sub,formaNom,debe,prop){
   }catch(e){ /* si el asistente está apagado, no truena */ }
 }
 
+async function hayTurnoAbierto(){
+  try{ const {data,error}=await sb.from("turno").select("id").eq("estado","ABIERTO").limit(1);
+    if(error) return true; return !!(data&&data.length);
+  }catch(e){ return true; }   // ante cualquier falla NO bloquea el cobro (regla de oro)
+}
+async function exigirTurno(){
+  if(await hayTurnoAbierto()) return true;
+  alert("⚠️ Primero abre el TURNO del día.\n\nVe a 🧾 Corte de caja → Abrir turno (pon el fondo de caja) y luego cobra.\n\nSi no abres turno, la venta no aparece en el corte.");
+  renderCorteCaja(); return false;
+}
 async function cobrarYCerrar(){
+  if(!(await exigirTurno()))return;
   try{for(let i=0;i<state.pagos.length;i++){const p=state.pagos[i];const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:p.importe,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});if(r.error)throw r.error;}
     const c=await sb.rpc("cerrar_cuenta",{p_cuenta:state.cuentaId});if(c.error)throw c.error;
     if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
@@ -1204,7 +1220,8 @@ window.movCaja=async(tipo)=>{
   }catch(e){ err("No se pudo registrar el movimiento.",e); }
 };
 window.abrirTurno=async()=>{const f=parseFloat($("fondo").value)||0;
-  try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.mesero.clave,p_fondo:f});if(r.error)throw r.error;flash("Turno abierto");renderCorteCaja();}catch(e){err("No se pudo abrir turno.",e);}};
+  const cajaClave=await resolverCaja(); if(!cajaClave)return;
+  try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:cajaClave,p_fondo:f});if(r.error)throw r.error;flash("Turno abierto ("+cajaClave+")");renderCorteCaja();}catch(e){err("No se pudo abrir turno.",e);}};
 window.hacerCorteTurno=async(id)=>{ if(!confirm("¿Hacer el corte y cerrar el turno? Ya no se podrá modificar."))return;
   try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.mesero.clave});if(r.error)throw r.error;
     const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;flash("Corte hecho, turno cerrado ✓");renderCorteCaja();
