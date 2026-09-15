@@ -291,21 +291,26 @@ async function renderInicio(){
   Object.assign(state,{vista:"inicio",cuentaId:null,mesaId:null,tipoVenta:null});
   $("footer").style.display="none";$("btnVolver").style.display="inline-block";$("btnRefrescar").style.display="inline-block";$("ctx").innerHTML=state.mesero.nombre;
   await recargarMesas();
+  const mando=(state.mesero.rol==='ADMIN'||state.mesero.rol==='CAJERO'||state.mesero.es_admin);
   let oc={}; let llevar=[];
   try{
-    const{data}=await sb.from("cuenta").select("id,mesa_id,tipo_venta,folio,total").eq("estado","ABIERTA");
+    let {data,error}=await sb.from("cuenta").select("id,mesa_id,tipo_venta,folio,total,empleado:mesero_id(clave,nombre)").eq("estado","ABIERTA");
+    if(error){ const r=await sb.from("cuenta").select("id,mesa_id,tipo_venta,folio,total").eq("estado","ABIERTA"); data=r.data; }
     (data||[]).forEach(c=>{
-      if(c.mesa_id) oc[c.mesa_id]=c.id;
-      else if(c.tipo_venta==="PARA_LLEVAR"||c.tipo_venta==="MOSTRADOR") llevar.push(c);
+      const e=Array.isArray(c.empleado)?c.empleado[0]:c.empleado; const clave=e?e.clave:null; const nom=e?e.nombre:'';
+      if(c.mesa_id) oc[c.mesa_id]={cta:c.id,clave,nom};
+      else if(c.tipo_venta==="PARA_LLEVAR"||c.tipo_venta==="MOSTRADOR"){ c._clave=clave; c._nom=nom; llevar.push(c); }
     });
   }catch(e){}
   const llevarTiles = llevar.map(c=>{
     const nom = c.tipo_venta==="MOSTRADOR" ? "Boutique" : "Para llevar";
+    const ajena = !mando && c._clave && c._clave!==state.mesero.clave;
+    if(ajena) return `<button class="tile mesa ocupada" style="opacity:.55" onclick="mesaAjena('${esc(c._nom||'otro mesero')}')"><span class="n">${nom}</span><span class="est">🔒 ${esc(c._nom||'')}</span></button>`;
     return `<button class="tile mesa ocupada" onclick="volverALlevar(${c.id},'${c.tipo_venta}','${esc(nom)}')"><span class="n">${nom}</span><span class="est">${c.folio||''} · $${Number(c.total||0).toFixed(2)}</span></button>`;
   }).join("");
-  const fijas=cache.mesas.filter(m=>m.tipo==="FIJA").map(m=>tileMesa(m,oc)).join("");
-  const priv=cache.mesas.filter(m=>m.tipo==="PRIVADO").map(m=>tileMesa(m,oc)).join("");
-  const temp=cache.mesas.filter(m=>m.tipo==="TEMPORAL").map(m=>tileMesa(m,oc)).join("");
+  const fijas=cache.mesas.filter(m=>m.tipo==="FIJA").map(m=>tileMesa(m,oc,mando)).join("");
+  const priv=cache.mesas.filter(m=>m.tipo==="PRIVADO").map(m=>tileMesa(m,oc,mando)).join("");
+  const temp=cache.mesas.filter(m=>m.tipo==="TEMPORAL").map(m=>tileMesa(m,oc,mando)).join("");
   $("main").innerHTML=`<div class="pad">
     <h2>Mesas</h2><div class="grid mesas">${fijas}${priv}</div>
     ${temp?`<h2 style="margin-top:22px">Con nombre</h2><div class="grid mesas">${temp}</div>`:''}
@@ -324,16 +329,23 @@ function hijasDe(m){
   const re=new RegExp("^"+b.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[A-L]$");
   return cache.mesas.filter(x=>x.tipo==="TEMPORAL"&&x.activa!==false&&re.test(x.nombre));
 }
-function tileMesa(m,oc){
-  const o=oc[m.id];
+function tileMesa(m,oc,mando){
+  const info=oc[m.id]; const o=info?info.cta:null;
+  const ajena = info && !mando && info.clave && info.clave!==state.mesero.clave;
   const hj=hijasDe(m);
   if(m.tipo==="FIJA"){
     if(hj.length&&!o) return `<button class="tile mesa ocupada" style="opacity:.8;border-style:dashed" onclick="avisoSeparada('${esc(m.nombre)}')"><span class="n">${m.numero}</span><span class="est">👥 Separada</span></button>`;
+    if(ajena) return `<button class="tile mesa ocupada" style="opacity:.55" onclick="mesaAjena('${esc(info.nom||'otro mesero')}')"><span class="n">${m.numero}</span><span class="est">🔒 ${esc(info.nom||'')}</span></button>`;
     return `<button class="tile mesa ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})">${!o?`<span class="quitar" title="Cuentas separadas" onclick="event.stopPropagation();separarMesa(${m.id},'${esc(m.nombre)}')">👥</span>`:''}<span class="n">${m.numero}</span>${o?'<span class="est">Ocupada</span>':'<span class="tenue" style="font-size:12px">Libre</span>'}</button>`;
   }
-  if(m.tipo==="PRIVADO") return `<button class="tile mesa priv ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})"><span class="n" style="font-size:15px">PRIVADO</span>${o?'<span class="est">Ocupada</span>':''}</button>`;
+  if(m.tipo==="PRIVADO"){
+    if(ajena) return `<button class="tile mesa priv ocupada" style="opacity:.55" onclick="mesaAjena('${esc(info.nom||'otro mesero')}')"><span class="n" style="font-size:15px">PRIVADO</span><span class="est">🔒 ${esc(info.nom||'')}</span></button>`;
+    return `<button class="tile mesa priv ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})"><span class="n" style="font-size:15px">PRIVADO</span>${o?'<span class="est">Ocupada</span>':''}</button>`;
+  }
+  if(ajena) return `<button class="tile mesa nombrada ocupada" style="opacity:.55" onclick="mesaAjena('${esc(info.nom||'otro mesero')}')"><span class="n" style="font-size:14px">${m.nombre}</span><span class="est">🔒 ${esc(info.nom||'')}</span></button>`;
   return `<button class="tile mesa nombrada ${o?'ocupada':''}" onclick="abrirMesa(${m.id},'${esc(m.nombre)}','${m.tipo}',${o||'null'})">${!o?`<span class="quitar" onclick="event.stopPropagation();quitarMesa(${m.id})">✕</span>`:''}<span class="n" style="font-size:14px">${m.nombre}</span>${o?'<span class="est">Abierta</span>':'<span class="tenue" style="font-size:12px">Vacía</span>'}</button>`;
 }
+window.mesaAjena=(nom)=>{ alert("Esta mesa es de "+nom+".\n\nSolo ese mesero (o un admin/cajero) puede abrirla o cobrarla, para que la propina se le acredite a quien de verdad atendió."); };
 window.nuevaMesaNombre=async()=>{
   const nom=prompt("Nombre de la mesa (ej. Inge, Lic Carla, Arturo papá):"); if(!nom||!nom.trim()) return;
   try{ const {error}=await sb.from("mesa").insert({nombre:nom.trim(),tipo:"TEMPORAL",activa:true}); if(error) throw error;
@@ -528,6 +540,8 @@ async function verCuenta(){
   try{const l=await lineasCuenta();
     await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});
     const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();
+    let atendio=state.mesero.nombre;
+    try{ const{data:cm}=await sb.from("cuenta").select("empleado:mesero_id(nombre)").eq("id",state.cuentaId).single(); const em=cm&&(Array.isArray(cm.empleado)?cm.empleado[0]:cm.empleado); if(em&&em.nombre) atendio=em.nombre; }catch(e){}
     const mpl=await modsDe(l.map(x=>x.id));
     // agrupar renglones iguales (mismo producto, mismo termino/nota, mismo precio, mismo estado cortesia)
     const grupos={};
@@ -547,7 +561,7 @@ async function verCuenta(){
       <div style="text-align:center;font-size:11px">IG @lospares8488 · FB Los Pares 84/88</div>
       <hr>
       <div class="r" style="font-size:11px"><span>${state.mesaNom}</span><span>Folio ${c.folio||''}</span></div>
-      <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Atendió: ${state.mesero.nombre}</div>
+      <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Le atendió: ${atendio}</div>
       <hr>${filas}<hr>
       <div class="r"><span>Subtotal</span><span>$${Number(c.subtotal).toFixed(2)}</span></div>
       ${Number(c.descuento_total)>0?`<div class="r"><span>Descuentos</span><span>- $${Number(c.descuento_total).toFixed(2)}</span></div>`:''}
@@ -555,7 +569,7 @@ async function verCuenta(){
       <div style="text-align:center;margin-top:12px;font-size:11px">¡Gracias por su visita!<br>WhatsApp 287 881 8488 · @lospares8488</div>`;
     window._ticket=tk;
     window._ticketData={ area:'CAJA',
-      encabezado:{mesa:state.mesaNom, folio:c.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre},
+      encabezado:{mesa:state.mesaNom, folio:c.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:atendio},
       items:Object.values(grupos).map(g=>({etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.mods?' · '+g.mods:''), imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2)})),
       subtotal:'$'+Number(c.subtotal).toFixed(2),
       descuento:Number(c.descuento_total)>0?'$'+Number(c.descuento_total).toFixed(2):'',
