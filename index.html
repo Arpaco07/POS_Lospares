@@ -311,8 +311,14 @@ async function renderInicio(){
   const fijas=cache.mesas.filter(m=>m.tipo==="FIJA").map(m=>tileMesa(m,oc,mando)).join("");
   const priv=cache.mesas.filter(m=>m.tipo==="PRIVADO").map(m=>tileMesa(m,oc,mando)).join("");
   const temp=cache.mesas.filter(m=>m.tipo==="TEMPORAL").map(m=>tileMesa(m,oc,mando)).join("");
+  let avisoTurno='';
+  try{ const _h=new Date().getHours();
+    if(_h>=23||_h<3){ const {data:_tt}=await sb.from("turno").select("id").eq("estado","ABIERTO").limit(1);
+      if(_tt&&_tt.length) avisoTurno=`<div style="background:#c0392b;color:#fff;border-radius:12px;padding:13px 15px;margin:0 0 14px;font-weight:800;line-height:1.45">⚠️ Ya es tarde y el TURNO sigue ABIERTO.<br><span style="font-weight:600">Cajero o Admin: hagan el <b>Corte Z</b> en el Panel (Caja / Turno) para cerrar el día.</span></div>`;
+    }
+  }catch(e){}
   $("main").innerHTML=`<div class="pad">
-    <h2>Mesas</h2><div class="grid mesas">${fijas}${priv}</div>
+    ${avisoTurno}<h2>Mesas</h2><div class="grid mesas">${fijas}${priv}</div>
     ${temp?`<h2 style="margin-top:22px">Con nombre</h2><div class="grid mesas">${temp}</div>`:''}
     ${llevarTiles?`<h2 style="margin-top:22px">Para llevar / Boutique (abiertas)</h2><div class="grid mesas">${llevarTiles}</div>`:''}
     <h2 style="margin-top:22px">Otro</h2>
