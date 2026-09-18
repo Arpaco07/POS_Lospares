@@ -280,7 +280,7 @@ async function cargarMonitor(){
   const hora=new Date(d.actualizado).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const abiertas=(d.abiertas||[]).map(a=>{
     const min=Math.max(0,Math.round((Date.now()-new Date(a.desde).getTime())/60000));
-    return `<div class="cta"><div class="info"><div class="n">${a.nombre} · <span class="tenue">${a.folio||''}</span></div><small>${a.mesero||''} · lleva ${min} min</small></div><div class="t">${M(a.total)}</div></div>`;
+    return `<div class="cta" style="cursor:pointer" onclick="verMesaMonitor('${esc(a.folio||'')}')"><div class="info"><div class="n">${a.nombre} · <span class="tenue">${a.folio||''}</span></div><small>${a.mesero||''} · lleva ${min} min · 👆 ver consumo</small></div><div class="t">${M(a.total)}</div></div>`;
   }).join("") || '<div class="tenue">No hay mesas abiertas ahora.</div>';
   const top=(d.top_productos||[]).map((p,i)=>`<div class="row"><span>${i+1}. ${p.nombre} <span class="tenue">(${Number(p.cantidad)})</span></span><span>${M(p.importe)}</span></div>`).join("") || '<div class="tenue">Aún no hay ventas.</div>';
 
@@ -310,6 +310,28 @@ async function cargarMonitor(){
     <p class="tenue" style="margin-top:10px">Se actualiza cada 10 segundos. Puedes dejar esta pantalla abierta.</p>
   </div>`;
 }
+window.verMesaMonitor=async(folio)=>{
+  if(!folio){alert("Esta mesa no tiene folio aún.");return;}
+  try{
+    const {data:cc}=await sb.from("cuenta").select("id,folio,mesa_id,mesero_id,tipo_venta,total,abierta_en").eq("folio",folio).eq("estado","ABIERTA").limit(1);
+    const c=cc&&cc[0]; if(!c){ alert("Esa mesa ya se cerró o cambió."); return; }
+    const {data:its}=await sb.from("cuenta_producto").select("cantidad,importe,es_cortesia,producto_id,estado").eq("cuenta_id",c.id);
+    const items=(its||[]).filter(x=>(x.estado||'')!=='CANCELADO');
+    const pids=[...new Set(items.map(i=>i.producto_id))]; let pmap={};
+    if(pids.length){ const {data:pr}=await sb.from("producto").select("id,nombre").in("id",pids); (pr||[]).forEach(p=>pmap[p.id]=p.nombre); }
+    let mesa=''; try{ const {data:mm}=await sb.from("mesa").select("nombre,numero").eq("id",c.mesa_id).limit(1); if(mm&&mm[0]) mesa=mm[0].nombre||('Mesa '+mm[0].numero); }catch(e){}
+    const M=v=>'$'+Number(v||0).toFixed(2);
+    const min=Math.max(0,Math.round((Date.now()-new Date(c.abierta_en).getTime())/60000));
+    const rows=items.map(i=>`<div class="row"><span>${Number(i.cantidad)}× ${esc(pmap[i.producto_id]||('#'+i.producto_id))}${i.es_cortesia?' 🎁':''}</span><span>${M(i.importe)}</span></div>`).join("")||'<div class="tenue">Sin productos aún.</div>';
+    $("modal").innerHTML=`<h3>${esc(mesa||c.folio)} <span class="tenue" style="font-weight:400;font-size:13px">· ${esc(cache.empleados[c.mesero_id]?.nombre||'')}</span></h3>
+      <p class="tenue">${esc(c.tipo_venta||'')} · ${esc(c.folio||'')} · lleva ${min} min</p>
+      <div class="sec-t">Consumo</div><div class="tot">${rows}
+        <div class="row" style="font-weight:800;border-top:1px solid var(--gris2);margin-top:4px;padding-top:6px"><span>Total</span><span>${M(c.total)}</span></div>
+      </div>
+      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+    $("mbg").classList.add("on");
+  }catch(e){ err("No se pudo ver la mesa.",e); }
+};
 async function pintarReportes(){
   if(!state.rep) state.rep={cat:null,sub:null};
   $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
