@@ -330,8 +330,19 @@ async function pintarReportes(){
 
     let cuerpo="";
     if(!filas.length){ cuerpo='<div class="proximamente">No hubo ventas en el periodo.</div>'; }
+    else if(state.rep.all){
+      cuerpo=`<button onclick="repSecciones()" style="margin-bottom:10px">‹ Ver por secciones</button>`+
+        Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).map(([c,cv])=>
+          `<div class="sec-t" style="background:var(--negro);color:#fff;padding:7px 10px;border-radius:8px;display:flex;justify-content:space-between"><span>${c}</span><span>${cv.pz} pz · $${cv.imp.toFixed(2)}</span></div>`+
+          Object.entries(cv.subs).sort((a,b)=>b[1].imp-a[1].imp).map(([sg,sv])=>
+            `<div style="display:flex;justify-content:space-between;margin:8px 2px 2px;font-weight:700;color:#666"><span>${sg}</span><span>${sv.pz} pz · $${sv.imp.toFixed(2)}</span></div>`+
+            sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).map(p=>
+              `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} vendidos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("")
+          ).join("")
+        ).join("");
+    }
     else if(!state.rep.cat){
-      cuerpo=`<div class="sec-t">Por categoría (toca para ver el detalle)</div>`+
+      cuerpo=`<button onclick="repTodo()" style="margin-bottom:10px;background:#d4af37;color:#111;font-weight:700">⤵ Ver todo expandido</button><div class="sec-t">Por categoría (toca para ver el detalle)</div>`+
         Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).map(([c,v])=>
           `<button class="op" style="display:flex;justify-content:space-between" onclick="repCat('${esc(c)}')"><span>${c} · <span class="tenue">${v.pz} pz</span></span><b>$${v.imp.toFixed(2)}</b></button>`).join("");
     } else if(state.rep.cat && !state.rep.sub){
@@ -408,6 +419,8 @@ window.repCat=(c)=>{state.rep={cat:c,sub:null};pintarReportes();};
 window.repSub=(sg)=>{state.rep.sub=sg;pintarReportes();};
 window.repVolver=()=>{state.rep={cat:null,sub:null};pintarReportes();};
 window.repSubVolver=()=>{state.rep.sub=null;pintarReportes();};
+window.repTodo=()=>{state.rep={cat:null,sub:null,all:true};pintarReportes();};
+window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes();};
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
