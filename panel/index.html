@@ -430,6 +430,18 @@ async function render(){
   }catch(e){err("No se pudo calcular.",e);}
 }
 
+/* ---- Auto-refresco: recarga sola la vista de consulta, sin estorbar ---- */
+const VISTAS_AUTO=['ventas','cuentas','caja','reportes','propinas'];
+function _tickAuto(){
+  try{
+    if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
+    var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
+    if(!VISTAS_AUTO.includes(state.vista))return;                    // solo vistas de consulta
+    render();
+  }catch(e){}
+}
+if(!window._autoTimer){ window._autoTimer=setInterval(_tickAuto,15000); }
+
 /* ---- VENTAS ---- */
 async function pintarVentas({cerr,pagos,cort}){
   let ef=0,tar=0,tra=0,otr=0,prop=0;
@@ -903,8 +915,16 @@ async function pintarCaja(){
         <button class="nuevo" style="width:auto;max-width:260px" onclick="abrirTurnoP()">Abrir turno</button></div>`;
       return;
     }
-    const t=await tallyCaja(turno.id); const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret;
-    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
+    const t=await tallyCaja(turno.id);
+    const _hoy=new Date().toISOString().slice(0,10);
+    let ppm=[],boteC=0,propPag=0;
+    try{
+      const _r1=await sb.rpc("propinas_por_mesero",{p_fecha:_hoy}); if(!_r1.error)ppm=_r1.data||[];
+      const _r2=await sb.rpc("bote_cocina",{p_fecha:_hoy}); if(!_r2.error)boteC=Number(_r2.data)||0;
+      const _r3=await sb.rpc("total_propinas_pagadas",{p_fecha:_hoy}); if(!_r3.error)propPag=Number(_r3.data)||0;
+    }catch(e){}
+    const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret-propPag;
+    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,ppm,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
       <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
@@ -913,7 +933,7 @@ async function pintarCaja(){
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Efectivo en caja</div>
           <table><tbody>
-            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('= Efectivo esperado',efEsper,true)}
+            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}
           </tbody></table>
           <div style="display:flex;gap:8px;margin-top:10px">
             <button class="nuevo" style="${bb};background:#2f6fb0" onclick="movCajaP('DEPOSITO')">＋ Depósito</button>
@@ -930,6 +950,13 @@ async function pintarCaja(){
           </tbody></table>
         </div>
       </div>
+      <div class="sec-t" style="margin-top:16px">Propinas por pagar (hoy)</div>
+      <table><thead><tr><th>Mesero</th><th class="n">Le toca (70%)</th><th class="n">Acción</th></tr></thead>
+      <tbody>${ppm.map(m=>m.ya_pagado
+        ? `<tr><td>${esc(m.mesero)}</td><td class="n">${M(m.pagado_monto)}</td><td class="n" style="color:#2e7d46">✓ Pagado${!state.soloLectura?` · <a href="#" onclick="deshacerPropP(${m.mesero_id});return false" style="color:#c0392b">deshacer</a>`:''}</td></tr>`
+        : `<tr><td>${esc(m.mesero)}</td><td class="n">${M(m.pagar_70)}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:6px 12px;background:#2e7d46" onclick="pagarPropP(${m.mesero_id})">💵 Pagar</button></td></tr>`
+      ).join('')||'<tr><td colspan="3" class="tenue">Sin propinas hoy.</td></tr>'}</tbody></table>
+      <table style="margin-top:8px"><tbody>${row('Propinas pagadas',propPag)}<tr class="tenue"><td>Bote cocina 30% (se reparte mañana)</td><td class="n">${M(boteC)}</td></tr></tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('CARLA')">📱 Carla</button>
@@ -947,11 +974,22 @@ window.movCajaP=async(tipo)=>{const et=tipo==='RETIRO'?'retiro (salida)':'depós
   const monto=parseFloat(prompt("Monto del "+et+" ($):","0")); if(isNaN(monto)||monto<=0){if(!isNaN(monto))alert("El monto debe ser mayor a 0.");return;}
   const motivo=prompt("Motivo:")||null;
   try{const r=await sb.rpc("registrar_movimiento_caja",{p_tipo:tipo,p_monto:monto,p_motivo:motivo,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;okmsg((tipo==='RETIRO'?"Retiro":"Depósito")+" registrado ✓");pintarCaja();}catch(e){err("No se pudo registrar el movimiento.",e);}};
+window.pagarPropP=async(mid)=>{ if(!confirm("¿Pagar la propina (70%) de este mesero en efectivo?"))return;
+  try{const r=await sb.rpc("pagar_propina_mesero",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
+    okmsg("Propina pagada ✓ ($"+Number(r.data||0).toFixed(2)+")");pintarCaja();
+  }catch(e){err("No se pudo pagar la propina.",e);}};
+window.deshacerPropP=async(mid)=>{ if(!confirm("¿Deshacer este pago de propina? (solo admin)"))return;
+  try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
+    okmsg("Pago de propina deshecho ✓");pintarCaja();
+  }catch(e){err("No se pudo deshacer.",e);}};
 function _corteTexto(tipo){ const d=window._cajaData; if(!d)return ''; const M=v=>'$'+Number(v||0).toFixed(2);
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
-    `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n\n`+
+    `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n\n`+
     `VENTAS\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVENTA DEL TURNO: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n\n`+
-    `PROPINAS\nTotal: ${M(d.prop)}\nMesero 70%: ${M(d.prop*0.7)}\nBote cocina 30%: ${M(d.prop*0.3)}\n\nCortesias: ${M(d.cort)}`;
+    `PROPINAS\nTotal del turno: ${M(d.prop)}\nMesero 70%: ${M(d.prop*0.7)}\nBote cocina 30%: ${M(d.prop*0.3)}\n\n`+
+    `PROPINAS PAGADAS HOY\nPagado a meseros: ${M(d.propPag)}\nBote por repartir (30%): ${M(d.boteC)}\n`+
+    ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'')+
+    `\nCortesias: ${M(d.cort)}`;
 }
 window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
   const texto=_corteTexto('DE CIERRE (Z)');
