@@ -1,132 +1,217 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Factura — Los Pares 84×88</title>
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Los Pares 84×88 — Facturación</title>
 <style>
-  :root{--negro:#0d0d0d;--naranja:#d2691e;--dorado:#d4af37;--gris:#666;--gris2:#e4e4e0;--fondo:#f4f3ef;}
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--fondo);color:#1c1c1c}
-  header{background:var(--negro);color:#fff;padding:16px;text-align:center}
-  header .marca{font-weight:800;font-size:20px}
-  header .marca b{color:var(--naranja)}
-  header .sub{color:var(--dorado);font-size:12px;letter-spacing:2px;margin-top:2px}
-  .wrap{max-width:520px;margin:0 auto;padding:16px}
-  .card{background:#fff;border:1px solid var(--gris2);border-radius:14px;padding:16px;margin-bottom:14px}
-  h1{font-size:20px;margin:6px 0 2px}
-  .tenue{color:var(--gris);font-size:14px;line-height:1.5}
-  label{display:block;font-size:13px;color:var(--gris);margin:12px 0 4px;font-weight:600}
-  input,select{width:100%;padding:13px;font-size:16px;border:1px solid var(--gris2);border-radius:10px;background:#fff}
-  input[readonly]{background:#f0f0ec;color:#333}
-  .rfc{text-transform:uppercase}
-  button{width:100%;padding:15px;font-size:17px;font-weight:800;border:0;border-radius:12px;background:var(--naranja);color:#fff;margin-top:16px}
-  button:disabled{opacity:.5}
-  .ticket{display:flex;justify-content:space-between;align-items:center;background:#faf8f2;border:1px solid var(--dorado);border-radius:10px;padding:12px 14px;margin-top:8px}
-  .ticket .f{font-weight:700}
-  .ticket .t{font-size:20px;font-weight:800}
-  .aviso{border-radius:10px;padding:14px;margin-top:8px;font-size:15px;line-height:1.5}
-  .err{background:#fdeaea;color:#a12; border:1px solid #f3c2c2}
-  .ok{background:#e9f6ee;color:#1c6b39;border:1px solid #bfe3cd}
-  .cargando{text-align:center;color:var(--gris);padding:24px}
-  .pie{text-align:center;color:var(--gris);font-size:12px;padding:8px 0 24px}
+  :root{--oro:#d4af37;--naranja:#e1622c;--carbon:#141210;--card:#201d18;--linea:#39332b;--texto:#efe7d6;--tenue:#a89e89;--verde:#2e7d46;--rojo:#c0392b}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',Roboto,Arial,sans-serif;background:radial-gradient(120% 90% at 50% 0%,#2a2620,#141210 60%,#0c0b0a);color:var(--texto);min-height:100vh}
+  header{background:linear-gradient(180deg,#232019,#141210);border-bottom:2px solid var(--oro);padding:16px;text-align:center}
+  header .m{font-size:22px;font-weight:800}header .m b{color:var(--naranja)}
+  header .n{font-size:11px;font-weight:700;color:var(--oro);letter-spacing:3px;border:1px solid rgba(212,175,55,.5);border-radius:8px;padding:2px 8px;display:inline-block;margin-top:4px}
+  .wrap{max-width:520px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:20px;margin:18px 0 4px}.sub{color:var(--tenue);font-size:14px;margin:0 0 18px}
+  .card{background:var(--card);border:1px solid var(--linea);border-radius:16px;padding:18px;margin-bottom:16px}
+  label{display:block;font-size:13px;font-weight:700;color:var(--tenue);margin:12px 0 5px}
+  input,select{width:100%;padding:13px;border:1px solid var(--linea);border-radius:11px;background:#161310;color:var(--texto);font-size:16px}
+  input::placeholder{color:#6b6459}
+  .btn{width:100%;border:none;border-radius:12px;padding:15px;font-weight:800;font-size:16px;margin-top:16px;cursor:pointer}
+  .btn.o{background:linear-gradient(180deg,#e1622c,#c94f1e);color:#fff}
+  .btn.g{background:var(--card);border:1px solid var(--linea);color:var(--texto)}
+  .btn.d{background:var(--oro);color:#1c1c1c}
+  .row2{display:flex;gap:10px}.row2>div{flex:1}
+  .msg{border-radius:12px;padding:14px;margin-top:14px;font-size:15px;line-height:1.5}
+  .msg.ok{background:rgba(46,125,70,.15);border:1px solid rgba(46,125,70,.5);color:#a9e3bd}
+  .msg.err{background:rgba(192,57,43,.15);border:1px solid rgba(192,57,43,.5);color:#ffb3a8}
+  .uuid{font-family:monospace;font-size:14px;word-break:break-all;color:var(--oro);font-weight:700}
+  .hide{display:none}
+  .tot{font-size:22px;font-weight:800;color:var(--oro)}
+  .pie{text-align:center;color:var(--tenue);font-size:12px;margin-top:24px}
+  .cargando{color:var(--tenue);text-align:center;padding:10px}
 </style>
-</head>
-<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head><body>
 <header>
-  <div class="marca">Los <b>Pares</b></div>
-  <div class="sub">8 4 · 8 8</div>
+  <div class="m">Los <b>Pares</b></div><div class="n">84 ✕ 88</div>
 </header>
-<div class="wrap" id="app">
-  <div class="card"><div class="cargando">Cargando tu ticket…</div></div>
+<div class="wrap">
+  <h1>Factura tu consumo</h1>
+  <p class="sub">Ten a la mano tu ticket: necesitas el <b>folio</b> y el <b>total</b>.</p>
+
+  <!-- PASO 1: ticket -->
+  <div class="card" id="paso1">
+    <label>Folio del ticket</label>
+    <input id="folio" placeholder="Ej. L-000135" autocomplete="off">
+    <label>Total del ticket ($)</label>
+    <input id="total" type="number" step="0.01" placeholder="Ej. 530.00" inputmode="decimal">
+    <div class="row2">
+      <div><button class="btn d" onclick="facturar(true)">Factura general</button></div>
+      <div><button class="btn g" onclick="mostrarDatos()">Con mis datos</button></div>
+    </div>
+    <div id="msg1"></div>
+  </div>
+
+  <!-- PASO 2: datos fiscales -->
+  <div class="card hide" id="paso2">
+    <h1 style="font-size:16px;margin:0 0 6px">Tus datos fiscales</h1>
+    <p class="sub" style="margin:0 0 8px">Deben coincidir EXACTO con tu Constancia de Situación Fiscal (SAT).</p>
+    <label>RFC</label>
+    <input id="rfc" placeholder="Tu RFC" style="text-transform:uppercase" autocomplete="off">
+    <label>Razón social / Nombre (sin régimen: sin "SA de CV")</label>
+    <input id="nombre" placeholder="Como aparece en tu constancia" autocomplete="off">
+    <div class="row2">
+      <div><label>Código Postal</label><input id="cp" placeholder="Ej. 68370" inputmode="numeric"></div>
+      <div><label>Uso de la factura</label>
+        <select id="uso">
+          <option value="G03">G03 · Gastos en general</option>
+          <option value="G01">G01 · Adquisición de mercancías</option>
+          <option value="D01">D01 · Honorarios médicos</option>
+          <option value="I01">I01 · Construcciones</option>
+          <option value="CP01">CP01 · Pagos</option>
+          <option value="S01">S01 · Sin efectos fiscales</option>
+        </select>
+      </div>
+    </div>
+    <label>Régimen fiscal</label>
+    <select id="regimen">
+      <option value="612">612 · Personas Físicas con Actividad Empresarial y Profesional</option>
+      <option value="626">626 · Régimen Simplificado de Confianza (RESICO)</option>
+      <option value="605">605 · Sueldos y Salarios</option>
+      <option value="606">606 · Arrendamiento</option>
+      <option value="601">601 · General de Ley Personas Morales</option>
+      <option value="603">603 · Personas Morales con Fines no Lucrativos</option>
+      <option value="621">621 · Incorporación Fiscal</option>
+      <option value="616">616 · Sin obligaciones fiscales</option>
+    </select>
+    <label>Correo (para enviarte la factura)</label>
+    <input id="correo" type="email" placeholder="tucorreo@ejemplo.com" autocomplete="off">
+    <button class="btn o" onclick="facturar(false)">Generar mi factura</button>
+    <button class="btn g" onclick="ocultarDatos()" style="margin-top:8px">‹ Regresar</button>
+    <div id="msg2"></div>
+  </div>
+
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0</div>
 </div>
-<div class="pie">Facturación electrónica CFDI 4.0 · Los Pares 84×88 · Tuxtepec, Oaxaca</div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
-  const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
-  const sb=window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
-  const $=(id)=>document.getElementById(id);
-
-  const USOS=[["G03","G03 Gastos en general"],["G01","G01 Adquisición de mercancías"],["D01","D01 Honorarios médicos"],["I01","I01 Construcciones"],["S01","S01 Sin efectos fiscales"],["P01","P01 Por definir"],["CP01","CP01 Pagos"]];
-  const REG=[["612","612 Personas físicas act. empresarial"],["605","605 Sueldos y salarios"],["601","601 General de ley personas morales"],["626","626 RESICO"],["621","621 Incorporación fiscal"],["616","616 Sin obligaciones fiscales"],["603","603 Personas morales sin fines de lucro"]];
-  const opts=(a,s)=>a.map(o=>`<option value="${o[0]}" ${o[0]===s?'selected':''}>${o[1]}</option>`).join("");
-
-  async function init(){ pintarBuscar(); }
-
-  function pintarBuscar(msg){
-    $("app").innerHTML=`
-      <div class="card">
-        <h1>Factura tu consumo</h1>
-        <p class="tenue">Escribe el <b>folio</b> y el <b>total</b> tal como aparecen en tu ticket.</p>
-        ${msg?`<div class="aviso err">${msg}</div>`:''}
-        <label>Folio del ticket</label>
-        <input id="folio" placeholder="Ej. L-000123" style="text-transform:uppercase" autocomplete="off">
-        <label>Total del ticket</label>
-        <input id="total" placeholder="Ej. 522.00" inputmode="decimal">
-        <button id="btnb" onclick="buscar()">Buscar mi ticket</button>
-      </div>
-      <div class="card"><div class="tenue">Solo puedes facturar dentro del <b>mes en curso</b>. Cuida tu ticket: quien tenga el folio y el total puede facturarlo.</div></div>`;
+  // ===== CONFIGURA AQUÍ (ya vienen tus datos de la nube) =====
+  const FN  = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-timbrar";
+  const KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  // ============================================================
+  const $ = (id) => document.getElementById(id);
+  function mostrarDatos(){ if(!validaTicket("msg1")) return; $("paso2").classList.remove("hide"); $("paso2").scrollIntoView({behavior:"smooth"}); }
+  function ocultarDatos(){ $("paso2").classList.add("hide"); $("msg2").innerHTML=""; }
+  function validaTicket(caja){
+    const f=$("folio").value.trim(), t=parseFloat($("total").value);
+    if(!f || !t){ msg(caja,"err","Escribe el folio y el total de tu ticket."); return false; }
+    return true;
   }
+  function msg(caja,tipo,html){ $(caja).innerHTML = `<div class="msg ${tipo}">${html}</div>`; }
 
-  window.buscar=async()=>{
-    const folio=($("folio").value||'').trim().toUpperCase();
-    const total=parseFloat(($("total").value||'').replace(/[^0-9.]/g,''));
-    if(!folio||isNaN(total)){ alert("Escribe el folio y el total de tu ticket."); return; }
-    const b=$("btnb"); b.disabled=true; b.textContent="Buscando…";
-    try{
-      const{data,error}=await sb.rpc("ticket_por_folio_total",{p_folio:folio,p_total:total});
-      if(error)throw error;
-      const r=data&&data[0];
-      if(!r||!r.facturable){ b.disabled=false; b.textContent="Buscar mi ticket"; return pintarBuscar((r&&r.motivo)||"No se pudo validar tu ticket."); }
-      pintarForm(r);
-    }catch(e){ b.disabled=false; b.textContent="Buscar mi ticket"; pintarBuscar("No se pudo consultar. Revisa tu conexión."); console.error(e); }
-  };
-
-  function pintarForm(r){
-    $("app").innerHTML=`
-      <div class="card">
-        <h1>Tus datos fiscales</h1>
-        <div class="ticket"><span class="f">Ticket ${r.folio}</span><span class="t">$${Number(r.total).toFixed(2)}</span></div>
-        <label>RFC</label>
-        <input id="rfc" class="rfc" placeholder="Tu RFC" maxlength="13" autocomplete="off">
-        <label>Razón social / Nombre (como en tu constancia)</label>
-        <input id="razon" placeholder="Nombre o razón social">
-        <label>Régimen fiscal</label>
-        <select id="reg">${opts(REG,'612')}</select>
-        <label>Código postal (de tu domicilio fiscal)</label>
-        <input id="cp" placeholder="CP" inputmode="numeric" maxlength="5">
-        <label>Uso del CFDI</label>
-        <select id="uso">${opts(USOS,'G03')}</select>
-        <label>Correo (ahí te llega la factura)</label>
-        <input id="correo" placeholder="tucorreo@ejemplo.com" inputmode="email">
-        <button id="btn" onclick="enviar('${r.folio.replace(/'/g,"")}',${Number(r.total)})">Facturar</button>
-      </div>
-      <div class="card"><div class="tenue">Revisa que tus datos coincidan con tu Constancia de Situación Fiscal del SAT.</div></div>`;
-  }
-
-  window.enviar=async(folio,total)=>{
-    const rfc=($("rfc").value||'').trim().toUpperCase();
-    const razon=($("razon").value||'').trim();
-    const reg=$("reg").value, cp=($("cp").value||'').trim(), uso=$("uso").value;
-    const correo=($("correo").value||'').trim();
-    if(rfc.length<12||!razon||cp.length<4||!correo){ alert("Revisa tus datos: RFC, nombre, CP y correo son obligatorios."); return; }
-    const b=$("btn"); b.disabled=true; b.textContent="Enviando…";
-    try{
-      const{error}=await sb.rpc("autofacturar_folio",{p_folio:folio,p_total:total,p_rfc:rfc,p_razon:razon,p_regimen:reg,p_cp:cp,p_uso:uso,p_correo:correo});
-      if(error)throw error;
-      $("app").innerHTML=`<div class="card"><h1>¡Listo! ✓</h1>
-        <div class="aviso ok">Recibimos tus datos para el ticket <b>${folio}</b>.<br><br>Tu factura se generará y se enviará a <b>${correo}</b>. Si no la ves en unos minutos, revisa tu bandeja de spam.</div>
-        <div class="tenue" style="margin-top:12px">Gracias por tu visita. — Los Pares 84×88</div></div>`;
-    }catch(e){
-      b.disabled=false; b.textContent="Facturar";
-      alert("No se pudo facturar: "+((e&&(e.message||e.hint))||"Intenta de nuevo."));
-      console.error(e);
+  async function facturar(general){
+    const caja = general ? "msg1" : "msg2";
+    if(!validaTicket(caja)) return;
+    const f=$("folio").value.trim(), t=parseFloat($("total").value);
+    let url = `${FN}?apikey=${KEY}&folio=${encodeURIComponent(f)}&total=${t}`;
+    if(!general){
+      const rfc=$("rfc").value.trim().toUpperCase(), nom=$("nombre").value.trim(), cp=$("cp").value.trim(), reg=$("regimen").value, uso=$("uso").value, cor=$("correo").value.trim();
+      if(!rfc||!nom||!cp){ msg("msg2","err","Llena RFC, nombre y código postal."); return; }
+      url += `&rfc=${encodeURIComponent(rfc)}&nombre=${encodeURIComponent(nom)}&cp=${encodeURIComponent(cp)}&regimen=${reg}&uso=${uso}&correo=${encodeURIComponent(cor)}`;
     }
-  };
+    msg(caja,"ok","Generando tu factura… espera unos segundos ⏳");
+    try{
+      const r = await fetch(url);
+      const d = await r.json();
+      if(d.timbrado){
+        window._fac = d;
+        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button>`);
+      } else if(d.motivo){
+        msg(caja,"err","⚠️ "+d.motivo);
+      } else if(d.mensaje_error){
+        msg(caja,"err","No se pudo timbrar: "+d.mensaje_error+(d.codigo_error?(" ("+d.codigo_error+")"):""));
+      } else {
+        msg(caja,"err","No se pudo generar la factura. Revisa tus datos e inténtalo de nuevo.");
+      }
+    }catch(e){ msg(caja,"err","Error de conexión. Revisa tu internet e inténtalo de nuevo."); }
+  }
 
-    init();
+  // ---- Descargar XML timbrado ----
+  function descargarXML(){
+    const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay XML disponible."); return; }
+    const blob = new Blob([d.xml_timbrado], {type:"application/xml"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "Factura_"+d.uuid+".xml";
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  // ---- Leer un atributo del XML timbrado ----
+  function attr(xml, re){ const m = xml.match(re); return m ? m[1] : ""; }
+
+  // ---- Descargar PDF (representación impresa, marca Los Pares + QR SAT) ----
+  function descargarPDF(){
+    const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay factura."); return; }
+    const x = d.xml_timbrado;
+    // Datos del CFDI/timbre
+    const emisorRfc = attr(x, /Emisor[^>]*Rfc="([^"]+)"/);
+    const emisorNom = attr(x, /Emisor[^>]*Nombre="([^"]+)"/);
+    const emisorReg = attr(x, /Emisor[^>]*RegimenFiscal="([^"]+)"/);
+    const recRfc = attr(x, /Receptor[^>]*Rfc="([^"]+)"/);
+    const recNom = attr(x, /Receptor[^>]*Nombre="([^"]+)"/);
+    const recUso = attr(x, /Receptor[^>]*UsoCFDI="([^"]+)"/);
+    const fecha = attr(x, /Comprobante[^>]*Fecha="([^"]+)"/);
+    const fechaT = attr(x, /FechaTimbrado="([^"]+)"/);
+    const selloCFDI = attr(x, /Comprobante[^>]*Sello="([^"]+)"/);
+    const selloSAT = attr(x, /SelloSAT="([^"]+)"/);
+    const noCertSAT = attr(x, /NoCertificadoSAT="([^"]+)"/);
+    const uuid = d.uuid;
+    // Cadena original del timbre (para el QR): ||1.1|UUID|FechaTimbrado|SelloCFDI(los ultimos 8)|NoCertSAT||  -> el QR del SAT usa una URL
+    const qrUrl = "https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id="+uuid+"&re="+emisorRfc+"&rr="+recRfc+"&tt="+d.total+"&fe="+encodeURIComponent(selloCFDI.slice(-8));
+
+    // Generar QR en un canvas oculto
+    const cont = document.createElement("div"); cont.style.display="none"; document.body.appendChild(cont);
+    new QRCode(cont, { text: qrUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
+    setTimeout(()=>{
+      const img = cont.querySelector("img") || cont.querySelector("canvas");
+      const qrData = (img.tagName==="IMG") ? img.src : img.toDataURL("image/png");
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({unit:"mm", format:"letter"});
+      const W = 216; let y = 16;
+      // Encabezado
+      doc.setFontSize(20); doc.setTextColor(30); doc.setFont(undefined,"bold");
+      doc.text("Los Pares 84x88", 14, y);
+      doc.setFontSize(9); doc.setTextColor(120); doc.setFont(undefined,"normal");
+      doc.text("Factura CFDI 4.0 - Representacion impresa", 14, y+6);
+      doc.setDrawColor(212,175,55); doc.setLineWidth(0.8); doc.line(14, y+9, W-14, y+9);
+      y += 18;
+      doc.setFontSize(10); doc.setTextColor(30);
+      const L=(t)=>{ doc.text(t, 14, y); y+=5.5; };
+      doc.setFont(undefined,"bold"); L("EMISOR"); doc.setFont(undefined,"normal");
+      L(emisorNom+"  ("+emisorRfc+")"); L("Regimen: "+emisorReg);
+      y+=2; doc.setFont(undefined,"bold"); L("RECEPTOR"); doc.setFont(undefined,"normal");
+      L(recNom+"  ("+recRfc+")"); L("Uso CFDI: "+recUso);
+      y+=2; doc.setFont(undefined,"bold"); L("COMPROBANTE"); doc.setFont(undefined,"normal");
+      L("Fecha: "+fecha); L("Concepto: Consumo en restaurante");
+      L("Subtotal: $"+d.subtotal+"    IVA: $"+d.iva);
+      doc.setFont(undefined,"bold"); doc.setFontSize(13); L("TOTAL: $"+d.total); doc.setFontSize(10); doc.setFont(undefined,"normal");
+      // Bloque fiscal + QR
+      y+=4; doc.setDrawColor(200); doc.setLineWidth(0.3); doc.line(14, y, W-14, y); y+=6;
+      doc.addImage(qrData, "PNG", 14, y, 34, 34);
+      const xr = 54; let yr = y;
+      doc.setFontSize(8); doc.setTextColor(60);
+      const R=(t)=>{ doc.text(t, xr, yr, {maxWidth: W-14-xr}); yr+=4.2; };
+      doc.setFont(undefined,"bold"); R("Folio Fiscal (UUID):"); doc.setFont(undefined,"normal"); R(uuid);
+      doc.setFont(undefined,"bold"); R("Fecha timbrado:"); doc.setFont(undefined,"normal"); R(fechaT);
+      doc.setFont(undefined,"bold"); R("No. Cert. SAT:"); doc.setFont(undefined,"normal"); R(noCertSAT);
+      y = Math.max(y+38, yr+2);
+      doc.setFontSize(6); doc.setTextColor(90);
+      doc.text("Sello CFDI:", 14, y); doc.text(selloCFDI, 14, y+3, {maxWidth: W-28}); y+=12;
+      doc.text("Sello SAT:", 14, y); doc.text(selloSAT, 14, y+3, {maxWidth: W-28});
+      doc.setFontSize(7); doc.setTextColor(150);
+      doc.text("Este documento es una representacion impresa de un CFDI. Los Pares 84x88 - Tuxtepec, Oaxaca.", 14, 270);
+      doc.save("Factura_"+uuid+".pdf");
+      cont.remove();
+    }, 350);
+  }
 </script>
-</body>
-</html>
+</body></html>
