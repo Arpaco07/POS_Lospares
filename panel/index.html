@@ -467,7 +467,7 @@ async function render(){
 }
 
 /* ---- Auto-refresco: recarga sola la vista de consulta, sin estorbar ---- */
-const VISTAS_AUTO=['ventas','cuentas','caja','reportes','propinas'];
+const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
@@ -1003,6 +1003,7 @@ async function pintarCaja(){
       <table style="margin-top:8px"><tbody>${row('Propinas pagadas',propPag)}<tr class="tenue"><td>Bote cocina 30% (se reparte mañana)</td><td class="n">${M(boteC)}</td></tr></tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
+        <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('CARLA')">📱 Carla</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('ARTURO')">📱 Arturo</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('PARES')">📱 Los Pares</button>
@@ -1027,6 +1028,61 @@ window.deshacerPropP=async(mid)=>{ if(!confirm("¿Deshacer este pago de propina?
   try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
     okmsg("Pago de propina deshecho ✓");pintarCaja();
   }catch(e){err("No se pudo deshacer.",e);}};
+window.imprimirCorte=(d,titulo)=>{
+  if(!d){alert('No hay datos del corte.');return;}
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const filasP=(d.ppm&&d.ppm.length)
+    ? d.ppm.map(m=>`<tr><td>${(m.mesero||'').replace(/</g,'')}</td><td class="r">${M(m.propina_bruta)}</td><td class="r">${M(m.pagar_70)}</td><td class="r">${m.ya_pagado?('OK '+M(m.pagado_monto)):'-'}</td></tr>`).join('')
+    : '<tr><td colspan="4">Sin propinas</td></tr>';
+  const w=window.open('','_printCorte','width=400,height=760');
+  if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
+  w.document.write(`<html><head><title>${titulo}</title><style>
+    @page{margin:8mm}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0;padding:8px;font-size:12px;max-width:300px}
+    h1{font-size:16px;text-align:center;margin:2px 0}
+    .sub{text-align:center;font-size:11px;margin-bottom:8px;color:#333}
+    table{width:100%;border-collapse:collapse;margin:2px 0}
+    td{padding:2px 0;border-bottom:1px solid #ddd}
+    .sec{font-weight:bold;border-bottom:2px solid #000;margin-top:10px;padding:6px 0 2px}
+    .tot td{font-weight:bold;border-top:2px solid #000;border-bottom:none}
+    .r{text-align:right}
+    .hd td{font-weight:bold;border-bottom:1px solid #000}
+  </style></head><body>
+    <h1>LOS PARES 84x88</h1>
+    <div class="sub">${titulo}<br>${d.fecha||''}</div>
+    <div class="sec">EFECTIVO EN CAJA</div>
+    <table>
+      <tr><td>Fondo inicial</td><td class="r">${M(d.fondo)}</td></tr>
+      <tr><td>Efectivo cobrado</td><td class="r">${M(d.ef)}</td></tr>
+      <tr><td>+ Depositos</td><td class="r">${M(d.dep)}</td></tr>
+      <tr><td>- Retiros</td><td class="r">${M(d.ret)}</td></tr>
+      <tr><td>- Propinas pagadas</td><td class="r">${M(d.propPag)}</td></tr>
+      <tr class="tot"><td>= EFECTIVO ESPERADO</td><td class="r">${M(d.efEsper)}</td></tr>
+    </table>
+    <div class="sec">VENTAS</div>
+    <table>
+      <tr><td>Efectivo</td><td class="r">${M(d.ef)}</td></tr>
+      <tr><td>Tarjeta</td><td class="r">${M(d.tar)}</td></tr>
+      <tr><td>Transferencia</td><td class="r">${M(d.tra)}</td></tr>
+      <tr><td>Cortesias</td><td class="r">${M(d.cort)}</td></tr>
+      <tr><td>Cuentas cerradas</td><td class="r">${d.n}</td></tr>
+      <tr class="tot"><td>VENTA</td><td class="r">${M(d.ventas)}</td></tr>
+    </table>
+    <div class="sec">PROPINAS</div>
+    <table>
+      <tr><td>Total</td><td class="r">${M(d.prop)}</td></tr>
+      <tr><td>Mesero 70%</td><td class="r">${M(d.prop*0.7)}</td></tr>
+      <tr><td>Bote cocina 30%</td><td class="r">${M(d.prop*0.3)}</td></tr>
+      <tr><td>Pagadas</td><td class="r">${M(d.propPag)}</td></tr>
+    </table>
+    <table>
+      <tr class="hd"><td>Mesero</td><td class="r">Prop</td><td class="r">70%</td><td class="r">Pag</td></tr>
+      ${filasP}
+    </table>
+    <div style="text-align:center;margin-top:12px;font-size:10px;color:#666">Los Pares 84x88 - Tuxtepec, Oaxaca</div>
+  </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
+};
 function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toFixed(2);
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
     `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n\n`+
@@ -1041,8 +1097,9 @@ window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Y
   const texto=_corteTexto('DE CIERRE (Z)');
   try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
     const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;
+    try{ imprimirCorte(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     try{ window.open('https://wa.me/'+_WA.CARLA+'?text='+encodeURIComponent(texto),'_blank'); }catch(e){}
-    okmsg("Corte Z hecho ✓ — se abrió WhatsApp de Carla (si no, usa el botón 📱 Carla)");pintarCaja();
+    okmsg("Corte Z hecho ✓ — se imprimió y se abrió WhatsApp de Carla");pintarCaja();
   }catch(e){err("No se pudo cerrar el turno.",e);}};
 window.waCaja=(quien)=>{ const d=window._cajaData; if(!d){alert("Primero abre la caja.");return;}
   window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTexto('DE TURNO (X)')),'_blank');
@@ -1103,6 +1160,7 @@ window.pintarCorteHist=async(iso)=>{
       <table><thead><tr><th>Mesero</th><th class="n">Propina</th><th class="n">Le toca (70%)</th><th class="n">A cocina (30%)</th><th class="n">Pagada</th></tr></thead>
       <tbody>${(ppm&&ppm.length)?ppm.map(mm=>`<tr><td>${esc(mm.mesero)}</td><td class="n">${M(mm.propina_bruta)}</td><td class="n">${M(mm.pagar_70)}</td><td class="n">${M(Number(mm.propina_bruta)*0.30)}</td><td class="n">${mm.ya_pagado?('✓ '+M(mm.pagado_monto)):'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="tenue">Sin propinas ese día.</td></tr>'}</tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._corteHistData,'CORTE DEL DIA '+window._corteHistData.fechaCorta)">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('CARLA')">📱 Carla</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('ARTURO')">📱 Arturo</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('PARES')">📱 Los Pares</button>
