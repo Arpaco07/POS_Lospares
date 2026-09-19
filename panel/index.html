@@ -383,7 +383,7 @@ async function pintarReportes(){
 
     const formasHtml = formas.length? formas.map(f=>`<div class="row"><span>${f.forma}</span><span>$${Number(f.importe).toFixed(2)}</span></div>`).join("") : '<div class="tenue">Sin pagos.</div>';
 
-    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button><button onclick="imprimirProductos()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#5a4a9c;color:#fff">🖨 Lista cocina</button></h2>${barraRango()}
+    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button><button onclick="imprimirProductos()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#5a4a9c;color:#fff">🖨 Todo</button><button onclick="pintarSelImp()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#2f6fb0;color:#fff">☑ Elegir secciones</button></h2>${barraRango()}
       <div class="kpis">
         <div class="kpi big"><div class="l">Venta del periodo</div><div class="v">$${totalGeneral.toFixed(2)}</div></div>
         <div class="kpi"><div class="l">Piezas vendidas</div><div class="v">${piezasTot}</div></div>
@@ -398,14 +398,11 @@ async function pintarReportes(){
     console.error("reporte:",e);
   }
 }
-window.imprimirProductos=()=>{
-  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos vendidos en el periodo.");return;}
-  const selCat=(state.rep&&state.rep.cat)||null, selSub=(state.rep&&state.rep.sub)||null;
+/* Motor de impresión de productos: recibe filas ya filtradas */
+function _printProductos(filas, titulo){
+  const R=window._repData||{};
+  if(!filas||!filas.length){alert("No hay productos en esa selección.");return;}
   const nq=n=>Number(n)%1===0?Number(n):Number(n).toFixed(2);
-  // Filtra según lo que tengas abierto (todo / categoría / subgrupo)
-  const filas=R.filas.filter(x=>(!selCat||x.categoria===selCat)&&(!selSub||x.subgrupo===selSub));
-  if(!filas.length){alert("No hay productos en esa selección.");return;}
-  // Agrupa categoría -> subgrupo -> producto
   const cats={};
   filas.forEach(x=>{
     const cat=x.categoria||'Otros', sg=x.subgrupo||'—';
@@ -422,7 +419,6 @@ window.imprimirProductos=()=>{
     }).join('');
     return `<div class="cat">${cat} — ${nq(cv.pz)} pz</div>${subs}`;
   }).join('');
-  const titulo = selSub ? `${selCat} › ${selSub}` : (selCat ? selCat : 'TODOS LOS PRODUCTOS');
   const w=window.open('','_printProd','width=800,height=900');
   if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
   w.document.write(`<html><head><title>Productos vendidos</title><style>
@@ -452,6 +448,48 @@ window.imprimirProductos=()=>{
     </div>
   </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
+}
+/* Imprime según lo que tengas abierto (todo / categoría / subgrupo) */
+window.imprimirProductos=()=>{
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos vendidos en el periodo.");return;}
+  const selCat=(state.rep&&state.rep.cat)||null, selSub=(state.rep&&state.rep.sub)||null;
+  const filas=R.filas.filter(x=>(!selCat||x.categoria===selCat)&&(!selSub||x.subgrupo===selSub));
+  const titulo = selSub ? `${selCat} › ${selSub}` : (selCat ? selCat : 'TODOS LOS PRODUCTOS');
+  _printProductos(filas, titulo);
+};
+/* Pantalla de casillas: elegir varias secciones e imprimir solo esas */
+window.pintarSelImp=()=>{
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos en el periodo.");return;}
+  const cats={};
+  R.filas.forEach(x=>{ const c=x.categoria||'Otros', s=x.subgrupo||'—'; (cats[c]||={pz:0,subs:{}}); cats[c].pz+=Number(x.cantidad||0); const sv=(cats[c].subs[s]||={pz:0}); sv.pz+=Number(x.cantidad||0); });
+  const nq=n=>Number(n)%1===0?Number(n):Number(n).toFixed(2);
+  const bloques=Object.entries(cats).sort((a,b)=>b[1].pz-a[1].pz).map(([c,cv])=>{
+    const subs=Object.entries(cv.subs).sort((a,b)=>b[1].pz-a[1].pz).map(([s,sv])=>{
+      const key=c+'|||'+s;
+      return `<label style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--gris2);cursor:pointer"><input type="checkbox" class="selimp" value="${esc(key)}" checked style="width:18px;height:18px"> <span style="flex:1">${esc(s)}</span><span class="tenue">${nq(sv.pz)} pz</span></label>`;
+    }).join('');
+    return `<div style="margin-top:14px"><label style="display:flex;align-items:center;gap:10px;font-weight:800;background:var(--negro);color:#fff;padding:7px 10px;border-radius:6px;cursor:pointer"><input type="checkbox" class="selcat" onclick="_selCat(this,'${esc(c)}')" checked style="width:18px;height:18px"> ${esc(c)} — ${nq(cv.pz)} pz</label>${subs}</div>`;
+  }).join('');
+  $("main").innerHTML=`<div class="pad">
+    <h2>Elegir secciones para imprimir</h2>
+    <p class="tenue" style="margin:0 0 10px">Marca solo las secciones que quieres imprimir (${esc(R.rango||'')}).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;position:sticky;top:0;background:var(--fondo,#141210);padding:6px 0;z-index:2">
+      <button class="nuevo" style="width:auto;margin:0;padding:9px 14px;background:#5a4a9c" onclick="_imprimirSel()">🖨 Imprimir marcadas</button>
+      <button class="nuevo" style="width:auto;margin:0;padding:9px 14px" onclick="_marcarTodo(true)">Marcar todo</button>
+      <button class="nuevo" style="width:auto;margin:0;padding:9px 14px" onclick="_marcarTodo(false)">Desmarcar todo</button>
+      <button class="nuevo" style="width:auto;margin:0;padding:9px 14px" onclick="pintarReportes()">← Volver</button>
+    </div>
+    ${bloques}
+  </div>`;
+};
+window._selCat=(chk,cat)=>{ document.querySelectorAll('.selimp').forEach(cb=>{ if(cb.value.slice(0,cat.length+3)===cat+'|||') cb.checked=chk.checked; }); };
+window._marcarTodo=(v)=>{ document.querySelectorAll('.selimp,.selcat').forEach(cb=>cb.checked=v); };
+window._imprimirSel=()=>{
+  const keys=[...document.querySelectorAll('.selimp:checked')].map(cb=>cb.value);
+  if(!keys.length){alert("Marca al menos una sección.");return;}
+  const set=new Set(keys); const R=window._repData;
+  const filas=R.filas.filter(x=>set.has((x.categoria||'Otros')+'|||'+(x.subgrupo||'—')));
+  _printProductos(filas, 'SECCIONES SELECCIONADAS');
 };
 window.repPDF=()=>{
   const R=window._repData; if(!R||!R.filas.length){alert("No hay datos para el PDF.");return;}
