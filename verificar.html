@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Los Pares · Verificador de corte</title>
+<style>
+  :root{--oro:#d4af37;--naranja:#e1622c;--carbon:#141210;--panel:#1c1913;--linea:#3a3325;--texto:#efe6cf;--tenue:#a99e7f;--verde:#2e7d46;--rojo:#c0392b;--azul:#2f6fb0;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--carbon);color:var(--texto);font-family:"Segoe UI",system-ui,Arial,sans-serif;padding:16px}
+  .wrap{max-width:820px;margin:0 auto}
+  header{display:flex;align-items:center;gap:10px;padding:12px 0 12px;border-bottom:2px solid var(--oro);margin-bottom:16px;flex-wrap:wrap}
+  .marca{font-weight:800;font-size:19px}.marca b{color:var(--naranja)}
+  .mnum{border:1px solid var(--oro);border-radius:20px;padding:2px 9px;font-size:11px;letter-spacing:2px;color:var(--oro);margin-left:6px;font-style:normal}
+  .tag{background:var(--oro);color:#111;border-radius:8px;padding:3px 10px;font-weight:800;font-size:12px}
+  #modo{margin-left:auto}
+  h2{font-size:16px;margin:18px 0 8px;color:var(--oro)}
+  .card{background:var(--panel);border:1px solid var(--linea);border-radius:14px;padding:16px;margin-bottom:14px}
+  label{font-weight:700;font-size:13px;display:block;margin:0 0 6px}
+  input[type=date]{padding:10px;border:1px solid var(--linea);border-radius:10px;background:#0f0d0a;color:var(--texto);font-size:15px}
+  button{padding:11px 16px;border:0;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;background:var(--naranja);color:#fff}
+  button.sec{background:#26231c;color:var(--oro);border:1px solid var(--oro)}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{padding:7px 8px;border-bottom:1px solid var(--linea);text-align:left;font-size:13.5px}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .tot td{font-weight:800;border-top:2px solid #4a4326}
+  .chk{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;margin:7px 0;font-size:14px}
+  .chk.ok{background:rgba(46,125,70,.15);border:1px solid rgba(46,125,70,.5)}
+  .chk.bad{background:rgba(192,57,43,.15);border:1px solid rgba(192,57,43,.55)}
+  .chk .ic{font-size:18px}
+  .big{font-size:26px;font-weight:800;color:var(--oro)}
+  .tenue{color:var(--tenue);font-size:12.5px}
+  .grid{display:flex;gap:12px;flex-wrap:wrap}
+  .kpi{flex:1;min-width:150px;background:#0f0d0a;border:1px solid var(--linea);border-radius:12px;padding:12px}
+  .kpi .l{color:var(--tenue);font-size:12px}.kpi .v{font-size:20px;font-weight:800;margin-top:2px}
+  .login{max-width:320px;margin:40px auto;text-align:center}
+  .dots{font-size:26px;letter-spacing:6px;min-height:30px;margin:8px 0;color:var(--oro)}
+  .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .teclado button{background:#26231c;color:var(--texto);border:1px solid var(--linea);padding:14px;font-size:18px}
+  .teclado button.ok{background:var(--verde);color:#fff;border:0}
+  .err{color:#e79a9a;font-size:13px;min-height:18px;margin-top:6px}
+  .mono{font-family:ui-monospace,Consolas,monospace}
+  .badmark{color:#e79a9a;font-weight:800}
+</style></head>
+<body><div class="wrap">
+  <header>
+    <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span>
+    <span class="tag">VERIFICADOR</span>
+    <span id="modo"></span>
+  </header>
+  <main id="main"><div class="tenue">Conectando…</div></main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // ===== Conexión IGUAL que el Panel (local primero, nube si no) =====
+  const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
+  const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+  const LOCAL_URL="https://pos.lospares.com";
+  const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+  const LOCAL_IP_URL="http://192.168.88.254:8080";
+
+  const $=(id)=>document.getElementById(id);
+  let sb=null, modo="NUBE";
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const cerca=(a,b,tol=1.0)=>Math.abs(Number(a||0)-Number(b||0))<=tol;
+
+  async function probar(url,llave){
+    try{ const cli=window.supabase.createClient(url,llave);
+      const ok=await Promise.race([
+        cli.from('area_impresion').select('id').limit(1).then(r=>!r.error).catch(()=>false),
+        new Promise(r=>setTimeout(()=>r(false),4500))]);
+      return ok?cli:null;
+    }catch(e){return null;}
+  }
+  async function conectar(){
+    let c=await probar(LOCAL_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;}
+    c=await probar(LOCAL_IP_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;}
+    modo="NUBE"; return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
+  }
+  function badgeModo(){return modo==="LOCAL"
+    ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800">● LOCAL</span>'
+    :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800">☁ NUBE</span>';}
+
+  const cache={formas:{},empleados:{}};
+  const state={pin:""};
+
+  window.addEventListener("DOMContentLoaded",async()=>{
+    try{
+      sb=await conectar(); $("modo").innerHTML=badgeModo();
+      const f=await sb.from("forma_pago").select("id,tipo,nombre"); (f.data||[]).forEach(x=>cache.formas[x.id]=x);
+      const e=await sb.from("empleado").select("id,nombre"); (e.data||[]).forEach(x=>cache.empleados[x.id]=x);
+      renderLogin();
+    }catch(err){ $("main").innerHTML=`<div class="card">No se pudo conectar.<br><span class="tenue">${err&&err.message||err}</span></div>`; }
+  });
+
+  // ===== Login admin (usa tu login_pin) =====
+  function renderLogin(){
+    const t=[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="pinT('${n}')">${n}</button>`).join("");
+    $("main").innerHTML=`<div class="login">
+      <div style="font-weight:800;font-size:20px">Verificador de corte</div>
+      <div class="tenue" style="margin:4px 0 14px">PIN de administrador</div>
+      <div class="dots" id="dots"></div>
+      <div class="teclado">${t}<button onclick="pinB()">←</button><button onclick="pinT('0')">0</button><button class="ok" onclick="pinE()">Entrar</button></div>
+      <div class="err" id="err"></div></div>`;
+    dots();
+  }
+  function dots(){$("dots").textContent="•".repeat(state.pin.length);}
+  window.pinT=n=>{if(state.pin.length<8){state.pin+=n;dots();$("err").textContent="";}};
+  window.pinB=()=>{state.pin=state.pin.slice(0,-1);dots();};
+  window.pinE=async()=>{
+    if(state.pin.length<3){$("err").textContent="PIN muy corto";return;}
+    try{ const {data,error}=await sb.rpc("login_pin",{p_pin:state.pin}); if(error)throw error;
+      const u=data&&data[0];
+      if(!u){state.pin="";dots();$("err").textContent="PIN incorrecto";return;}
+      if(!(u.es_admin||u.rol==='ADMIN')){state.pin="";dots();$("err").textContent="Solo administrador";return;}
+      renderPanel();
+    }catch(e){$("err").textContent="No se pudo entrar";}
+  };
+
+  // ===== Pantalla principal =====
+  function ayerISO(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+  function renderPanel(){
+    $("main").innerHTML=`
+      <div class="card">
+        <label>Elige el día a verificar</label>
+        <div class="grid" style="align-items:end">
+          <div><input type="date" id="fecha" value="${ayerISO()}"></div>
+          <div><button onclick="verificar()">🔎 Verificar corte</button></div>
+        </div>
+        <p class="tenue" style="margin:10px 0 0">Recalcula todo desde las cuentas y pagos crudos de ese día y lo compara con el corte guardado.</p>
+      </div>
+      <div id="res"></div>`;
+  }
+
+  // límites del día en hora local (tablets en Tuxtepec)
+  function rangoDia(iso){
+    const [y,m,d]=iso.split("-").map(Number);
+    const ini=new Date(y,m-1,d,0,0,0,0);
+    const fin=new Date(y,m-1,d+1,0,0,0,0);
+    return {desde:ini.toISOString(), hasta:fin.toISOString(), fecha:iso};
+  }
+
+  window.verificar=async()=>{
+    const iso=$("fecha").value; if(!iso){alert("Elige una fecha");return;}
+    const R=rangoDia(iso);
+    $("res").innerHTML=`<div class="card tenue">Recalculando ${iso}…</div>`;
+    try{
+      // 1) Cuentas CERRADAS de ese día
+      const cq=await sb.from("cuenta")
+        .select("id,folio,total,estado,cerrada_en,turno_id,mesero_id")
+        .eq("estado","CERRADA").gte("cerrada_en",R.desde).lt("cerrada_en",R.hasta);
+      if(cq.error) throw cq.error;
+      const cuentas=cq.data||[];
+      const ids=cuentas.map(c=>c.id);
+      const turnos=[...new Set(cuentas.map(c=>c.turno_id).filter(Boolean))];
+
+      // 2) Pagos de esas cuentas
+      let pagos=[];
+      if(ids.length){ const pq=await sb.from("pago").select("cuenta_id,forma_pago_id,importe,propina").in("cuenta_id",ids); if(pq.error)throw pq.error; pagos=pq.data||[]; }
+
+      // 3) Movimientos de caja de los turnos del día
+      let movs=[];
+      if(turnos.length){ try{ const mq=await sb.from("movimiento_caja").select("turno_id,tipo,monto").in("turno_id",turnos); movs=(mq&&mq.data)||[]; }catch(e){} }
+
+      // 4) Fondo inicial de los turnos
+      let fondo=0;
+      if(turnos.length){ const tq=await sb.from("turno").select("id,fondo_inicial").in("id",turnos); (tq.data||[]).forEach(t=>fondo+=Number(t.fondo_inicial||0)); }
+
+      // 5) Propinas pagadas ese día (módulo 35). fecha es DATE.
+      let propPag=0, ppRows=[];
+      try{ const ppq=await sb.from("propina_pago").select("mesero_id,monto,fecha").eq("fecha",iso); ppRows=(ppq&&ppq.data)||[]; ppRows.forEach(r=>propPag+=Number(r.monto||0)); }catch(e){}
+
+      // 6) Corte guardado (Z) de esos turnos, si existe
+      let cortes=[];
+      if(turnos.length){ try{ const zq=await sb.from("corte").select("*").in("turno_id",turnos); cortes=(zq&&zq.data)||[]; }catch(e){} }
+
+      // ===== RECÁLCULO DESDE CERO =====
+      const tipo=id=>(cache.formas[id]&&cache.formas[id].tipo)||'OTRO';
+      let ef=0,tar=0,tra=0,otr=0,propinas=0;
+      const porCuentaPago={};
+      pagos.forEach(p=>{ const t=tipo(p.forma_pago_id), v=Number(p.importe||0);
+        if(t==='EFECTIVO')ef+=v; else if(t==='TARJETA')tar+=v; else if(t==='TRANSFERENCIA')tra+=v; else otr+=v;
+        propinas+=Number(p.propina||0);
+        porCuentaPago[p.cuenta_id]=(porCuentaPago[p.cuenta_id]||0)+v;
+      });
+      const ventas=cuentas.reduce((a,c)=>a+Number(c.total||0),0);
+      const cobrado=ef+tar+tra+otr;
+      let dep=0,ret=0; movs.forEach(m=>{ if(m.tipo==='DEPOSITO')dep+=Number(m.monto||0); else if(m.tipo==='RETIRO')ret+=Number(m.monto||0); });
+      const efEsperado=fondo+ef+dep-ret-propPag;
+      const bote=propinas*0.30, mesero70=propinas*0.70;
+
+      // Cuentas cuyo pago NO cuadra con su total
+      const descuadres=cuentas.filter(c=>!cerca(porCuentaPago[c.id]||0, c.total, 1.0));
+
+      // ===== CHECKS =====
+      const chk=[];
+      chk.push({ok:cerca(cobrado,ventas,Math.max(1,cuentas.length*0.5)),
+        txt:`Suma de pagos (${M(cobrado)}) = suma de cuentas (${M(ventas)})`});
+      chk.push({ok:descuadres.length===0,
+        txt: descuadres.length===0 ? `Cada cuenta: sus pagos cuadran con su total`
+             : `${descuadres.length} cuenta(s) con pagos que NO cuadran con su total`});
+      // comparar contra corte guardado (si hay)
+      let corteBloque="";
+      if(cortes.length){
+        const cz=cortes.reduce((a,c)=>({ef:a.ef+Number(c.total_efectivo||0),tar:a.tar+Number(c.total_tarjeta||0),
+          tra:a.tra+Number(c.total_transferencia||0),prop:a.prop+Number(c.total_propinas||0),
+          ven:a.ven+Number(c.total_ventas||0),n:a.n+Number(c.num_cuentas||0)}),{ef:0,tar:0,tra:0,prop:0,ven:0,n:0});
+        const filas=[
+          ['Efectivo',cz.ef,ef],['Tarjeta',cz.tar,tar],['Transferencia',cz.tra,tra],
+          ['Propinas',cz.prop,propinas],['Venta',cz.ven,ventas],['# Cuentas',cz.n,cuentas.length]
+        ].map(([l,g,r])=>{const ok=cerca(g,r,1.0);return `<tr><td>${l}</td><td class="n">${typeof g==='number'&&l!=='# Cuentas'?M(g):g}</td><td class="n">${typeof r==='number'&&l!=='# Cuentas'?M(r):r}</td><td class="n">${ok?'✓':'<span class="badmark">✗</span>'}</td></tr>`;}).join("");
+        corteBloque=`<h2>Comparación contra el corte guardado (Z)</h2>
+          <table><thead><tr><th>Concepto</th><th class="n">Corte guardado</th><th class="n">Recalculado</th><th class="n">OK</th></tr></thead>
+          <tbody>${filas}</tbody></table>`;
+        chk.push({ok:cerca(cz.ef,ef)&&cerca(cz.tar,tar)&&cerca(cz.tra,tra)&&cerca(cz.prop,propinas)&&cerca(cz.ven,ventas),
+          txt:`El corte guardado (Z) coincide con lo recalculado`});
+      } else {
+        corteBloque=`<p class="tenue" style="margin-top:6px">No hay corte Z guardado de ese día (o el turno sigue abierto). Se muestra solo el recálculo.</p>`;
+      }
+
+      const chkHtml=chk.map(c=>`<div class="chk ${c.ok?'ok':'bad'}"><span class="ic">${c.ok?'✅':'⛔'}</span><span>${c.txt}</span></div>`).join("");
+
+      // Detalle de descuadres
+      let descHtml="";
+      if(descuadres.length){
+        descHtml=`<h2 class="badmark">Cuentas que no cuadran</h2>
+          <table><thead><tr><th>Folio</th><th>Mesero</th><th class="n">Total cuenta</th><th class="n">Pagado</th><th class="n">Diferencia</th></tr></thead>
+          <tbody>${descuadres.map(c=>{const pg=porCuentaPago[c.id]||0;return `<tr><td>${c.folio||('#'+c.id)}</td><td>${(cache.empleados[c.mesero_id]||{}).nombre||''}</td><td class="n">${M(c.total)}</td><td class="n">${M(pg)}</td><td class="n badmark">${M(pg-Number(c.total))}</td></tr>`;}).join("")}</tbody></table>`;
+      }
+
+      // Propinas por mesero pagadas
+      let ppHtml="";
+      if(ppRows.length){
+        ppHtml=`<h2>Propinas pagadas ese día</h2>
+          <table><thead><tr><th>Mesero</th><th class="n">Pagado (70%)</th></tr></thead>
+          <tbody>${ppRows.map(r=>`<tr><td>${(cache.empleados[r.mesero_id]||{}).nombre||('#'+r.mesero_id)}</td><td class="n">${M(r.monto)}</td></tr>`).join("")}
+          <tr class="tot"><td>Total propinas pagadas</td><td class="n">${M(propPag)}</td></tr></tbody></table>`;
+      }
+
+      $("res").innerHTML=`
+        <div class="card">
+          <h2 style="margin-top:0">Resultado — ${iso} · ${cuentas.length} cuentas</h2>
+          ${chkHtml}
+        </div>
+        <div class="card">
+          <h2 style="margin-top:0">Efectivo esperado (recalculado)</h2>
+          <table><tbody>
+            <tr><td>Fondo inicial</td><td class="n">${M(fondo)}</td></tr>
+            <tr><td>+ Efectivo cobrado</td><td class="n">${M(ef)}</td></tr>
+            <tr><td>+ Depósitos</td><td class="n">${M(dep)}</td></tr>
+            <tr><td>− Retiros</td><td class="n">${M(ret)}</td></tr>
+            <tr><td style="color:#e0a03a">− Propinas pagadas</td><td class="n" style="color:#e0a03a">${M(propPag)}</td></tr>
+            <tr class="tot"><td>= Efectivo esperado</td><td class="n">${M(efEsperado)}</td></tr>
+          </tbody></table>
+          <p class="tenue">Sin restar propinas, el efectivo esperado sería ${M(efEsperado+propPag)}. La resta de ${M(propPag)} es lo que pagaste de propinas.</p>
+        </div>
+        <div class="card">
+          <h2 style="margin-top:0">Resumen del día (recalculado)</h2>
+          <div class="grid">
+            <div class="kpi"><div class="l">Venta</div><div class="v">${M(ventas)}</div></div>
+            <div class="kpi"><div class="l">Efectivo</div><div class="v">${M(ef)}</div></div>
+            <div class="kpi"><div class="l">Tarjeta</div><div class="v">${M(tar)}</div></div>
+            <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(tra)}</div></div>
+          </div>
+          <div class="grid" style="margin-top:12px">
+            <div class="kpi"><div class="l">Propinas (total)</div><div class="v">${M(propinas)}</div></div>
+            <div class="kpi"><div class="l">Mesero 70%</div><div class="v">${M(mesero70)}</div></div>
+            <div class="kpi"><div class="l">Bote cocina 30%</div><div class="v">${M(bote)}</div></div>
+            <div class="kpi"><div class="l"># Cuentas</div><div class="v">${cuentas.length}</div></div>
+          </div>
+        </div>
+        ${descHtml?`<div class="card">${descHtml}</div>`:''}
+        ${ppHtml?`<div class="card">${ppHtml}</div>`:''}
+        <div class="card">${corteBloque}</div>
+      `;
+    }catch(e){ $("res").innerHTML=`<div class="card">No se pudo verificar.<br><span class="tenue">${e&&e.message||e}</span></div>`; }
+  };
+</script>
+</body></html>
