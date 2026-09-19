@@ -212,6 +212,7 @@ function rangoCustom(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:0
 window.setRango=(t)=>{state.rango=t==='HOY'?rangoHoy():t==='SEMANA'?rangoSemana():rangoMes();render();};
 window.setCustom=()=>{const a=$("f1").value,b=$("f2").value;if(!a||!b){alert("Elige las dos fechas");return;}state.rango=rangoCustom(a,b);render();};
 window.navDia=(delta)=>{const base=state.rango.tipo==='DIA'?state.rango.ancla:new Date();const nd=new Date(base.getFullYear(),base.getMonth(),base.getDate()+delta);if(nd>d0(new Date()))return;state.rango=rangoDia(nd);render();};
+window.irCuentasDia=(v)=>{ if(!v)return; const [y,m,d]=v.split('-').map(Number); const nd=new Date(y,m-1,d); if(nd>d0(new Date()))return; state.rango=rangoDia(nd); pintarCuentas(); };
 function barraRango(){
   const r=state.rango;const esDia=r.tipo==='DIA';
   const finDeHoy=esDia&&esMismoDia(r.ancla,new Date());
@@ -833,7 +834,9 @@ window.facPreparar=async()=>{
 /* ---- util ---- */
 /* ==== CUENTAS DEL DÍA — ver (cajero) / corregir (solo admin) ==== */
 async function pintarCuentas(){
-  const r=state.rango||rangoHoy(); const M=v=>'$'+Number(v||0).toFixed(2);
+  let r=state.rango||rangoHoy();
+  if(!r.unDia){ r=rangoHoy(); state.rango=r; }   // Cuentas del día = un solo día
+  const M=v=>'$'+Number(v||0).toFixed(2);
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando cuentas…</div></div>`;
   try{
     const {data:cts,error}=await sb.from("cuenta")
@@ -855,6 +858,11 @@ async function pintarCuentas(){
     }).join("");
     $("main").innerHTML=`<div class="pad">
       <h2>Cuentas del día <span class="tenue" style="font-size:14px">· ${esc(r.label)}</span></h2>
+      <div class="rango" style="justify-content:space-between;align-items:center;margin:0 0 12px">
+        <button onclick="navDia(-1)">‹ Día anterior</button>
+        <input type="date" value="${r.ini.getFullYear()}-${String(r.ini.getMonth()+1).padStart(2,'0')}-${String(r.ini.getDate()).padStart(2,'0')}" onchange="irCuentasDia(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
+        <button onclick="navDia(1)" ${esMismoDia(r.ini,new Date())?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
+      </div>
       ${state.soloLectura?`<div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px;margin-bottom:12px">Solo lectura. Las correcciones las hace un administrador (Carla).</div>`:''}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <div class="kpi"><div class="l">Venta cobrada</div><div class="v">${M(tV)}</div></div>
