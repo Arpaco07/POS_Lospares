@@ -382,7 +382,7 @@ async function pintarReportes(){
 
     const formasHtml = formas.length? formas.map(f=>`<div class="row"><span>${f.forma}</span><span>$${Number(f.importe).toFixed(2)}</span></div>`).join("") : '<div class="tenue">Sin pagos.</div>';
 
-    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button></h2>${barraRango()}
+    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button><button onclick="imprimirProductos()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#5a4a9c;color:#fff">🖨 Lista cocina</button></h2>${barraRango()}
       <div class="kpis">
         <div class="kpi big"><div class="l">Venta del periodo</div><div class="v">$${totalGeneral.toFixed(2)}</div></div>
         <div class="kpi"><div class="l">Piezas vendidas</div><div class="v">${piezasTot}</div></div>
@@ -397,6 +397,51 @@ async function pintarReportes(){
     console.error("reporte:",e);
   }
 }
+window.imprimirProductos=()=>{
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos vendidos en el periodo.");return;}
+  // Agrupar por categoría -> producto (sumando cantidades)
+  const cats={};
+  R.filas.forEach(x=>{
+    const cat=x.categoria||'Otros';
+    (cats[cat]||={prod:{},pz:0});
+    const p=(cats[cat].prod[x.producto]||={pz:0,cort:0});
+    p.pz+=Number(x.cantidad||0); p.cort+=Number(x.cortesias||0);
+    cats[cat].pz+=Number(x.cantidad||0);
+  });
+  let totalPz=0; R.filas.forEach(x=>totalPz+=Number(x.cantidad||0));
+  const bloques=Object.entries(cats).sort((a,b)=>b[1].pz-a[1].pz).map(([cat,cv])=>{
+    const filas=Object.entries(cv.prod).sort((a,b)=>b[1].pz-a[1].pz)
+      .map(([nom,p])=>`<tr><td class="q">${p.pz%1===0?p.pz:p.pz.toFixed(2)}</td><td>${nom}${p.cort>0?` <span style="color:#b8860b">(${p.cort} cortesía)</span>`:''}</td></tr>`).join('');
+    return `<div class="cat">${cat} — ${cv.pz%1===0?cv.pz:cv.pz.toFixed(2)} pz</div><table>${filas}</table>`;
+  }).join('');
+  const w=window.open('','_printProd','width=800,height=900');
+  if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
+  w.document.write(`<html><head><title>Productos vendidos</title><style>
+    @page{size:letter;margin:14mm}
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0}
+    .wrap{max-width:720px;margin:0 auto}
+    h1{font-size:22px;text-align:center;margin:0}
+    .sub{text-align:center;font-size:14px;color:#333;margin:4px 0 14px;border-bottom:2px solid #000;padding-bottom:8px}
+    .cat{font-weight:bold;font-size:15px;background:#000;color:#fff;padding:5px 10px;border-radius:4px;margin:14px 0 4px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    td{padding:4px 6px;border-bottom:1px solid #e0e0e0}
+    td.q{width:60px;text-align:right;font-weight:bold;font-variant-numeric:tabular-nums;padding-right:12px}
+    .tot{text-align:right;font-weight:bold;font-size:15px;margin-top:14px;border-top:2px solid #000;padding-top:8px}
+    .pie{text-align:center;margin-top:18px;font-size:12px;color:#666}
+    .cols{column-count:2;column-gap:26px}
+    @media print{ .cat{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
+  </style></head><body>
+    <div class="wrap">
+      <h1>PRODUCTOS VENDIDOS</h1>
+      <div class="sub">Los Pares 84×88 &nbsp;·&nbsp; ${R.rango||''}</div>
+      <div class="cols">${bloques}</div>
+      <div class="tot">TOTAL DE PIEZAS: ${totalPz%1===0?totalPz:totalPz.toFixed(2)}</div>
+      <div class="pie">Para comparar contra el pedido de cocina del día siguiente</div>
+    </div>
+  </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
+};
 window.repPDF=()=>{
   const R=window._repData; if(!R||!R.filas.length){alert("No hay datos para el PDF.");return;}
   if(!window.jspdf){alert("No se pudo cargar el generador de PDF. Revisa tu conexión.");return;}
@@ -1034,52 +1079,68 @@ window.imprimirCorte=(d,titulo)=>{
   const filasP=(d.ppm&&d.ppm.length)
     ? d.ppm.map(m=>`<tr><td>${(m.mesero||'').replace(/</g,'')}</td><td class="r">${M(m.propina_bruta)}</td><td class="r">${M(m.pagar_70)}</td><td class="r">${m.ya_pagado?('OK '+M(m.pagado_monto)):'-'}</td></tr>`).join('')
     : '<tr><td colspan="4">Sin propinas</td></tr>';
-  const w=window.open('','_printCorte','width=400,height=760');
+  const w=window.open('','_printCorte','width=800,height=900');
   if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
   w.document.write(`<html><head><title>${titulo}</title><style>
-    @page{margin:8mm}
-    body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0;padding:8px;font-size:12px;max-width:300px}
-    h1{font-size:16px;text-align:center;margin:2px 0}
-    .sub{text-align:center;font-size:11px;margin-bottom:8px;color:#333}
-    table{width:100%;border-collapse:collapse;margin:2px 0}
-    td{padding:2px 0;border-bottom:1px solid #ddd}
-    .sec{font-weight:bold;border-bottom:2px solid #000;margin-top:10px;padding:6px 0 2px}
-    .tot td{font-weight:bold;border-top:2px solid #000;border-bottom:none}
+    @page{size:letter;margin:16mm}
+    *{box-sizing:border-box}
+    html,body{width:100%}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0}
+    .wrap{width:100%;max-width:720px;margin:0 auto}
+    h1{font-size:24px;text-align:center;margin:0;letter-spacing:1px}
+    .sub{text-align:center;font-size:14px;color:#333;margin:4px 0 16px;border-bottom:2px solid #000;padding-bottom:10px}
+    .cols{display:flex;gap:30px}
+    .col{flex:1}
+    .sec{font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    td{padding:4px 2px;border-bottom:1px solid #dcdcdc}
+    .tot td{font-weight:bold;border-top:2px solid #000;border-bottom:none;font-size:15px}
     .r{text-align:right}
-    .hd td{font-weight:bold;border-bottom:1px solid #000}
+    .hd td{font-weight:bold;border-bottom:1.5px solid #000}
+    .pie{text-align:center;margin-top:22px;font-size:12px;color:#666}
   </style></head><body>
-    <h1>LOS PARES 84x88</h1>
-    <div class="sub">${titulo}<br>${d.fecha||''}</div>
-    <div class="sec">EFECTIVO EN CAJA</div>
-    <table>
-      <tr><td>Fondo inicial</td><td class="r">${M(d.fondo)}</td></tr>
-      <tr><td>Efectivo cobrado</td><td class="r">${M(d.ef)}</td></tr>
-      <tr><td>+ Depositos</td><td class="r">${M(d.dep)}</td></tr>
-      <tr><td>- Retiros</td><td class="r">${M(d.ret)}</td></tr>
-      <tr><td>- Propinas pagadas</td><td class="r">${M(d.propPag)}</td></tr>
-      <tr class="tot"><td>= EFECTIVO ESPERADO</td><td class="r">${M(d.efEsper)}</td></tr>
-    </table>
-    <div class="sec">VENTAS</div>
-    <table>
-      <tr><td>Efectivo</td><td class="r">${M(d.ef)}</td></tr>
-      <tr><td>Tarjeta</td><td class="r">${M(d.tar)}</td></tr>
-      <tr><td>Transferencia</td><td class="r">${M(d.tra)}</td></tr>
-      <tr><td>Cortesias</td><td class="r">${M(d.cort)}</td></tr>
-      <tr><td>Cuentas cerradas</td><td class="r">${d.n}</td></tr>
-      <tr class="tot"><td>VENTA</td><td class="r">${M(d.ventas)}</td></tr>
-    </table>
-    <div class="sec">PROPINAS</div>
-    <table>
-      <tr><td>Total</td><td class="r">${M(d.prop)}</td></tr>
-      <tr><td>Mesero 70%</td><td class="r">${M(d.prop*0.7)}</td></tr>
-      <tr><td>Bote cocina 30%</td><td class="r">${M(d.prop*0.3)}</td></tr>
-      <tr><td>Pagadas</td><td class="r">${M(d.propPag)}</td></tr>
-    </table>
-    <table>
-      <tr class="hd"><td>Mesero</td><td class="r">Prop</td><td class="r">70%</td><td class="r">Pag</td></tr>
-      ${filasP}
-    </table>
-    <div style="text-align:center;margin-top:12px;font-size:10px;color:#666">Los Pares 84x88 - Tuxtepec, Oaxaca</div>
+    <div class="wrap">
+      <h1>LOS PARES 84×88</h1>
+      <div class="sub">${titulo} &nbsp;·&nbsp; ${d.fecha||''}</div>
+      <div class="cols">
+        <div class="col">
+          <div class="sec">EFECTIVO EN CAJA</div>
+          <table>
+            <tr><td>Fondo inicial</td><td class="r">${M(d.fondo)}</td></tr>
+            <tr><td>Efectivo cobrado</td><td class="r">${M(d.ef)}</td></tr>
+            <tr><td>+ Depósitos</td><td class="r">${M(d.dep)}</td></tr>
+            <tr><td>− Retiros</td><td class="r">${M(d.ret)}</td></tr>
+            <tr><td>− Propinas pagadas</td><td class="r">${M(d.propPag)}</td></tr>
+            <tr class="tot"><td>= EFECTIVO ESPERADO</td><td class="r">${M(d.efEsper)}</td></tr>
+          </table>
+        </div>
+        <div class="col">
+          <div class="sec">VENTAS</div>
+          <table>
+            <tr><td>Efectivo</td><td class="r">${M(d.ef)}</td></tr>
+            <tr><td>Tarjeta</td><td class="r">${M(d.tar)}</td></tr>
+            <tr><td>Transferencia</td><td class="r">${M(d.tra)}</td></tr>
+            <tr><td>Cortesías</td><td class="r">${M(d.cort)}</td></tr>
+            <tr><td>Cuentas cerradas</td><td class="r">${d.n}</td></tr>
+            <tr class="tot"><td>VENTA</td><td class="r">${M(d.ventas)}</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="sec">PROPINAS</div>
+      <div class="cols">
+        <div class="col"><table>
+          <tr><td>Total</td><td class="r">${M(d.prop)}</td></tr>
+          <tr><td>Mesero 70%</td><td class="r">${M(d.prop*0.7)}</td></tr>
+          <tr><td>Bote cocina 30%</td><td class="r">${M(d.prop*0.3)}</td></tr>
+          <tr class="tot"><td>Pagadas</td><td class="r">${M(d.propPag)}</td></tr>
+        </table></div>
+        <div class="col"><table>
+          <tr class="hd"><td>Mesero</td><td class="r">Propina</td><td class="r">70%</td><td class="r">Pagada</td></tr>
+          ${filasP}
+        </table></div>
+      </div>
+      <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0</div>
+    </div>
   </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
 };
