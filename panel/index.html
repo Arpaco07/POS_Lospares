@@ -1060,7 +1060,10 @@ async function pintarCaja(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">🖨 Imprimir</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">📷 Enviar por WhatsApp</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">📷 Imagen</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('CARLA')">📱 Carla</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('ARTURO')">📱 Arturo</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('PARES')">📱 Los Pares</button>
         <button class="nuevo" style="${bb};background:#c0392b" ${t.abiertas>0?'disabled':''} onclick="corteZP(${turno.id})">🔒 Corte Z (cerrar turno)</button>
       </div>
       <div style="margin-top:10px"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button></div>
@@ -1310,7 +1313,10 @@ window.pintarCorteHist=async(iso)=>{
       <tbody>${(ppm&&ppm.length)?ppm.map(mm=>`<tr><td>${esc(mm.mesero)}</td><td class="n">${M(mm.propina_bruta)}</td><td class="n">${M(mm.pagar_70)}</td><td class="n">${M(Number(mm.propina_bruta)*0.30)}</td><td class="n">${mm.ya_pagado?('✓ '+M(mm.pagado_monto)):'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="tenue">Sin propinas ese día.</td></tr>'}</tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._corteHistData,'CORTE DEL DIA '+window._corteHistData.fechaCorta)">🖨 Imprimir</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._corteHistData,'CORTE DEL DÍA '+window._corteHistData.fechaCorta)">📷 Enviar por WhatsApp</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._corteHistData,'CORTE DEL DÍA '+window._corteHistData.fechaCorta)">📷 Imagen</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('CARLA')">📱 Carla</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('ARTURO')">📱 Arturo</button>
+        <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('PARES')">📱 Los Pares</button>
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button>
       </div>
       <p class="tenue" style="margin-top:8px">Reconstruido desde las cuentas cobradas de ese día (mismo cálculo que el Corte Z).</p>`}
