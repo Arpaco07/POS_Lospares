@@ -134,6 +134,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 const $=(id)=>document.getElementById(id);
 let sb=null, modo="NUBE";
@@ -399,21 +400,29 @@ async function pintarReportes(){
 }
 window.imprimirProductos=()=>{
   const R=window._repData; if(!R||!R.filas.length){alert("No hay productos vendidos en el periodo.");return;}
-  // Agrupar por categoría -> producto (sumando cantidades)
+  const selCat=(state.rep&&state.rep.cat)||null, selSub=(state.rep&&state.rep.sub)||null;
+  const nq=n=>Number(n)%1===0?Number(n):Number(n).toFixed(2);
+  // Filtra según lo que tengas abierto (todo / categoría / subgrupo)
+  const filas=R.filas.filter(x=>(!selCat||x.categoria===selCat)&&(!selSub||x.subgrupo===selSub));
+  if(!filas.length){alert("No hay productos en esa selección.");return;}
+  // Agrupa categoría -> subgrupo -> producto
   const cats={};
-  R.filas.forEach(x=>{
-    const cat=x.categoria||'Otros';
-    (cats[cat]||={prod:{},pz:0});
-    const p=(cats[cat].prod[x.producto]||={pz:0,cort:0});
-    p.pz+=Number(x.cantidad||0); p.cort+=Number(x.cortesias||0);
-    cats[cat].pz+=Number(x.cantidad||0);
+  filas.forEach(x=>{
+    const cat=x.categoria||'Otros', sg=x.subgrupo||'—';
+    (cats[cat]||={pz:0,subs:{}}); cats[cat].pz+=Number(x.cantidad||0);
+    const s=(cats[cat].subs[sg]||={pz:0,prod:{}}); s.pz+=Number(x.cantidad||0);
+    const p=(s.prod[x.producto]||={pz:0,cort:0}); p.pz+=Number(x.cantidad||0); p.cort+=Number(x.cortesias||0);
   });
-  let totalPz=0; R.filas.forEach(x=>totalPz+=Number(x.cantidad||0));
+  let totalPz=0; filas.forEach(x=>totalPz+=Number(x.cantidad||0));
   const bloques=Object.entries(cats).sort((a,b)=>b[1].pz-a[1].pz).map(([cat,cv])=>{
-    const filas=Object.entries(cv.prod).sort((a,b)=>b[1].pz-a[1].pz)
-      .map(([nom,p])=>`<tr><td class="q">${p.pz%1===0?p.pz:p.pz.toFixed(2)}</td><td>${nom}${p.cort>0?` <span style="color:#b8860b">(${p.cort} cortesía)</span>`:''}</td></tr>`).join('');
-    return `<div class="cat">${cat} — ${cv.pz%1===0?cv.pz:cv.pz.toFixed(2)} pz</div><table>${filas}</table>`;
+    const subs=Object.entries(cv.subs).sort((a,b)=>b[1].pz-a[1].pz).map(([sg,sv])=>{
+      const prods=Object.entries(sv.prod).sort((a,b)=>b[1].pz-a[1].pz)
+        .map(([nom,p])=>`<tr><td class="q">${nq(p.pz)}</td><td>${nom}${p.cort>0?` <span style="color:#b8860b">(${p.cort} cort.)</span>`:''}</td></tr>`).join('');
+      return `<div class="sg">${sg} · ${nq(sv.pz)} pz</div><table>${prods}</table>`;
+    }).join('');
+    return `<div class="cat">${cat} — ${nq(cv.pz)} pz</div>${subs}`;
   }).join('');
+  const titulo = selSub ? `${selCat} › ${selSub}` : (selCat ? selCat : 'TODOS LOS PRODUCTOS');
   const w=window.open('','_printProd','width=800,height=900');
   if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
   w.document.write(`<html><head><title>Productos vendidos</title><style>
@@ -423,20 +432,22 @@ window.imprimirProductos=()=>{
     .wrap{max-width:720px;margin:0 auto}
     h1{font-size:22px;text-align:center;margin:0}
     .sub{text-align:center;font-size:14px;color:#333;margin:4px 0 14px;border-bottom:2px solid #000;padding-bottom:8px}
-    .cat{font-weight:bold;font-size:15px;background:#000;color:#fff;padding:5px 10px;border-radius:4px;margin:14px 0 4px}
-    table{width:100%;border-collapse:collapse;font-size:14px}
-    td{padding:4px 6px;border-bottom:1px solid #e0e0e0}
-    td.q{width:60px;text-align:right;font-weight:bold;font-variant-numeric:tabular-nums;padding-right:12px}
+    .cat{font-weight:bold;font-size:15px;background:#000;color:#fff;padding:5px 10px;border-radius:4px;margin:14px 0 4px;break-after:avoid}
+    .sg{font-weight:bold;font-size:13.5px;color:#000;border-bottom:1.5px solid #000;margin:9px 0 2px;padding-bottom:2px;break-after:avoid}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:4px}
+    td{padding:3px 6px;border-bottom:1px solid #e6e6e6}
+    td.q{width:52px;text-align:right;font-weight:bold;font-variant-numeric:tabular-nums;padding-right:12px}
     .tot{text-align:right;font-weight:bold;font-size:15px;margin-top:14px;border-top:2px solid #000;padding-top:8px}
     .pie{text-align:center;margin-top:18px;font-size:12px;color:#666}
     .cols{column-count:2;column-gap:26px}
+    .cat,.sg,table{break-inside:avoid}
     @media print{ .cat{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
   </style></head><body>
     <div class="wrap">
       <h1>PRODUCTOS VENDIDOS</h1>
-      <div class="sub">Los Pares 84×88 &nbsp;·&nbsp; ${R.rango||''}</div>
+      <div class="sub">Los Pares 84×88 &nbsp;·&nbsp; ${titulo} &nbsp;·&nbsp; ${R.rango||''}</div>
       <div class="cols">${bloques}</div>
-      <div class="tot">TOTAL DE PIEZAS: ${totalPz%1===0?totalPz:totalPz.toFixed(2)}</div>
+      <div class="tot">TOTAL DE PIEZAS: ${nq(totalPz)}</div>
       <div class="pie">Para comparar contra el pedido de cocina del día siguiente</div>
     </div>
   </body></html>`);
@@ -1049,9 +1060,7 @@ async function pintarCaja(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">🖨 Imprimir</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('CARLA')">📱 Carla</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('ARTURO')">📱 Arturo</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCaja('PARES')">📱 Los Pares</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">📷 Enviar por WhatsApp</button>
         <button class="nuevo" style="${bb};background:#c0392b" ${t.abiertas>0?'disabled':''} onclick="corteZP(${turno.id})">🔒 Corte Z (cerrar turno)</button>
       </div>
       <div style="margin-top:10px"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button></div>
@@ -1073,6 +1082,85 @@ window.deshacerPropP=async(mid)=>{ if(!confirm("¿Deshacer este pago de propina?
   try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
     okmsg("Pago de propina deshecho ✓");pintarCaja();
   }catch(e){err("No se pudo deshacer.",e);}};
+/* ===== Corte como IMAGEN (PNG) para compartir por WhatsApp ===== */
+function _corteNodo(d,titulo){
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const filasP=(d.ppm&&d.ppm.length)
+    ? d.ppm.map(m=>`<tr><td>${(m.mesero||'').replace(/</g,'')}</td><td style="text-align:right">${M(m.propina_bruta)}</td><td style="text-align:right">${M(m.pagar_70)}</td><td style="text-align:right">${m.ya_pagado?('✓ '+M(m.pagado_monto)):'—'}</td></tr>`).join('')
+    : '<tr><td colspan="4">Sin propinas</td></tr>';
+  const c=document.createElement('div');
+  c.style.cssText='position:fixed;left:-10000px;top:0;width:720px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;padding:26px;font-size:14px';
+  c.innerHTML=`
+    <div style="font-size:24px;font-weight:bold;text-align:center;letter-spacing:1px">LOS PARES 84×88</div>
+    <div style="text-align:center;font-size:14px;color:#333;margin:4px 0 16px;border-bottom:2px solid #000;padding-bottom:10px">${titulo} &nbsp;·&nbsp; ${d.fecha||''}</div>
+    <div style="display:flex;gap:30px">
+      <div style="flex:1">
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">EFECTIVO EN CAJA</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Fondo inicial</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.fondo)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo cobrado</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">+ Depósitos</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.dep)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Retiros</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ret)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Propinas pagadas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO ESPERADO</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.efEsper)}</td></tr>
+        </table>
+      </div>
+      <div style="flex:1">
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">VENTAS</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tar)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tra)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cortesías</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.cort)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cuentas cerradas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${d.n}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">VENTA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.ventas)}</td></tr>
+        </table>
+      </div>
+    </div>
+    <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px">PROPINAS</div>
+    <div style="display:flex;gap:30px">
+      <div style="flex:1">
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Mesero 70%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.7)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Bote cocina 30%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.3)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Pagadas</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.propPag)}</td></tr>
+        </table>
+      </div>
+      <div style="flex:1">
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="font-weight:bold"><td style="padding:4px 2px;border-bottom:1.5px solid #000">Mesero</td><td style="padding:4px 2px;border-bottom:1.5px solid #000;text-align:right">Propina</td><td style="padding:4px 2px;border-bottom:1.5px solid #000;text-align:right">70%</td><td style="padding:4px 2px;border-bottom:1.5px solid #000;text-align:right">Pagada</td></tr>
+          ${filasP}
+        </table>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:20px;font-size:12px;color:#666">Los Pares 84×88 · Tuxtepec, Oaxaca</div>`;
+  return c;
+}
+window.compartirCorteImagen=async(d,titulo)=>{
+  if(!d){alert('No hay datos del corte.');return;}
+  if(!window.html2canvas){alert('No se pudo cargar el generador de imagen (revisa tu internet).');return;}
+  const node=_corteNodo(d,titulo); document.body.appendChild(node);
+  try{
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff'});
+    node.remove();
+    const nombre='Corte_'+((d.fechaCorta||d.fecha||'').replace(/[^0-9-]/g,''))+'.png';
+    canvas.toBlob(async(blob)=>{
+      if(!blob){alert('No se pudo generar la imagen.');return;}
+      const file=new File([blob],nombre,{type:'image/png'});
+      try{
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          await navigator.share({files:[file], title:titulo, text:'Corte Los Pares 84×88 · '+(d.fecha||'')});
+          return;
+        }
+      }catch(e){ if(e && e.name==='AbortError') return; }
+      // Fallback (compu): descarga la imagen y abre WhatsApp para adjuntarla
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nombre; document.body.appendChild(a); a.click(); a.remove();
+      okmsg('Imagen del corte descargada — adjúntala en WhatsApp');
+      setTimeout(()=>{ try{ window.open('https://wa.me/'+_WA.CARLA,'_blank'); }catch(e){} }, 400);
+    },'image/png');
+  }catch(e){ node.remove(); err('No se pudo generar la imagen.',e); }
+};
 window.imprimirCorte=(d,titulo)=>{
   if(!d){alert('No hay datos del corte.');return;}
   const M=v=>'$'+Number(v||0).toFixed(2);
@@ -1159,8 +1247,8 @@ window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Y
   try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
     const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;
     try{ imprimirCorte(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
-    try{ window.open('https://wa.me/'+_WA.CARLA+'?text='+encodeURIComponent(texto),'_blank'); }catch(e){}
-    okmsg("Corte Z hecho ✓ — se imprimió y se abrió WhatsApp de Carla");pintarCaja();
+    try{ compartirCorteImagen(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
+    okmsg("Corte Z hecho ✓ — se imprimió y se generó la imagen para WhatsApp");pintarCaja();
   }catch(e){err("No se pudo cerrar el turno.",e);}};
 window.waCaja=(quien)=>{ const d=window._cajaData; if(!d){alert("Primero abre la caja.");return;}
   window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTexto('DE TURNO (X)')),'_blank');
@@ -1222,9 +1310,7 @@ window.pintarCorteHist=async(iso)=>{
       <tbody>${(ppm&&ppm.length)?ppm.map(mm=>`<tr><td>${esc(mm.mesero)}</td><td class="n">${M(mm.propina_bruta)}</td><td class="n">${M(mm.pagar_70)}</td><td class="n">${M(Number(mm.propina_bruta)*0.30)}</td><td class="n">${mm.ya_pagado?('✓ '+M(mm.pagado_monto)):'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="tenue">Sin propinas ese día.</td></tr>'}</tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._corteHistData,'CORTE DEL DIA '+window._corteHistData.fechaCorta)">🖨 Imprimir</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('CARLA')">📱 Carla</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('ARTURO')">📱 Arturo</button>
-        <button class="nuevo" style="${bb};background:#2e7d46" onclick="waCorteHist('PARES')">📱 Los Pares</button>
+        <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._corteHistData,'CORTE DEL DÍA '+window._corteHistData.fechaCorta)">📷 Enviar por WhatsApp</button>
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button>
       </div>
       <p class="tenue" style="margin-top:8px">Reconstruido desde las cuentas cobradas de ese día (mismo cálculo que el Corte Z).</p>`}
