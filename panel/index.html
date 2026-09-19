@@ -335,6 +335,7 @@ window.verMesaMonitor=async(folio)=>{
   }catch(e){ err("No se pudo ver la mesa.",e); }
 };
 async function pintarReportes(){
+  window._noAuto=false;
   if(!state.rep) state.rep={cat:null,sub:null};
   $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
   try{
@@ -459,6 +460,7 @@ window.imprimirProductos=()=>{
 };
 /* Pantalla de casillas: elegir varias secciones e imprimir solo esas */
 window.pintarSelImp=()=>{
+  window._noAuto=true;   // mientras eliges secciones, que NO se refresque y te saque
   const R=window._repData; if(!R||!R.filas.length){alert("No hay productos en el periodo.");return;}
   const cats={};
   R.filas.forEach(x=>{ const c=x.categoria||'Otros', s=x.subgrupo||'—'; (cats[c]||={pz:0,subs:{}}); cats[c].pz+=Number(x.cantidad||0); const sv=(cats[c].subs[s]||={pz:0}); sv.pz+=Number(x.cantidad||0); });
@@ -541,6 +543,7 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes(
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
+  window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
   if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
   if(state.vista==='monitor'){return pintarMonitor();}
   if(state.vista==='reportes'){return pintarReportes();}
@@ -564,6 +567,7 @@ async function render(){
 const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
+    if(window._noAuto)return;                                        // pantalla de selección abierta: no refrescar
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
     if(!VISTAS_AUTO.includes(state.vista))return;                    // solo vistas de consulta
