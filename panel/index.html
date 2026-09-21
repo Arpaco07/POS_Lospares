@@ -591,6 +591,7 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes(
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
+  if(!state.rango) state.rango=rangoHoy();   // SEGURO: nunca calcular con rango vacio (evita "reading 'ini'")
   window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
   if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
   if(state.vista==='monitor'){return pintarMonitor();}
@@ -615,6 +616,8 @@ async function render(){
 const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
+    if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
+    if(!state.rango)return;                                          // sin rango de fechas todavia: no calcular
     if(window._noAuto)return;                                        // pantalla de selección abierta: no refrescar
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
