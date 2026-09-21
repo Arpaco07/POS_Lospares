@@ -272,11 +272,45 @@ state.rep={cat:null,sub:null};
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function pintarMonitor(){
   await cargarMonitor();
-  if(!window._monTimer){ window._monTimer=setInterval(()=>{ if(state.vista==='monitor') cargarMonitor(); }, 10000); }
+  if(!window._monTimer){ window._monTimer=setInterval(()=>{ if(state.vista==='monitor'){ const el=document.activeElement; if(el&&el.id==='monBuscar')return; cargarMonitor(); } }, 10000); }
 }
 async function cargarMonitor(){
   let d;
-  try{ const r=await sb.rpc("monitor_dia",{p_fecha:new Date().toISOString().slice(0,10)}); if(r.error)throw r.error; d=r.data; }
+  try{
+    // El "día" = el TURNO (abre al abrir turno, cierra con el Corte Z), aunque pase la medianoche.
+    let turno=null;
+    const {data:tOpen}=await sb.from("turno").select("id,abierto_en,estado").eq("estado","ABIERTO").order("abierto_en",{ascending:false}).limit(1);
+    turno=(tOpen&&tOpen[0])||null;
+    if(!turno){ const {data:tLast}=await sb.from("turno").select("id,abierto_en,estado").order("abierto_en",{ascending:false}).limit(1); turno=(tLast&&tLast[0])||null; }
+    if(!turno){ $("main").innerHTML=`<div class="pad"><h2>📊 Monitor de ventas</h2><div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px">No hay ningún turno todavía. Ábrelo en <b>Caja / Turno</b> para empezar el día.</div></div>`; return; }
+    const {data:cerr,error:e1}=await sb.from("cuenta").select("id,total,mesero_id,num_comensales").eq("estado","CERRADA").eq("turno_id",turno.id);
+    if(e1)throw e1;
+    const cer=cerr||[]; const ids=cer.map(c=>c.id);
+    const {data:abi}=await sb.from("cuenta").select("id,folio,mesa_id,mesero_id,total,abierta_en").eq("estado","ABIERTA").eq("turno_id",turno.id);
+    const ab=abi||[];
+    let pagos=[]; if(ids.length){ const {data:pg}=await sb.from("pago").select("cuenta_id,forma_pago_id,importe,propina").in("cuenta_id",ids); pagos=pg||[]; }
+    let ef=0,tar=0,tra=0,otr=0,prop=0;
+    pagos.forEach(p=>{const t=(cache.formas[p.forma_pago_id]&&cache.formas[p.forma_pago_id].tipo)||'OTRO';const v=Number(p.importe||0); if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; prop+=Number(p.propina||0);});
+    const ventaDia=cer.reduce((a,c)=>a+Number(c.total||0),0);
+    const comensales=cer.reduce((a,c)=>a+Number(c.num_comensales||0),0);
+    const nCer=cer.length;
+    const totalAbierto=ab.reduce((a,c)=>a+Number(c.total||0),0);
+    let top=[], todos=[];
+    if(ids.length){
+      const {data:cp}=await sb.from("cuenta_producto").select("producto_id,cantidad,importe,estado").in("cuenta_id",ids);
+      const acc={};
+      (cp||[]).forEach(x=>{ if((x.estado||'')==='CANCELADO')return; const k=x.producto_id; (acc[k]||={cant:0,imp:0}); acc[k].cant+=Number(x.cantidad||0); acc[k].imp+=Number(x.importe||0); });
+      const pids=Object.keys(acc); let pmap={};
+      if(pids.length){ const {data:pr}=await sb.from("producto").select("id,nombre").in("id",pids); (pr||[]).forEach(p=>pmap[p.id]=p.nombre); }
+      todos=Object.entries(acc).map(([k,v])=>({nombre:pmap[k]||('#'+k),cantidad:v.cant,importe:v.imp})).sort((a,b)=>b.cantidad-a.cantidad);
+      top=todos.slice(0,8);
+    }
+    window._monTodos=todos;   // lista completa para el buscador
+    let mmap={};
+    if(ab.length){ const mids=[...new Set(ab.map(a=>a.mesa_id).filter(Boolean))]; if(mids.length){ const {data:ms}=await sb.from("mesa").select("id,nombre,numero").in("id",mids); (ms||[]).forEach(m=>mmap[m.id]=m.nombre||('Mesa '+m.numero)); } }
+    const abiertasArr=ab.map(a=>({ nombre:mmap[a.mesa_id]||a.folio||('#'+a.id), folio:a.folio, mesero:(cache.empleados[a.mesero_id]||{}).nombre||'', desde:a.abierta_en, total:a.total }));
+    d={ venta_dia:ventaDia, cuentas_cerradas:nCer, comensales, ticket_promedio:(nCer?ventaDia/nCer:0), num_abiertas:ab.length, total_abierto:totalAbierto, propinas:prop, efectivo:ef, tarjeta:tar, transferencia:tra, otros:otr, top_productos:top, abiertas:abiertasArr, turno_abierto:(turno.estado==='ABIERTO'), turno_desde:turno.abierto_en, actualizado:new Date().toISOString() };
+  }
   catch(e){ $("main").innerHTML=`<div class="pad"><h2>Monitor</h2><div class="aviso err">No se pudo cargar: ${(e&&e.message)||e}</div></div>`; return; }
   const M=v=>'$'+Number(v||0).toFixed(2);
   const hora=new Date(d.actualizado).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -288,6 +322,7 @@ async function cargarMonitor(){
 
   $("main").innerHTML=`<div class="pad">
     <h2>📊 Monitor de ventas <span class="tenue" style="font-size:13px;font-weight:400">· en vivo, actualiza solo · ${hora}</span></h2>
+    <p class="tenue" style="margin:-4px 0 10px">${d.turno_abierto ? ('Turno abierto desde '+new Date(d.turno_desde).toLocaleString('es-MX')+' · cuenta hasta el Corte Z (aunque pase la medianoche)') : ('⚠ No hay turno abierto — se muestra el último turno. Abre uno nuevo en Caja / Turno para empezar el día en $0.')}</p>
     <div class="kpis">
       <div class="kpi big"><div class="l">Venta del día</div><div class="v">${M(d.venta_dia)}</div></div>
       <div class="kpi"><div class="l">Cuentas cerradas</div><div class="v">${d.cuentas_cerradas}</div></div>
@@ -307,11 +342,24 @@ async function cargarMonitor(){
       <div class="row"><span>Vales / Otros</span><span>${M(d.otros)}</span></div>
       <div class="row" style="font-weight:800;border-top:1px solid var(--gris2);margin-top:4px;padding-top:6px"><span>Total cobrado</span><span>${M(Number(d.efectivo)+Number(d.tarjeta)+Number(d.transferencia)+Number(d.otros))}</span></div>
     </div>
+    <div class="sec-t">🔎 Buscar producto vendido (inventario)</div>
+    <input id="monBuscar" placeholder="Escribe: coca, rib eye, cerveza…" oninput="filtrarProd(this.value)" style="width:100%;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
+    <div id="monResBuscar" class="tot" style="margin-top:8px"></div>
     <div class="sec-t">Mesas abiertas ahora</div><div>${abiertas}</div>
-    <div class="sec-t" style="margin-top:14px">Lo más vendido hoy</div><div class="tot">${top}</div>
+    <div class="sec-t" style="margin-top:14px">Lo más vendido (del turno)</div><div class="tot">${top}</div>
     <p class="tenue" style="margin-top:10px">Se actualiza cada 10 segundos. Puedes dejar esta pantalla abierta.</p>
   </div>`;
+  const _mb=$("monBuscar"); if(_mb){ _mb.value=window._monQ||''; filtrarProd(_mb.value); }
 }
+window.filtrarProd=(q)=>{
+  window._monQ=q; const cont=$("monResBuscar"); if(!cont)return;
+  const s=(q||'').trim().toLowerCase(); const list=window._monTodos||[];
+  if(!s){ cont.innerHTML='<div class="tenue">Escribe para ver cuántas se han vendido en el turno…</div>'; return; }
+  const res=list.filter(p=>String(p.nombre).toLowerCase().includes(s)).sort((a,b)=>b.cantidad-a.cantidad);
+  cont.innerHTML = res.length
+    ? res.map(p=>`<div class="row"><span>${p.nombre}</span><span><b style="color:var(--oro,#d4af37);font-size:16px">${Number(p.cantidad)}</b> vendidas · $${Number(p.importe).toFixed(2)}</span></div>`).join('')
+    : '<div class="tenue">Sin ventas de eso en el turno.</div>';
+};
 window.verMesaMonitor=async(folio)=>{
   if(!folio){alert("Esta mesa no tiene folio aún.");return;}
   try{
@@ -1058,15 +1106,16 @@ async function pintarCaja(){
       return;
     }
     const t=await tallyCaja(turno.id);
-    const _hoy=new Date().toISOString().slice(0,10);
+    window._turnoActual=turno.id;   // para pagar/deshacer propinas del turno
     let ppm=[],boteC=0,propPag=0;
     try{
-      const _r1=await sb.rpc("propinas_por_mesero",{p_fecha:_hoy}); if(!_r1.error)ppm=_r1.data||[];
-      const _r2=await sb.rpc("bote_cocina",{p_fecha:_hoy}); if(!_r2.error)boteC=Number(_r2.data)||0;
-      const _r3=await sb.rpc("total_propinas_pagadas",{p_fecha:_hoy}); if(!_r3.error)propPag=Number(_r3.data)||0;
+      const _r1=await sb.rpc("propinas_por_mesero",{p_turno:turno.id}); if(!_r1.error)ppm=_r1.data||[];
+      const _r2=await sb.rpc("bote_cocina",{p_turno:turno.id}); if(!_r2.error)boteC=Number(_r2.data)||0;
+      const _r3=await sb.rpc("total_propinas_pagadas",{p_turno:turno.id}); if(!_r3.error)propPag=Number(_r3.data)||0;
     }catch(e){}
-    const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret-propPag;
-    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,ppm,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
+    const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret-propPag;   // lo que debe haber en el cajón
+    const efRest=efEsper-boteC;                                          // lo realmente del restaurante (sin el bote 30%)
+    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,efRest,ppm,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
       <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
@@ -1075,8 +1124,9 @@ async function pintarCaja(){
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Efectivo en caja</div>
           <table><tbody>
-            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}
+            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}${row('− Bote cocina (30%)',boteC)}${row('= Efectivo del restaurante',efRest,true)}
           </tbody></table>
+          <p class="tenue" style="margin:6px 0 0;font-size:12px">El bote de cocina (30%) queda en la caja y se reparte al día siguiente. El "Efectivo del restaurante" es lo que realmente le queda al negocio.</p>
           <div style="display:flex;gap:8px;margin-top:10px">
             <button class="nuevo" style="${bb};background:#2f6fb0" onclick="movCajaP('DEPOSITO')">＋ Depósito</button>
             <button class="nuevo" style="${bb};background:#8a6d1f" onclick="movCajaP('RETIRO')">− Retiro</button>
@@ -1108,7 +1158,7 @@ async function pintarCaja(){
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('PARES')">📱 Los Pares</button>
         <button class="nuevo" style="${bb};background:#c0392b" ${t.abiertas>0?'disabled':''} onclick="corteZP(${turno.id})">🔒 Corte Z (cerrar turno)</button>
       </div>
-      <div style="margin-top:10px"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button><button class="nuevo" style="${bb};background:#2f6fb0" onclick="pintarVerificar()">🔎 Verificar corte</button></div>
       ${t.abiertas>0?'<p class="tenue" style="margin-top:6px">Para el Corte Z primero cobra las cuentas abiertas.</p>':''}
     </div>`;
   }catch(e){err("No se pudo cargar la caja.",e);}
@@ -1120,11 +1170,13 @@ window.movCajaP=async(tipo)=>{const et=tipo==='RETIRO'?'retiro (salida)':'depós
   const motivo=prompt("Motivo:")||null;
   try{const r=await sb.rpc("registrar_movimiento_caja",{p_tipo:tipo,p_monto:monto,p_motivo:motivo,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;okmsg((tipo==='RETIRO'?"Retiro":"Depósito")+" registrado ✓");pintarCaja();}catch(e){err("No se pudo registrar el movimiento.",e);}};
 window.pagarPropP=async(mid)=>{ if(!confirm("¿Pagar la propina (70%) de este mesero en efectivo?"))return;
-  try{const r=await sb.rpc("pagar_propina_mesero",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
+  if(!window._turnoActual){alert("Primero abre la caja/turno.");return;}
+  try{const r=await sb.rpc("pagar_propina_mesero",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_turno:window._turnoActual});if(r.error)throw r.error;
     okmsg("Propina pagada ✓ ($"+Number(r.data||0).toFixed(2)+")");pintarCaja();
   }catch(e){err("No se pudo pagar la propina.",e);}};
 window.deshacerPropP=async(mid)=>{ if(!confirm("¿Deshacer este pago de propina? (solo admin)"))return;
-  try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_fecha:new Date().toISOString().slice(0,10)});if(r.error)throw r.error;
+  if(!window._turnoActual){alert("Primero abre la caja/turno.");return;}
+  try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_turno:window._turnoActual});if(r.error)throw r.error;
     okmsg("Pago de propina deshecho ✓");pintarCaja();
   }catch(e){err("No se pudo deshacer.",e);}};
 /* ===== Corte como IMAGEN (PNG) para compartir por WhatsApp ===== */
@@ -1148,6 +1200,8 @@ function _corteNodo(d,titulo){
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Retiros</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ret)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Propinas pagadas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
           <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO ESPERADO</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.efEsper)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Bote cocina (30%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.boteC)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO DEL RESTAURANTE</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}</td></tr>
         </table>
       </div>
       <div style="flex:1">
@@ -1245,6 +1299,8 @@ window.imprimirCorte=(d,titulo)=>{
             <tr><td>− Retiros</td><td class="r">${M(d.ret)}</td></tr>
             <tr><td>− Propinas pagadas</td><td class="r">${M(d.propPag)}</td></tr>
             <tr class="tot"><td>= EFECTIVO ESPERADO</td><td class="r">${M(d.efEsper)}</td></tr>
+            <tr><td>− Bote cocina (30%)</td><td class="r">${M(d.boteC)}</td></tr>
+            <tr class="tot"><td>= EFECTIVO DEL RESTAURANTE</td><td class="r">${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}</td></tr>
           </table>
         </div>
         <div class="col">
@@ -1279,7 +1335,7 @@ window.imprimirCorte=(d,titulo)=>{
 };
 function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toFixed(2);
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
-    `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n\n`+
+    `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n- Bote cocina (30%): ${M(d.boteC)}\n= EFECTIVO DEL RESTAURANTE: ${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}\n\n`+
     `VENTAS\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n\n`+
     `PROPINAS\nTotal: ${M(d.prop)}\nMesero 70%: ${M(d.prop*0.7)}\nBote cocina 30%: ${M(d.prop*0.3)}\n\n`+
     `PROPINAS PAGADAS\nPagado a meseros: ${M(d.propPag)}\nBote por repartir (30%): ${M(d.boteC)}\n`+
@@ -1287,13 +1343,33 @@ function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toF
     `\nCortesias: ${M(d.cort)}`;
 }
 function _corteTexto(tipo){ return _corteTextoDe(window._cajaData, tipo); }
-window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
-  const texto=_corteTexto('DE CIERRE (Z)');
-  try{const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
+window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
+  try{
+    // 1) Pagar afuerza las propinas del turno que sigan pendientes (nada queda colgando)
+    let pagAuto=0;
+    try{ const rp=await sb.rpc("pagar_todas_propinas_turno",{p_empleado_clave:state.admin.clave,p_turno:id}); if(!rp.error) pagAuto=Number(rp.data)||0; }catch(e){}
+    // 2) Refrescar los números del corte (propinas pagadas / bote / efectivo del restaurante) tras el pago
+    try{
+      const [_r1,_r2,_r3]=await Promise.all([
+        sb.rpc("propinas_por_mesero",{p_turno:id}),
+        sb.rpc("bote_cocina",{p_turno:id}),
+        sb.rpc("total_propinas_pagadas",{p_turno:id})
+      ]);
+      if(window._cajaData){
+        if(!_r1.error) window._cajaData.ppm=_r1.data||[];
+        if(!_r2.error) window._cajaData.boteC=Number(_r2.data)||0;
+        if(!_r3.error) window._cajaData.propPag=Number(_r3.data)||0;
+        // recalcular efectivo esperado y del restaurante con las propinas ya pagadas
+        window._cajaData.efEsper=Number(window._cajaData.fondo)+Number(window._cajaData.ef)+Number(window._cajaData.dep)-Number(window._cajaData.ret)-Number(window._cajaData.propPag);
+        window._cajaData.efRest=window._cajaData.efEsper-Number(window._cajaData.boteC||0);
+      }
+    }catch(e){}
+    // 3) Generar y cerrar
+    const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
     const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;
     try{ imprimirCorte(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     try{ compartirCorteImagen(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
-    okmsg("Corte Z hecho ✓ — se imprimió y se generó la imagen para WhatsApp");pintarCaja();
+    okmsg("Corte Z hecho ✓"+(pagAuto>0?(" — se pagaron $"+pagAuto.toFixed(2)+" de propinas pendientes"):"")+" · se imprimió y se generó la imagen para WhatsApp");pintarCaja();
   }catch(e){err("No se pudo cerrar el turno.",e);}};
 window.waCaja=(quien)=>{ const d=window._cajaData; if(!d){alert("Primero abre la caja.");return;}
   window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTexto('DE TURNO (X)')),'_blank');
@@ -1318,10 +1394,17 @@ window.pintarCorteHist=async(iso)=>{
     let cort=0; if(ids.length){ try{ const co=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids); cort=(co.data||[]).reduce((a,x)=>a+Number(x.importe||0),0);}catch(e){} }
     let dep=0,ret=0; if(turnos.length){ try{ const mc=await sb.from("movimiento_caja").select("tipo,monto").in("turno_id",turnos); (mc.data||[]).forEach(mv=>{ if(mv.tipo==='DEPOSITO')dep+=Number(mv.monto||0); else if(mv.tipo==='RETIRO')ret+=Number(mv.monto||0);});}catch(e){} }
     let fondo=0; if(turnos.length){ const tq=await sb.from("turno").select("fondo_inicial").in("id",turnos); (tq.data||[]).forEach(t=>fondo+=Number(t.fondo_inicial||0)); }
-    let ppm=[],propPag=0; const boteC=prop*0.30;
-    try{ const r1=await sb.rpc("propinas_por_mesero",{p_fecha:iso}); if(!r1.error)ppm=r1.data||[]; const r3=await sb.rpc("total_propinas_pagadas",{p_fecha:iso}); if(!r3.error)propPag=Number(r3.data)||0; }catch(e){}
-    const efEsper=fondo+ef+dep-ret-propPag;
-    const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
+    // Propinas por mesero (reconstruidas desde los pagos del día) y pagadas (desde propina_pago por turno)
+    const cm={}; cuentas.forEach(c=>{ cm[c.id]=c.mesero_id; });
+    const brutaMap={}; pagos.forEach(p=>{ const mid=cm[p.cuenta_id]; if(mid==null)return; brutaMap[mid]=(brutaMap[mid]||0)+Number(p.propina||0); });
+    let pagRows=[]; if(turnos.length){ try{ const pq=await sb.from("propina_pago").select("mesero_id,monto").in("turno_id",turnos); pagRows=pq.data||[]; }catch(e){} }
+    const pagMap={}; let propPag=0; pagRows.forEach(r=>{ pagMap[r.mesero_id]=(pagMap[r.mesero_id]||0)+Number(r.monto||0); propPag+=Number(r.monto||0); });
+    const boteC=prop*0.30;
+    const midList=[...new Set(Object.keys(brutaMap).map(Number))];
+    let nombreMap={}; if(midList.length){ try{ const eq=await sb.from("empleado").select("id,nombre").in("id",midList); (eq.data||[]).forEach(e=>nombreMap[e.id]=e.nombre); }catch(e){} }
+    let ppm=midList.filter(mid=>brutaMap[mid]>0).map(mid=>({mesero_id:mid, mesero:nombreMap[mid]||('#'+mid), propina_bruta:brutaMap[mid], pagar_70:Math.round(brutaMap[mid]*0.70*100)/100, ya_pagado:(pagMap[mid]||0)>0, pagado_monto:pagMap[mid]||0})).sort((a,b)=>(a.mesero||'').localeCompare(b.mesero||''));
+    const efEsper=fondo+ef+dep-ret-propPag; const efRest=efEsper-boteC;
+    const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,efRest,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
     window._corteHistData=d;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     const hoy0=new Date(); hoy0.setHours(0,0,0,0); const esHoy=ini.getTime()===hoy0.getTime();
@@ -1337,7 +1420,7 @@ window.pintarCorteHist=async(iso)=>{
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Efectivo en caja</div>
           <table><tbody>
-            ${row('Fondo inicial',fondo)}${row('Efectivo cobrado',ef)}${row('+ Depósitos',dep)}${row('− Retiros',ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}
+            ${row('Fondo inicial',fondo)}${row('Efectivo cobrado',ef)}${row('+ Depósitos',dep)}${row('− Retiros',ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}${row('− Bote cocina (30%)',boteC)}${row('= Efectivo del restaurante',efRest,true)}
           </tbody></table>
         </div>
         <div style="flex:1;min-width:280px">
@@ -1367,6 +1450,85 @@ window.pintarCorteHist=async(iso)=>{
 };
 window.histDia=(delta)=>{ if(!window._histISO)return; const b=window._histISO.split('-').map(Number); const nd=new Date(b[0],b[1]-1,b[2]+delta); const hoy0=new Date(); hoy0.setHours(0,0,0,0); if(nd>hoy0)return; pintarCorteHist(`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`); };
 window.waCorteHist=(quien)=>{ const d=window._corteHistData; if(!d){alert("Primero abre un corte.");return;} window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTextoDe(d,'DEL DÍA '+d.fechaCorta)),'_blank'); };
+
+/* ===== VERIFICADOR DE CORTE (recalcula desde cero y compara con el corte guardado) ===== */
+window._verTurno=null;
+window.pintarVerificar=async(turnoId)=>{
+  const M=v=>'$'+Number(v||0).toFixed(2); const bb='width:auto;margin:0;padding:9px 14px';
+  const cerca=(a,b,tol)=>Math.abs(Number(a||0)-Number(b||0))<=(tol||1.0);
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Verificando…</div></div>`;
+  try{
+    // El día = TURNO. Por defecto el turno abierto (lo que va del día); se puede elegir uno anterior.
+    const {data:turnos}=await sb.from("turno").select("id,abierto_en,estado,fondo_inicial,cerrado_en").order("abierto_en",{ascending:false}).limit(60);
+    const lst=turnos||[];
+    if(!lst.length){ $("main").innerHTML=`<div class="pad"><h2>🔎 Verificador de corte</h2><div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px">No hay turnos todavía. Abre uno en Caja / Turno.</div><div style="margin-top:12px"><button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button></div></div>`; return; }
+    let turno = turnoId ? lst.find(t=>String(t.id)===String(turnoId)) : (lst.find(t=>t.estado==='ABIERTO')||lst[0]);
+    if(!turno) turno=lst[0];
+    window._verTurno=turno.id;
+    const {data:cts}=await sb.from("cuenta").select("id,folio,total,mesero_id").eq("estado","CERRADA").eq("turno_id",turno.id);
+    const cuentas=cts||[]; const ids=cuentas.map(c=>c.id);
+    let pagos=[]; if(ids.length){ const {data:pg}=await sb.from("pago").select("cuenta_id,forma_pago_id,importe,propina").in("cuenta_id",ids); pagos=pg||[]; }
+    let movs=[]; try{ const {data:mc}=await sb.from("movimiento_caja").select("tipo,monto").eq("turno_id",turno.id); movs=mc||[]; }catch(e){}
+    let propPag=0; try{ const {data:pp}=await sb.from("propina_pago").select("monto").eq("turno_id",turno.id); (pp||[]).forEach(r=>propPag+=Number(r.monto||0)); }catch(e){}
+    let cortes=[]; try{ const {data:zz}=await sb.from("corte").select("*").eq("turno_id",turno.id); cortes=zz||[]; }catch(e){}
+    const fondo=Number(turno.fondo_inicial||0);
+    const tipo=id=>(cache.formas[id]&&cache.formas[id].tipo)||'OTRO';
+    let ef=0,tar=0,tra=0,otr=0,propinas=0; const porC={}, porP={};
+    pagos.forEach(p=>{const t=tipo(p.forma_pago_id),v=Number(p.importe||0),pr=Number(p.propina||0); if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; propinas+=pr; porC[p.cuenta_id]=(porC[p.cuenta_id]||0)+v; porP[p.cuenta_id]=(porP[p.cuenta_id]||0)+pr;});
+    const ventas=cuentas.reduce((a,c)=>a+Number(c.total||0),0); const cobrado=ef+tar+tra+otr;
+    let dep=0,ret=0; movs.forEach(mv=>{ if(mv.tipo==='DEPOSITO')dep+=Number(mv.monto||0); else if(mv.tipo==='RETIRO')ret+=Number(mv.monto||0);});
+    const efEsper=fondo+ef+dep-ret-propPag;
+    const desc=cuentas.filter(c=>!cerca(porC[c.id]||0, Number(c.total)+(porP[c.id]||0), 1.0));
+    const chk=[];
+    chk.push({ok:cerca(cobrado, ventas+propinas, Math.max(1,cuentas.length*0.5)), txt:`Suma de pagos (${M(cobrado)}) = ventas + propinas (${M(ventas+propinas)})`});
+    chk.push({ok:desc.length===0, txt: desc.length===0?'Cada cuenta: sus pagos cuadran con su total':`${desc.length} cuenta(s) con pagos que NO cuadran`});
+    let corteBloque='';
+    if(cortes.length){
+      const cz=cortes.reduce((a,c)=>({ef:a.ef+Number(c.total_efectivo||0),tar:a.tar+Number(c.total_tarjeta||0),tra:a.tra+Number(c.total_transferencia||0),prop:a.prop+Number(c.total_propinas||0),ven:a.ven+Number(c.total_ventas||0),n:a.n+Number(c.num_cuentas||0)}),{ef:0,tar:0,tra:0,prop:0,ven:0,n:0});
+      const fil=[['Efectivo',cz.ef,ef],['Tarjeta',cz.tar,tar],['Transferencia',cz.tra,tra],['Propinas',cz.prop,propinas],['Venta',cz.ven,ventas],['Cuentas',cz.n,cuentas.length]].map(([l,g,r])=>{const ok=cerca(g,r,1.0);return `<tr><td>${l}</td><td class="n">${l==='Cuentas'?g:M(g)}</td><td class="n">${l==='Cuentas'?r:M(r)}</td><td class="n">${ok?'✓':'<b style="color:#e79a9a">✗</b>'}</td></tr>`;}).join('');
+      corteBloque=`<div class="sec-t" style="margin-top:16px">Comparación contra el Corte Z guardado</div><table><thead><tr><th>Concepto</th><th class="n">Corte guardado</th><th class="n">Recalculado</th><th class="n">OK</th></tr></thead><tbody>${fil}</tbody></table>`;
+      chk.push({ok:cerca(cz.ef,ef)&&cerca(cz.tar,tar)&&cerca(cz.tra,tra)&&cerca(cz.prop,propinas)&&cerca(cz.ven,ventas), txt:'El Corte Z guardado coincide con lo recalculado'});
+    } else { corteBloque='<p class="tenue" style="margin-top:10px">Este turno aún no tiene Corte Z (sigue abierto). Se verifican las cuentas cobradas hasta ahorita — no hace falta cerrar para revisar.</p>'; }
+    const chkHtml=chk.map(c=>`<div class="aviso ${c.ok?'ok':'err'}" style="margin:6px 0">${c.ok?'✅':'⛔'} ${c.txt}</div>`).join('');
+    let descHtml='';
+    if(desc.length){
+      descHtml=`<div class="sec-t" style="margin-top:16px;color:#e79a9a">Cuentas que no cuadran (ya descontando propina)</div>
+        <table><thead><tr><th>Folio</th><th>Mesero</th><th class="n">Consumo</th><th class="n">Propina</th><th class="n">Esperado</th><th class="n">Pagado</th><th class="n">Dif.</th></tr></thead>
+        <tbody>${desc.map(c=>{const pg=porC[c.id]||0,pr=Number(porP[c.id]||0),esp=Number(c.total)+pr;return `<tr><td>${esc(c.folio||('#'+c.id))}</td><td>${esc((cache.empleados[c.mesero_id]||{}).nombre||'')}</td><td class="n">${M(c.total)}</td><td class="n">${M(pr)}</td><td class="n">${M(esp)}</td><td class="n">${M(pg)}</td><td class="n"><b style="color:#e79a9a">${M(pg-esp)}</b></td></tr>`;}).join('')}</tbody></table>`;
+    }
+    const opts=lst.map(t=>`<option value="${t.id}" ${String(t.id)===String(turno.id)?'selected':''}>${new Date(t.abierto_en).toLocaleString('es-MX')} ${t.estado==='ABIERTO'?'· ABIERTO (día en curso)':'· cerrado'}</option>`).join('');
+    $("main").innerHTML=`<div class="pad">
+      <h2>🔎 Verificador de corte</h2>
+      <label style="font-weight:700;font-size:13px;display:block;margin:6px 0 4px">Turno a verificar</label>
+      <select onchange="pintarVerificar(this.value)" style="width:100%;max-width:460px;padding:10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px;margin-bottom:6px">${opts}</select>
+      <p class="tenue" style="margin:2px 0 8px">${turno.estado==='ABIERTO'?'Turno abierto desde '+new Date(turno.abierto_en).toLocaleString('es-MX')+' — así va el día hasta ahorita':'Turno cerrado el '+new Date(turno.cerrado_en||turno.abierto_en).toLocaleString('es-MX')} · ${cuentas.length} cuentas cobradas</p>
+      ${chkHtml}
+      <div class="sec-t" style="margin-top:14px">Efectivo esperado (recalculado)</div>
+      <table><tbody>
+        <tr><td>Fondo inicial</td><td class="n">${M(fondo)}</td></tr>
+        <tr><td>+ Efectivo cobrado</td><td class="n">${M(ef)}</td></tr>
+        <tr><td>+ Depósitos</td><td class="n">${M(dep)}</td></tr>
+        <tr><td>− Retiros</td><td class="n">${M(ret)}</td></tr>
+        <tr><td style="color:#e0a03a">− Propinas pagadas</td><td class="n" style="color:#e0a03a">${M(propPag)}</td></tr>
+        <tr class="tot-row"><td>= Efectivo esperado</td><td class="n">${M(efEsper)}</td></tr>
+      </tbody></table>
+      <div class="sec-t" style="margin-top:14px">Resumen (recalculado)</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="kpi"><div class="l">Venta</div><div class="v">${M(ventas)}</div></div>
+        <div class="kpi"><div class="l">Efectivo</div><div class="v">${M(ef)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta</div><div class="v">${M(tar)}</div></div>
+        <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(tra)}</div></div>
+        <div class="kpi"><div class="l">Propinas</div><div class="v">${M(propinas)}</div></div>
+      </div>
+      ${descHtml}
+      ${corteBloque}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="nuevo" style="${bb}" onclick="pintarVerificar('${turno.id}')">🔄 Actualizar</button>
+        <button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button>
+      </div>
+    </div>`;
+  }catch(e){ err("No se pudo verificar.",e); }
+};
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
 function err(t,e){const m=(e&&(e.message||e.hint||e.details))||String(e);const d=document.createElement("div");d.className="aviso err";d.innerHTML=`<b>${t}</b><br>${m}`;d.style.cssText="position:fixed;bottom:20px;left:12px;right:12px;z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),6000);console.error(t,e);}
 function grande(t,e){const m=(e&&(e.message||e.hint))||String(e);$("main").innerHTML=`<div class="aviso err" style="margin:24px"><b>${t}</b><br>${m}</div>`;}
