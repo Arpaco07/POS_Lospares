@@ -1359,6 +1359,7 @@ window.imprimirCorteGuardado=(i)=>{
   </style></head><body><div class="wrap">
     <h1>LOS PARES 84×88</h1>
     <div class="sub">${tit} &nbsp;·&nbsp; ${new Date(c.creado_en).toLocaleString('es-MX')} &nbsp;·&nbsp; ${(c.nombre||'').replace(/</g,'')}</div>
+    ${c.leyenda?`<div style="text-align:center;font-size:13px;color:#333;margin:-8px 0 14px">${(c.leyenda||'').replace(/</g,'')}</div>`:''}
     <div class="sec">VENTAS</div>
     <table>
       <tr><td>Efectivo</td><td class="r">${M(c.total_efectivo)}</td></tr>
@@ -1460,14 +1461,17 @@ window.pintarCorteHist=async(iso)=>{
     window._corteHistData=d;
     // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
     let cortesGuard=[];
-    if(turnos.length){ try{ const cg=await sb.from("corte").select("id,tipo,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en").in("turno_id",turnos).order("creado_en",{ascending:true}); cortesGuard=cg.data||[]; }catch(e){} }
+    if(turnos.length){ try{ const cg=await sb.from("corte").select("id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en").in("turno_id",turnos).order("creado_en",{ascending:true}); cortesGuard=cg.data||[]; }catch(e){} }
     let cgNom={}; { const eids=[...new Set(cortesGuard.map(c=>c.empleado_id).filter(Boolean))]; if(eids.length){ try{ const eq2=await sb.from("empleado").select("id,nombre").in("id",eids); (eq2.data||[]).forEach(e=>cgNom[e.id]=e.nombre);}catch(e){} } }
-    window._cortesGuard=cortesGuard.map(c=>({...c, nombre:cgNom[c.empleado_id]||'—'}));
+    let cgTur={}; { const tids=[...new Set(cortesGuard.map(c=>c.turno_id).filter(Boolean))]; if(tids.length){ try{ const tq2=await sb.from("turno").select("id,abierto_en,cerrado_en").in("id",tids); (tq2.data||[]).forEach(t=>cgTur[t.id]=t);}catch(e){} } }
+    const _fHM=(dt)=> dt? new Date(dt).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const _leyenda=(c)=>{ const t=cgTur[c.turno_id]; if(!t||!t.abierto_en) return ''; const cierre=t.cerrado_en||c.creado_en; return `Turno del ${_fHM(t.abierto_en)} → cerró ${_fHM(cierre)}`; };
+    window._cortesGuard=cortesGuard.map(c=>({...c, nombre:cgNom[c.empleado_id]||'—', leyenda:_leyenda(c)}));
     const cortesGuardHtml = cortesGuard.length
       ? `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div>
-         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
-         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
-         <p class="tenue" style="margin-top:6px">Aquí quedan guardados los Cortes X (cambio de turno) y el Corte Z (cierre) que se hicieron ese día, tal cual se registraron en el momento. Toca 🖨 para abrir/imprimir cada uno.</p>`
+         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo / día real del turno</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
+         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
+         <p class="tenue" style="margin-top:6px">Cada renglón es un Corte completo por sí solo — <b>no se suman entre ellos</b>. Si un turno se fue a la madrugada, la leyenda dice el día real (cuándo abrió y cuándo cerró). Toca 🖨 para abrir/imprimir cada uno.</p>`
       : `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte X ni Z (no se usó el botón 🧾 Corte X ni 🔒 Corte Z, o el turno cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     const hoy0=new Date(); hoy0.setHours(0,0,0,0); const esHoy=ini.getTime()===hoy0.getTime();
