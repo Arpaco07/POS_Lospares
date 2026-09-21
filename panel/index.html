@@ -591,7 +591,6 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes(
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
-  if(!state.rango) state.rango=rangoHoy();   // SEGURO: nunca calcular con rango vacio (evita "reading 'ini'")
   window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
   if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
   if(state.vista==='monitor'){return pintarMonitor();}
@@ -616,8 +615,6 @@ async function render(){
 const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
-    if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
-    if(!state.rango)return;                                          // sin rango de fechas todavia: no calcular
     if(window._noAuto)return;                                        // pantalla de selección abierta: no refrescar
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
@@ -1153,7 +1150,8 @@ async function pintarCaja(){
       ).join('')||'<tr><td colspan="3" class="tenue">Sin propinas hoy.</td></tr>'}</tbody></table>
       <table style="margin-top:8px"><tbody>${row('Propinas pagadas',propPag)}<tr class="tenue"><td>Bote cocina 30% (se reparte mañana)</td><td class="n">${M(boteC)}</td></tr></tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-        <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
+        <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar</button>
+        <button class="nuevo" style="${bb};background:#b0602f" onclick="corteXP(${turno.id})">🧾 Corte X (cambio de turno)</button>
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">📷 Imagen</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('CARLA')">📱 Carla</button>
@@ -1223,11 +1221,11 @@ function _corteNodo(d,titulo){
     <div style="display:flex;gap:30px">
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Mesero 70%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.7)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Bote cocina 30%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.3)}</td></tr>
-          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Pagadas</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total propinas del turno</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Pagado a meseros (70%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Bote cocina (30%) — QUEDA EN CAJA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.boteC)}</td></tr>
         </table>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div>
       </div>
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
@@ -1321,11 +1319,11 @@ window.imprimirCorte=(d,titulo)=>{
       <div class="sec">PROPINAS</div>
       <div class="cols">
         <div class="col"><table>
-          <tr><td>Total</td><td class="r">${M(d.prop)}</td></tr>
-          <tr><td>Mesero 70%</td><td class="r">${M(d.prop*0.7)}</td></tr>
-          <tr><td>Bote cocina 30%</td><td class="r">${M(d.prop*0.3)}</td></tr>
-          <tr class="tot"><td>Pagadas</td><td class="r">${M(d.propPag)}</td></tr>
-        </table></div>
+          <tr><td>Total propinas del turno</td><td class="r">${M(d.prop)}</td></tr>
+          <tr><td>Pagado a meseros (70%)</td><td class="r">${M(d.propPag)}</td></tr>
+          <tr class="tot"><td>Bote cocina (30%) — QUEDA EN CAJA</td><td class="r">${M(d.boteC)}</td></tr>
+        </table>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div></div>
         <div class="col"><table>
           <tr class="hd"><td>Mesero</td><td class="r">Propina</td><td class="r">70%</td><td class="r">Pagada</td></tr>
           ${filasP}
@@ -1340,12 +1338,19 @@ function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toF
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
     `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n- Bote cocina (30%): ${M(d.boteC)}\n= EFECTIVO DEL RESTAURANTE: ${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}\n\n`+
     `VENTAS\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n\n`+
-    `PROPINAS\nTotal: ${M(d.prop)}\nMesero 70%: ${M(d.prop*0.7)}\nBote cocina 30%: ${M(d.prop*0.3)}\n\n`+
-    `PROPINAS PAGADAS\nPagado a meseros: ${M(d.propPag)}\nBote por repartir (30%): ${M(d.boteC)}\n`+
-    ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'')+
+    `PROPINAS\nTotal propinas del turno: ${M(d.prop)}\nPagado a meseros (70%): ${M(d.propPag)}\nBote cocina (30%) - QUEDA EN CAJA: ${M(d.boteC)}\n(El bote no se saca hoy: se reparte a cocina al dia siguiente)\n\n`+
+    `PAGADO A CADA MESERO (70%)\n`+
+    ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'  (sin propinas)\n')+
     `\nCortesias: ${M(d.cort)}`;
 }
 function _corteTexto(tipo){ return _corteTextoDe(window._cajaData, tipo); }
+window.corteXP=async(id)=>{ if(!confirm("¿Hacer un Corte X (cambio de turno)?\n\nGuarda una foto del corte hasta ahorita, se imprime y se genera la imagen para WhatsApp. NO cierra el turno: el día sigue vivo con todo hasta el Corte Z."))return;
+  try{
+    const r=await sb.rpc("generar_corte",{p_tipo:'X',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
+    try{ imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
+    try{ compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
+    okmsg("Corte X guardado ✓ — se imprimió y se generó la imagen. El turno sigue abierto.");pintarCaja();
+  }catch(e){err("No se pudo hacer el Corte X.",e);}};
 window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
   try{
     // 1) Pagar afuerza las propinas del turno que sigan pendientes (nada queda colgando)
@@ -1409,6 +1414,16 @@ window.pintarCorteHist=async(iso)=>{
     const efEsper=fondo+ef+dep-ret-propPag; const efRest=efEsper-boteC;
     const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,efRest,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
     window._corteHistData=d;
+    // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
+    let cortesGuard=[];
+    if(turnos.length){ try{ const cg=await sb.from("corte").select("id,tipo,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en").in("turno_id",turnos).order("creado_en",{ascending:true}); cortesGuard=cg.data||[]; }catch(e){} }
+    let cgNom={}; { const eids=[...new Set(cortesGuard.map(c=>c.empleado_id).filter(Boolean))]; if(eids.length){ try{ const eq2=await sb.from("empleado").select("id,nombre").in("id",eids); (eq2.data||[]).forEach(e=>cgNom[e.id]=e.nombre);}catch(e){} } }
+    const cortesGuardHtml = cortesGuard.length
+      ? `<div class="sec-t" style="margin-top:16px">Cortes de cierre (Z) guardados de este día</div>
+         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th></tr></thead>
+         <tbody>${cortesGuard.map(c=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td></tr>`).join('')}</tbody></table></div>
+         <p class="tenue" style="margin-top:6px">Aquí quedan guardados los Cortes X (cambio de turno) y el Corte Z (cierre) que se hicieron ese día, tal cual se registraron en el momento.</p>`
+      : `<div class="sec-t" style="margin-top:16px">Cortes de cierre (Z) guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte Z (el turno no se cerró con el botón 🔒 Corte Z, o cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     const hoy0=new Date(); hoy0.setHours(0,0,0,0); const esHoy=ini.getTime()===hoy0.getTime();
     $("main").innerHTML=`<div class="pad">
@@ -1439,6 +1454,7 @@ window.pintarCorteHist=async(iso)=>{
       <div class="sec-t" style="margin-top:16px">Propinas por mesero</div>
       <table><thead><tr><th>Mesero</th><th class="n">Propina</th><th class="n">Le toca (70%)</th><th class="n">A cocina (30%)</th><th class="n">Pagada</th></tr></thead>
       <tbody>${(ppm&&ppm.length)?ppm.map(mm=>`<tr><td>${esc(mm.mesero)}</td><td class="n">${M(mm.propina_bruta)}</td><td class="n">${M(mm.pagar_70)}</td><td class="n">${M(Number(mm.propina_bruta)*0.30)}</td><td class="n">${mm.ya_pagado?('✓ '+M(mm.pagado_monto)):'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="tenue">Sin propinas ese día.</td></tr>'}</tbody></table>
+      ${cortesGuardHtml}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._corteHistData,'CORTE DEL DIA '+window._corteHistData.fechaCorta)">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._corteHistData,'CORTE DEL DÍA '+window._corteHistData.fechaCorta)">📷 Imagen</button>
