@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar · Los Pares 84×88</title>
+<style>
+  :root{ --oro:#d4af37; --carbon:#111; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:radial-gradient(circle at 50% 0%,#222,#111 60%);color:#f4f4f4;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+  h1{font-size:30px}.b{color:var(--oro)}
+  .sub{color:var(--oro);letter-spacing:5px;font-size:13px;margin:2px 0 26px}
+  .estado{color:#bbb;font-size:15px;margin-top:10px;min-height:22px}
+  .spin{width:38px;height:38px;border:3px solid #333;border-top-color:var(--oro);border-radius:50%;
+    animation:g .9s linear infinite;margin:8px auto}
+  @keyframes g{to{transform:rotate(360deg)}}
+  .links{margin-top:26px;display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px}
+  a.b1{display:block;background:#1c1c1c;border:1px solid #333;border-radius:12px;padding:14px;
+    color:#f4f4f4;text-decoration:none;font-size:15px}
+  a.b1:hover{border-color:var(--oro)}
+  .peque{color:#777;font-size:12px;margin-top:18px;max-width:320px;line-height:1.5}
+</style>
+</head>
+<body>
+  <div>
+    <h1>Los <span class="b">Pares</span></h1>
+    <div class="sub">84 × 88</div>
+  </div>
+  <div class="spin" id="spin"></div>
+  <div class="estado" id="estado">Detectando dónde estás…</div>
+
+  <!-- Respaldo manual por si el automático no decide -->
+  <div class="links" id="manual" style="display:none">
+    <a class="b1" id="alocal">📶 Estoy en el restaurante (LOCAL)</a>
+    <a class="b1" id="anube">🌐 Estoy afuera (NUBE)</a>
+  </div>
+  <div class="peque" id="ayuda" style="display:none">
+    Si no cargó solo, elige una opción. Dentro del restaurante usa LOCAL (funciona sin internet).
+  </div>
+
+<script>
+  // ===== Configura aquí qué app abre este lanzador: 'panel' o 'comandero' =====
+  var APP = new URLSearchParams(location.search).get('app') || 'panel';
+
+  var RUTA = (APP === 'comandero') ? '' : 'panel/';
+  var LOCAL = 'https://pos.lospares.com/' + RUTA;
+  var NUBE  = 'https://arpaco07.github.io/POS_Lospares/' + RUTA;
+
+  document.getElementById('alocal').href = LOCAL;
+  document.getElementById('anube').href  = NUBE;
+
+  function irA(url){ location.replace(url); }
+
+  function mostrarManual(){
+    document.getElementById('spin').style.display='none';
+    document.getElementById('estado').textContent='¿Dónde estás?';
+    document.getElementById('manual').style.display='flex';
+    document.getElementById('ayuda').style.display='block';
+  }
+
+  // Prueba si la cajita LOCAL responde (timeout corto). Si sí -> LOCAL; si no -> NUBE.
+  var decidido = false;
+  function decidir(url){ if(decidido) return; decidido=true; irA(url); }
+
+  try{
+    var ctrl = new AbortController();
+    var t = setTimeout(function(){ ctrl.abort(); }, 2000); // 2 seg de espera
+    fetch(LOCAL, { mode:'no-cors', cache:'no-store', signal:ctrl.signal })
+      .then(function(){ clearTimeout(t); document.getElementById('estado').textContent='Conectando a la cajita local…'; decidir(LOCAL); })
+      .catch(function(){ clearTimeout(t); document.getElementById('estado').textContent='Sin cajita local, entrando por la nube…'; decidir(NUBE); });
+  }catch(e){ mostrarManual(); }
+
+  // Si en 3.5s no decidió (raro), muestra botones manuales
+  setTimeout(function(){ if(!decidido) mostrarManual(); }, 3500);
+</script>
+</body>
+</html>
