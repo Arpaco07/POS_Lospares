@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Los Pares 84×88 · Sistemas</title>
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#111111">
+<style>
+  :root{ --oro:#d4af37; --naranja:#e1622c; --carbon:#111; --carbon2:#1c1c1c; --linea:#333; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:radial-gradient(circle at 50% 0%,#222,#111 60%);color:#f4f4f4;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:34px 20px 40px}
+  .marca h1{font-size:32px;letter-spacing:1px;text-align:center}
+  .marca h1 .b{color:var(--oro)}
+  .marca .sub{color:var(--oro);letter-spacing:6px;font-size:13px;text-align:center;margin-top:2px}
+  .estado{margin:20px 0 6px;font-size:14px;display:flex;align-items:center;gap:8px;
+    background:var(--carbon2);border:1px solid var(--linea);border-radius:999px;padding:8px 16px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#888}
+  .dot.local{background:#38c172}.dot.nube{background:#3aa0ff}
+  .botones{margin-top:22px;display:flex;flex-direction:column;gap:14px;width:100%;max-width:380px}
+  a.card{display:flex;align-items:center;gap:16px;background:var(--carbon2);border:1px solid var(--linea);
+    border-radius:16px;padding:20px 22px;text-decoration:none;color:#f4f4f4;transition:transform .08s,border-color .2s}
+  a.card:active{transform:scale(.98)}
+  a.card:hover{border-color:var(--oro)}
+  .emoji{font-size:32px;width:44px;text-align:center}
+  .t{font-size:20px;font-weight:700}.d{font-size:13px;color:#aaa;margin-top:2px}
+  .flecha{margin-left:auto;color:var(--oro);font-size:22px}
+  .pie{margin-top:26px;font-size:12px;color:#777;text-align:center;line-height:1.7}
+  .pie a{color:#999;text-decoration:underline;cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="marca">
+    <h1>Los <span class="b">Pares</span></h1>
+    <div class="sub">84 × 88</div>
+  </div>
+
+  <div class="estado"><span class="dot" id="dot"></span><span id="txtEstado">Detectando dónde estás…</span></div>
+
+  <div class="botones">
+    <a class="card" id="bComandero"><span class="emoji">🧾</span>
+      <span><div class="t">Comandero</div><div class="d">Levantar comandas</div></span><span class="flecha">→</span></a>
+    <a class="card" id="bPanel"><span class="emoji">📊</span>
+      <span><div class="t">Panel</div><div class="d">Caja, cortes y administración</div></span><span class="flecha">→</span></a>
+    <a class="card" id="bFactura"><span class="emoji">🧮</span>
+      <span><div class="t">Factura</div><div class="d">Facturación CFDI</div></span><span class="flecha">→</span></a>
+  </div>
+
+  <div class="pie">
+    <span id="pieModo"></span><br>
+    ¿Se equivocó de lugar? <a id="forzarLocal">Forzar LOCAL</a> · <a id="forzarNube">Forzar NUBE</a>
+  </div>
+
+<script>
+  // Bases
+  var LOCAL = "https://pos.lospares.com/";
+  var NUBE  = "https://arpaco07.github.io/POS_Lospares/";
+
+  // Rutas de cada sistema (relativas a la base)
+  var RUTAS = { comandero:"", panel:"panel/", factura:"factura/" };
+
+  var modo = null; // 'local' o 'nube'
+
+  function aplicar(m){
+    modo = m;
+    var base = (m==="local") ? LOCAL : NUBE;
+    document.getElementById("bComandero").href = base + RUTAS.comandero;
+    document.getElementById("bPanel").href     = base + RUTAS.panel;
+    document.getElementById("bFactura").href   = base + RUTAS.factura;
+    var dot = document.getElementById("dot");
+    dot.className = "dot " + m;
+    document.getElementById("txtEstado").textContent =
+      (m==="local") ? "En el restaurante (LOCAL)" : "Fuera / desde la nube";
+    document.getElementById("pieModo").textContent =
+      (m==="local") ? "Abriendo la cajita local (rápido, sin depender de internet)."
+                    : "Abriendo desde la nube.";
+  }
+
+  // Por defecto, nube (por si la detección tarda o falla, los botones ya sirven)
+  aplicar("nube");
+
+  // Detecta si la cajita local responde (2 seg)
+  (function detectar(){
+    try{
+      var ctrl = new AbortController();
+      var t = setTimeout(function(){ ctrl.abort(); }, 2000);
+      fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
+        .then(function(){ clearTimeout(t); aplicar("local"); })
+        .catch(function(){ clearTimeout(t); aplicar("nube"); });
+    }catch(e){ aplicar("nube"); }
+  })();
+
+  // Forzar manual (por si acaso)
+  document.getElementById("forzarLocal").onclick = function(){ aplicar("local"); };
+  document.getElementById("forzarNube").onclick  = function(){ aplicar("nube"); };
+</script>
+</body>
+</html>
