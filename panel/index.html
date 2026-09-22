@@ -784,46 +784,63 @@ window.cancelar=async(id)=>{
 
 /* ---- MENU (alta / edición / mover) ---- */
 const SECS=[["DESAYUNO","Desayuno"],["COMIDA","Comida"],["BEBIDAS","Bebidas"],["BOUTIQUE","Boutique"]];
+window._menuVerOcultos=false;
 async function pintarMenu(){
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando menú…</div></div>`;
   try{
-    const{data,error}=await sb.from("producto")
-      .select("id,clave,nombre,precio,venta_por,seccion_menu,grupo_menu,orden_menu,area_impresion_id,visible_comandero")
-      .eq("activo",true).order("nombre");
+    let q=sb.from("producto")
+      .select("id,clave,nombre,precio,activo,venta_por,seccion_menu,grupo_menu,orden_menu,area_impresion_id,visible_comandero")
+      .order("nombre");
+    if(!window._menuVerOcultos) q=q.eq("activo",true);
+    const{data,error}=await q;
     if(error)throw error;
     window._prods=data||[];
     window._grupos=[...new Set(window._prods.map(p=>p.grupo_menu).filter(Boolean))].sort();
     dibujarMenu("");
   }catch(e){err("No se pudo leer el menú.",e);}
 }
-function dibujarMenu(filtro){
-  const f=(filtro||"").trim().toLowerCase();
-  let lista=window._prods.filter(p=>!f || (p.nombre||'').toLowerCase().includes(f) || (p.grupo_menu||'').toLowerCase().includes(f));
-  lista=lista.sort((a,b)=>((a.seccion_menu||'zz')+(a.grupo_menu||'')+(a.nombre||'')).localeCompare((b.seccion_menu||'zz')+(b.grupo_menu||'')+(b.nombre||'')));
-  const items=lista.slice(0,500).map(p=>{
-    const ub=p.seccion_menu?`${p.seccion_menu.charAt(0)+p.seccion_menu.slice(1).toLowerCase()} · ${p.grupo_menu||'—'}`:'sin ubicar / oculto';
-    return `<div class="mitem ${p.visible_comandero===false?'oculto':''}"><div class="info"><div class="n">${p.nombre}</div><small>${ub}${p.venta_por==='PESO'?' · por peso':p.venta_por==='PIEZA'?' · por pieza':''}</small></div>
-      <div class="pr">${p.venta_por==='PESO'?'$'+p.precio+'/kg':'$'+p.precio}</div>
-      <button onclick="editarProd(${p.id})">Editar</button>
-      <button onclick="toggleVis(${p.id},${p.visible_comandero!==false})">${p.visible_comandero===false?'Mostrar':'Ocultar'}</button></div>`;
-  }).join("");
-  $("main").innerHTML=`<div class="pad"><h2>Menú — ${window._prods.length} productos</h2>
-    <button class="nuevo" onclick="nuevoProd()">＋ Dar de alta un platillo</button>
-    <input class="buscar" id="mbuscar" placeholder="Buscar por nombre o grupo…" value="${(filtro||'').replace(/"/g,'&quot;')}">
-    <div id="mlista">${items||'<div class="proximamente">Sin resultados.</div>'}</div>
-    <p class="tenue" style="margin-top:10px">Mostrando ${Math.min(lista.length,500)} de ${lista.length}. Usa la búsqueda para encontrar rápido.</p></div>`;
-  $("mbuscar").oninput=(e)=>{const v=e.target.value;const l=document.getElementById("mlista");
-    // redibuja solo la lista para no perder foco
-    const f2=v.trim().toLowerCase();
-    let ls=window._prods.filter(p=>!f2||(p.nombre||'').toLowerCase().includes(f2)||(p.grupo_menu||'').toLowerCase().includes(f2))
-      .sort((a,b)=>((a.seccion_menu||'zz')+(a.grupo_menu||'')+(a.nombre||'')).localeCompare((b.seccion_menu||'zz')+(b.grupo_menu||'')+(b.nombre||'')));
-    l.innerHTML=ls.slice(0,500).map(p=>{const ub=p.seccion_menu?`${p.seccion_menu.charAt(0)+p.seccion_menu.slice(1).toLowerCase()} · ${p.grupo_menu||'—'}`:'sin ubicar / oculto';
-      return `<div class="mitem ${p.visible_comandero===false?'oculto':''}"><div class="info"><div class="n">${p.nombre}</div><small>${ub}</small></div>
-        <div class="pr">${p.venta_por==='PESO'?'$'+p.precio+'/kg':'$'+p.precio}</div>
-        <button onclick="editarProd(${p.id})">Editar</button>
-        <button onclick="toggleVis(${p.id},${p.visible_comandero!==false})">${p.visible_comandero===false?'Mostrar':'Ocultar'}</button></div>`;}).join("")||'<div class="proximamente">Sin resultados.</div>';
-  };
+function _menuItemHTML(p){
+  const inact=(p.activo===false);
+  const ub=p.seccion_menu?`${p.seccion_menu.charAt(0)+p.seccion_menu.slice(1).toLowerCase()} · ${p.grupo_menu||'—'}`:'sin ubicar';
+  const precio=p.venta_por==='PESO'?'$'+p.precio+'/kg':'$'+p.precio;
+  return `<div class="mitem ${(p.visible_comandero===false||inact)?'oculto':''}">
+    <div class="info"><div class="n">${esc(p.nombre)}${inact?' <span style="color:#c0392b;font-size:11px;font-weight:700">(INACTIVO)</span>':''}</div>
+    <small>${ub}${p.venta_por==='PESO'?' · por peso':p.venta_por==='PIEZA'?' · por pieza':''}</small></div>
+    <div class="pr">${precio}</div>
+    <button onclick="editarProd(${p.id})">Editar</button>
+    ${inact
+      ? `<button onclick="reactivarProd(${p.id})">Reactivar</button>`
+      : `<button onclick="toggleVis(${p.id},${p.visible_comandero!==false})">${p.visible_comandero===false?'Mostrar':'Ocultar'}</button>`}
+    <button style="background:#c0392b;color:#fff" onclick="eliminarProd(${p.id})">🗑 Eliminar</button>
+  </div>`;
 }
+function dibujarMenu(filtro){
+  const render=(f)=>{ const f2=(f||'').trim().toLowerCase();
+    let ls=window._prods.filter(p=>!f2 || (p.nombre||'').toLowerCase().includes(f2) || (p.grupo_menu||'').toLowerCase().includes(f2))
+      .sort((a,b)=>((a.seccion_menu||'zz')+(a.grupo_menu||'')+(a.nombre||'')).localeCompare((b.seccion_menu||'zz')+(b.grupo_menu||'')+(b.nombre||'')));
+    return {ls, html: ls.slice(0,500).map(_menuItemHTML).join("")||'<div class="proximamente">Sin resultados.</div>'};
+  };
+  const r=render(filtro);
+  $("main").innerHTML=`<div class="pad"><h2>Menú — ${window._prods.length} productos${window._menuVerOcultos?' (incluye inactivos)':''}</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <button class="nuevo" style="width:auto;margin:0" onclick="nuevoProd()">＋ Dar de alta un platillo</button>
+      <label class="chk" style="margin:0"><input type="checkbox" id="mverocultos" ${window._menuVerOcultos?'checked':''} onchange="window._menuVerOcultos=this.checked;pintarMenu()"> Ver ocultos / inactivos</label>
+    </div>
+    <input class="buscar" id="mbuscar" placeholder="Buscar por nombre o grupo…" value="${(filtro||'').replace(/"/g,'&quot;')}">
+    <div id="mlista">${r.html}</div>
+    <p class="tenue" style="margin-top:10px">Mostrando ${Math.min(r.ls.length,500)} de ${r.ls.length}. 🗑 Eliminar: si el platillo nunca se vendió se borra; si ya tiene ventas, se oculta (para no romper cortes).</p></div>`;
+  $("mbuscar").oninput=(e)=>{ const l=document.getElementById("mlista"); l.innerHTML=render(e.target.value).html; };
+}
+window.reactivarProd=async(id)=>{ if(!confirm("¿Reactivar este platillo? Volverá a estar disponible en el menú."))return;
+  try{ const r=await sb.from("producto").update({activo:true}).eq("id",id); if(r.error)throw r.error; okmsg("Platillo reactivado ✓"); pintarMenu(); }catch(e){err("No se pudo reactivar.",e);} };
+window.eliminarProd=async(id)=>{
+  const p=(window._prods||[]).find(x=>x.id===id); const nom=p?p.nombre:'';
+  if(!confirm(`¿ELIMINAR "${nom}"?\n\n• Si NUNCA se ha vendido: se borra por completo.\n• Si YA tiene ventas: NO se borra (rompería cortes/reportes), se OCULTA.\n\n¿Continuar?`))return;
+  const clave=state.admin?state.admin.clave:null;
+  try{ const r=await sb.rpc("eliminar_producto",{p_producto_id:id,p_admin_clave:clave}); if(r.error)throw r.error;
+    okmsg(r.data==='ELIMINADO'?"Platillo eliminado ✓":"Ese platillo ya tenía ventas: se ocultó (no se borra para no romper el historial).");
+    pintarMenu();
+  }catch(e){err("No se pudo eliminar.",e);} };
 function formProd(p){
   const secOpts=SECS.map(s=>`<option value="${s[0]}" ${p.seccion_menu===s[0]?'selected':''}>${s[1]}</option>`).join("");
   const areaSel=(clave)=>{const id=cache.areas[clave];return p.area_impresion_id===id?'selected':'';};
