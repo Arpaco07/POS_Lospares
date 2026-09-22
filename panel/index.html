@@ -97,6 +97,37 @@
   .buscar{background:var(--blanco);color:var(--texto)}
   .buscar::placeholder{color:var(--tenue)}
   .mitem{background:var(--blanco)}
+  /* ===== Para llevar (tablero de pedidos WhatsApp del bot) ===== */
+  .pll-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:2px}
+  .pll-son{background:var(--blanco);border:1px solid var(--gris2);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
+  .pll-son.on{border-color:var(--verde);color:#8fd6a5}
+  .pll-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .pll-card{background:var(--blanco);border:1px solid var(--gris2);border-left:5px solid var(--gris2);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:9px}
+  .pll-card.nuevo{border-left-color:var(--oro)}
+  .pll-card.esperando_anticipo{border-left-color:#e0a52c}
+  .pll-card.por_confirmar{border-left-color:var(--rojo)}
+  .pll-card.en_cocina{border-left-color:var(--naranja)}
+  .pll-card.listo{border-left-color:var(--verde)}
+  .pll-card.entregado{opacity:.55}
+  .pll-top{display:flex;align-items:center;gap:10px}
+  .pll-folio{font-size:19px;font-weight:800}
+  .pll-crono{margin-left:auto;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px}
+  .pll-crono.v{background:rgba(46,125,70,.2);color:#8fd6a5}.pll-crono.a{background:rgba(224,165,44,.2);color:#ffd77a}.pll-crono.r{background:rgba(192,57,43,.22);color:#ff9c90}
+  .pll-cli{font-weight:700}
+  .pll-tel{color:var(--tenue);font-size:13px}.pll-tel a{color:#7ab6ff;text-decoration:none}
+  .pll-items{background:var(--gris);border:1px solid var(--gris2);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:6px}
+  .pll-it{font-size:14px;line-height:1.35}.pll-it .c{color:var(--oro);font-weight:800}
+  .pll-term{display:inline-block;background:#2a1f10;color:#ffcf7a;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:5px}
+  .pll-nota{display:block;color:var(--naranja);font-size:12px;margin-top:1px}
+  .pll-notped{background:#2a1f10;color:#ffcf7a;border-radius:8px;padding:6px 9px;font-size:12px}
+  .pll-tot{display:flex;justify-content:space-between;font-weight:800;font-size:15px}.pll-tot .m{color:var(--verde)}
+  .pll-acc{display:flex;gap:7px;flex-wrap:wrap}
+  .pll-acc button{flex:1;min-width:100px;border-radius:11px;padding:12px 8px;font-weight:800;font-size:14px;color:#fff;border:none}
+  .pll-b-cocina{background:var(--naranja)}.pll-b-listo{background:var(--verde)}.pll-b-entregar{background:#2f6fb0}.pll-b-ant{background:#e0a52c;color:#1c1c1c}
+  .pll-b-aceptar{background:var(--verde)}
+  .pll-b-rechazar{background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
+  .pll-b-print{flex:0 0 auto;min-width:50px;background:var(--gris);border:1px solid var(--gris2)!important;color:var(--texto)}
+  .pll-b-cancel{flex:0 0 auto;min-width:50px;background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
 </style>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icono-180.png">
@@ -118,6 +149,7 @@
 <header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
+  <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="cuentas" onclick="irA('cuentas')">Cuentas del día</button>
 
@@ -205,7 +237,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
     if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
     state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
     $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
-    const _permCajero=['cuentas','caja']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
+    const _permCajero=['cuentas','caja','llevar']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
     state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
@@ -601,9 +633,11 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes(
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
+  if(!state.rango) state.rango=rangoHoy();   // SEGURO: nunca calcular con rango vacio (evita "reading 'ini'")
   window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
   if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
   if(state.vista==='monitor'){return pintarMonitor();}
+  if(state.vista==='llevar'){return pintarLlevar();}
   if(state.vista==='reportes'){return pintarReportes();}
   if(state.vista==='menu'){return pintarMenu();}
   if(state.vista==='empleados'){return pintarEmpleados();}
@@ -623,9 +657,11 @@ async function render(){
 }
 
 /* ---- Auto-refresco: recarga sola la vista de consulta, sin estorbar ---- */
-const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
+const VISTAS_AUTO=['ventas','cuentas','reportes','propinas','llevar'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
+    if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
+    if(!state.rango)return;                                          // sin rango de fechas todavia: no calcular
     if(window._noAuto)return;                                        // pantalla de selección abierta: no refrescar
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
@@ -1100,7 +1136,7 @@ window.verCuentaPanel=(id)=>{
         <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
         <button class="ok" style="background:#c0392b" onclick="anularCuentaP(${id})">✕ Anular cuenta</button>
       </div>`:''}
-    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="reimprimirTicketP(${id})">🖨 Reimprimir ticket</button></div>`;
   $("mbg").classList.add("on");
 };
 window.corrForma=(pagoId)=>{
@@ -1131,6 +1167,86 @@ window.anularCuentaP=async(id)=>{
     cerrarModal();okmsg("Cuenta anulada ✓");pintarCuentas();
   }catch(e){err("No se pudo anular.",e);}
 };
+
+/* ==== REIMPRIMIR TICKET (mismo metodo que el comandero: /print/ticket a CAJA) ====
+   Solo imprime en la impresora de CAJA cuando estas en LOCAL (el asistente esta
+   en la HP). Si estas en NUBE o el asistente esta apagado, cae a impresion del
+   navegador (80mm). No cobra ni cambia nada: solo vuelve a imprimir. */
+function _printUrlCaja(){ return modo==='LOCAL' ? "https://pos.lospares.com/print" : null; }
+window.reimprimirTicketP=async(id)=>{
+  const {cts}=window._ctasCache||{cts:[]}; const c=(cts||[]).find(x=>x.id===id);
+  try{
+    const {data:lineas,error}=await sb.from('cuenta_producto')
+      .select('id,cantidad,peso_kg,importe,es_cortesia,nota_libre,producto:producto_id(nombre)')
+      .eq('cuenta_id',id);
+    if(error) throw error;
+    const ids=(lineas||[]).map(l=>l.id);
+    const modsByLine={};
+    if(ids.length){
+      const {data:mods}=await sb.from('cuenta_producto_modificador').select('cuenta_producto_id,nombre').in('cuenta_producto_id',ids);
+      (mods||[]).forEach(m=>{ (modsByLine[m.cuenta_producto_id]=modsByLine[m.cuenta_producto_id]||[]).push(m.nombre); });
+    }
+    // agrupar renglones iguales
+    const grupos={};
+    (lineas||[]).forEach(x=>{
+      const nom=(x.producto&&x.producto.nombre)||'Producto';
+      const md=(modsByLine[x.id]||[]).join(', ');
+      const extra=[md, x.nota_libre].filter(Boolean).join(' · ');
+      const clave=[nom,x.peso_kg||'',extra,x.es_cortesia?'C':'',Number(x.importe).toFixed(2)].join('|');
+      if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,extra,cort:x.es_cortesia,cant:0,suma:0};
+      grupos[clave].cant+=(Number(x.cantidad)||1); grupos[clave].suma+=Number(x.importe);
+    });
+    const M=v=>'$'+Number(v||0).toFixed(2);
+    const items=Object.values(grupos).map(g=>({
+      etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.extra?' · '+g.extra:''),
+      imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2) }));
+    const fecha=(c&&c.cerrada_en)? new Date(c.cerrada_en).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
+    const mesero=(c&&cache.empleados[c.mesero_id]&&cache.empleados[c.mesero_id].nombre)||'';
+    const subN=(c&&c.subtotal!=null)?c.subtotal:(c?c.total:0);
+    const data={ area:'CAJA',
+      encabezado:{ mesa:(c&&c.tipo_venta)||'', folio:(c&&c.folio)||('#'+id), fecha, mesero },
+      items,
+      subtotal:M(subN),
+      descuento:(c&&Number(c.descuento_total)>0)?M(c.descuento_total):'',
+      total:M(c?c.total:0) };
+    const url=_printUrlCaja();
+    if(url){
+      try{
+        const r=await fetch(url+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+        const j=await r.json().catch(()=>({}));
+        if(j&&j.ok){ okmsg("Ticket reimpreso en caja ✓"); return; }
+      }catch(e){/* asistente apagado: cae a navegador */}
+      okmsg("Asistente sin responder; abriendo impresión…");
+    }
+    _reimprimirNavegador(data);
+  }catch(e){ err("No se pudo reimprimir el ticket.",e); }
+};
+function _reimprimirNavegador(d){
+  const filas=d.items.map(it=>`<div class="r"><span>${esc(it.etq)}</span><span>${esc(it.imp)}</span></div>`).join('');
+  const w=window.open('','_blank','width=360,height=640');
+  if(!w){ err("El navegador bloqueó la ventana de impresión"); return; }
+  w.document.write(`<html><head><title>Ticket ${esc(d.encabezado.folio||'')}</title><meta charset="UTF-8">
+    <style>@page{size:80mm auto;margin:0}
+    body{font-family:'Courier New',monospace;font-size:12px;width:72mm;margin:0 auto;padding:4mm 3mm;color:#000}
+    .c{text-align:center}.b{font-weight:800}.r{display:flex;justify-content:space-between;gap:6px}
+    .r span:last-child{white-space:nowrap}hr{border:none;border-top:1px dashed #000;margin:6px 0}</style></head>
+    <body>
+    <div class="c b" style="letter-spacing:1px">LOS PARES 84x88</div>
+    <div class="c" style="font-size:11px">Restaurante de carnes · Cortes premium</div>
+    <div class="c" style="font-size:11px">Tuxtepec, Oaxaca · WhatsApp 287 881 8488</div>
+    <hr>
+    <div class="r" style="font-size:11px"><span>${esc(d.encabezado.mesa||'')}</span><span>Folio ${esc(d.encabezado.folio||'')}</span></div>
+    <div style="font-size:11px">${esc(d.encabezado.fecha||'')}${d.encabezado.mesero?' · Le atendió: '+esc(d.encabezado.mesero):''}</div>
+    <div class="c" style="font-size:11px">(REIMPRESIÓN)</div>
+    <hr>${filas}<hr>
+    <div class="r"><span>Subtotal</span><span>${esc(d.subtotal)}</span></div>
+    ${d.descuento?`<div class="r"><span>Descuentos</span><span>- ${esc(d.descuento)}</span></div>`:''}
+    <div class="r b" style="font-size:16px;margin-top:6px"><span>TOTAL</span><span>${esc(d.total)}</span></div>
+    <div class="c" style="margin-top:12px;font-size:11px">¡Gracias por su visita!<br>WhatsApp 287 881 8488 · @lospares8488</div>
+    <script>window.onload=function(){window.print();setTimeout(function(){window.close();},300);}<\/script>
+    </body></html>`);
+  w.document.close();
+}
 /* ==== CAJA / TURNO — abrir turno, corte X/Z, dep/ret, WhatsApp (cajero+admin) ==== */
 const _WA={CARLA:"522871074899",ARTURO:"522871070222",PARES:"522878818488"};
 function tipoForma(id){return (cache.formas[id]&&cache.formas[id].tipo)||'OTRO';}
@@ -1659,6 +1775,142 @@ window.pintarVerificar=async(turnoId)=>{
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
 function err(t,e){const m=(e&&(e.message||e.hint||e.details))||String(e);const d=document.createElement("div");d.className="aviso err";d.innerHTML=`<b>${t}</b><br>${m}`;d.style.cssText="position:fixed;bottom:20px;left:12px;right:12px;z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),6000);console.error(t,e);}
 function grande(t,e){const m=(e&&(e.message||e.hint))||String(e);$("main").innerHTML=`<div class="aviso err" style="margin:24px"><b>${t}</b><br>${m}</div>`;}
+
+/* ============================================================================
+   PARA LLEVAR — tablero de pedidos del bot de WhatsApp (tabla pedido_whatsapp)
+   Vive DENTRO del Panel (pestaña 🛍 Para llevar). Lee la vista
+   v_tablero_para_llevar y mueve el estado nuevo->en_cocina->listo->entregado.
+   Pedido grande de numero nuevo -> por_confirmar (rojo, Aceptar/Rechazar).
+   Al escribir, el trigger _marca_cambio dispara la sincronizacion sola.
+   ========================================================================== */
+let _pllPrev=null,_pllSon=false,_pllCtx=null;
+function _pllItems(p){let it=p.items;if(typeof it==='string'){try{it=JSON.parse(it);}catch(e){it=[];}}return Array.isArray(it)?it:[];}
+function _pllNom(x){return x.producto||x.nombre||x.desc||'Producto';}
+function _pllCant(x){return x.cantidad!=null?x.cantidad:(x.cant!=null?x.cant:(x.qty!=null?x.qty:1));}
+function _pllTerm(x){return x.termino||x.term||'';}
+function _pllNota(x){return x.especificaciones||x.notas||x.nota||x.obs||'';}
+function _pllPesos(n){return '$'+Number(n||0).toFixed(2);}
+function _pllTel(t){t=String(t||'');const d=t.replace(/\D/g,'').slice(-10);return d.length===10?`${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6)}`:t;}
+function _pllTiempo(seg){seg=Math.max(0,Math.floor(seg||0));const m=Math.floor(seg/60);if(m<1)return'ahorita';if(m<60)return`hace ${m} min`;const h=Math.floor(m/60);return`hace ${h} h ${m%60} min`;}
+function _pllCrono(seg,estado){const m=(seg||0)/60;const lim=estado==='listo'?[5,12]:[10,20];if(m<lim[0])return'v';if(m<lim[1])return'a';return'r';}
+async function pintarLlevar(){
+  window._noAuto=false;
+  let data;
+  try{ const r=await sb.from('v_tablero_para_llevar').select('*'); if(r.error)throw r.error; data=r.data||[]; }
+  catch(e){ $("main").innerHTML=`<div class="pad"><h2>🛍 Para llevar</h2><div class="aviso err">No se pudo leer los pedidos: ${esc(e.message||e)}</div></div>`; return; }
+  const g={por_confirmar:[],esperando_anticipo:[],nuevo:[],en_cocina:[],listo:[],entregado:[]};
+  data.forEach(p=>{(g[p.estado]||(g[p.estado]=[])).push(p);});
+  const porConf=g.por_confirmar.concat(g.esperando_anticipo);
+  const nAt=porConf.length+g.nuevo.length;
+  if(_pllPrev!==null && nAt>_pllPrev)_pllBeep();
+  _pllPrev=nAt;
+  let h=`<div class="pad"><div class="pll-head"><h2 style="margin:0">🛍 Para llevar <span class="tenue" style="font-size:13px;font-weight:400">· WhatsApp</span></h2>
+    <button class="pll-son ${_pllSon?'on':''}" onclick="pllSonido()">${_pllSon?'🔔 Sonido activado':'🔔 Activar sonido'}</button>
+    <button class="pll-son" onclick="pllListaConfianza()">👥 Lista de confianza</button></div>
+    <p class="tenue" style="margin:4px 0 14px">Se actualiza solo. Cocina directo, pero <b>siempre pasa por caja</b>.</p>`;
+  h+=_pllSec('⚠️ Por confirmar (pedido grande de cliente nuevo)',porConf,'Nada por confirmar');
+  h+=_pllSec('🆕 Nuevos (mandar a cocina)',g.nuevo,'Sin pedidos nuevos');
+  h+=_pllSec('👨‍🍳 En cocina',g.en_cocina,'Nada en preparación');
+  h+=_pllSec('✅ Listos (entregar)',g.listo,'Nada listo por ahora');
+  const ent=g.entregado||[];
+  h+=`<details style="margin-top:16px"><summary class="tenue" style="cursor:pointer;font-weight:700;padding:6px 0">📦 Entregados hoy (${ent.length})</summary><div class="pll-cols" style="margin-top:8px">${ent.length?ent.map(_pllCard).join(''):'<div class="proximamente">Nada entregado hoy.</div>'}</div></details>`;
+  h+=`</div>`;
+  $("main").innerHTML=h;
+}
+function _pllSec(t,arr,vacio){return `<div class="sec-t">${t} · ${arr.length}</div>`+(arr.length?`<div class="pll-cols">${arr.map(_pllCard).join('')}</div>`:`<div class="proximamente">${vacio}</div>`);}
+function _pllCard(p){
+  const its=_pllItems(p);
+  const itemsHtml=its.length?its.map(x=>{const t=_pllTerm(x),n=_pllNota(x);return `<div class="pll-it"><span class="c">${esc(_pllCant(x))}×</span> ${esc(_pllNom(x))}${t?`<span class="pll-term">${esc(t)}</span>`:''}${n?`<span class="pll-nota">↳ ${esc(n)}</span>`:''}</div>`;}).join(''):'<div class="pll-it tenue">Sin detalle</div>';
+  const seg=p.segundos_desde_creado||0,cl=_pllCrono(seg,p.estado);
+  const telH=String(p.telefono_cliente||'').replace(/\D/g,'');
+  const esConfirmar=(p.estado==='por_confirmar'||p.estado==='esperando_anticipo');
+  let acc='';
+  if(esConfirmar)acc=`<button class="pll-b-aceptar" onclick="pllAceptar(${p.id})">✓ Aceptar</button><button class="pll-b-rechazar" onclick="pllCancelar(${p.id})">✕ Rechazar</button>`;
+  else if(p.estado==='nuevo')acc=`<button class="pll-b-cocina" onclick="pllMover(${p.id},'en_cocina')">👨‍🍳 A cocina</button>`;
+  else if(p.estado==='en_cocina')acc=`<button class="pll-b-listo" onclick="pllMover(${p.id},'listo')">✅ Listo</button>`;
+  else if(p.estado==='listo')acc=`<button class="pll-b-entregar" onclick="pllMover(${p.id},'entregado')">📦 Entregado</button>`;
+  const puedeEditar=(p.estado!=='entregado'&&p.estado!=='cancelado');
+  const extra = (!puedeEditar||esConfirmar)
+    ? `<button class="pll-b-print" onclick="pllImprimir(${p.id})">🖨</button>`
+    : `<button class="pll-b-print" onclick="pllImprimir(${p.id})">🖨</button><button class="pll-b-cancel" onclick="pllCancelar(${p.id})">✕</button>`;
+  const notaPed=p.notas?`<div class="pll-notped">📝 ${esc(p.notas)}</div>`:'';
+  const antAviso=esConfirmar?`<div class="pll-notped">⚠️ Cliente nuevo · pedido &gt; $1,000 · revisa y <b>Acepta</b> o <b>Rechaza</b></div>`:'';
+  return `<div class="pll-card ${p.estado}"><div class="pll-top"><span class="pll-folio">${esc(p.folio||('#'+p.id))}</span><span class="pll-crono ${cl}">${_pllTiempo(seg)}</span></div>
+    <div><div class="pll-cli">${esc(p.nombre_cliente||'Cliente')}</div><div class="pll-tel">📞 <a href="https://wa.me/${telH}" target="_blank" rel="noopener">${esc(_pllTel(p.telefono_cliente))}</a></div></div>
+    ${antAviso}<div class="pll-items">${itemsHtml}</div>${notaPed}
+    <div class="pll-tot"><span>Total</span><span class="m">${_pllPesos(p.total)}</span></div>
+    <div class="pll-acc">${acc}${extra}</div></div>`;
+}
+async function _pllPatch(id,campos){const r=await sb.from('pedido_whatsapp').update(campos).eq('id',id);if(r.error){err("No se pudo guardar el cambio",r.error);return false;}return true;}
+window.pllMover=async(id,estado)=>{const c={estado};const now=new Date().toISOString();if(estado==='en_cocina')c.en_cocina_en=now;if(estado==='listo')c.listo_en=now;if(estado==='entregado')c.entregado_en=now;if(await _pllPatch(id,c)){okmsg('Actualizado');pintarLlevar();}};
+window.pllCancelar=async(id)=>{const m=prompt('Rechazar / cancelar pedido — motivo (queda registrado):');if(m===null)return;if(await _pllPatch(id,{estado:'cancelado',cancelado_en:new Date().toISOString(),notas:m||'Rechazado'})){okmsg('Pedido rechazado');pintarLlevar();}};
+window.pllAceptar=async(id)=>{ if(await _pllPatch(id,{estado:'nuevo'})){okmsg('Aceptado → pasa a cocina');pintarLlevar();} };
+window.pllImprimir=async(id)=>{
+  let p=null;try{const r=await sb.from('pedido_whatsapp').select('*').eq('id',id).limit(1);p=(r.data||[])[0];}catch(e){}
+  if(!p){err("No se pudo leer el pedido para imprimir");return;}
+  const its=_pllItems(p);
+  const fecha=new Date(p.creado_en||Date.now()).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});
+  const lineas=its.map(x=>{const t=_pllTerm(x),n=_pllNota(x);return `<div class="it2">${esc(_pllCant(x))} x ${esc(_pllNom(x))}${t?' ['+esc(t)+']':''}</div>${n?`<div class="nt">- ${esc(n)}</div>`:''}`;}).join('');
+  const html=`<html><head><meta charset="utf-8"><title>${esc(p.folio||id)}</title><style>
+    @page{size:72mm auto;margin:0}body{width:72mm;margin:0;padding:6px 4px;color:#000;background:#fff;font-family:'Courier New',monospace}
+    .tt{text-align:center;font-weight:800;font-size:15px}.big{font-size:20px;font-weight:900;text-align:center;margin:4px 0}
+    hr{border:none;border-top:1px dashed #000;margin:6px 0}.row{font-size:14px;line-height:1.5}
+    .it2{font-size:15px;font-weight:700;margin:3px 0}.nt{font-size:13px;margin-left:10px}</style></head><body>
+    <div class="tt">LOS PARES 84x88</div><div class="tt">*** PARA LLEVAR ***</div><div class="tt">WhatsApp</div><hr>
+    <div class="big">${esc(p.folio||('#'+id))}</div>
+    <div class="row">Cliente: ${esc(p.nombre_cliente||'-')}</div><div class="row">Tel: ${esc(_pllTel(p.telefono_cliente))}</div><div class="row">${fecha}</div><hr>
+    ${lineas||'<div class="it2">Sin productos</div>'}<hr>
+    <div class="row" style="font-size:16px;font-weight:900">TOTAL: ${_pllPesos(p.total)}</div>
+    ${p.notas?`<hr><div class="row">Nota: ${esc(p.notas)}</div>`:''}<hr>
+    <div class="tt" style="font-size:12px">Cocina directo · SIEMPRE pasa por caja</div><br><br>.</body></html>`;
+  const w=window.open('','_blank','width=380,height=600');
+  if(!w){err("El navegador bloqueó la ventana de impresión");return;}
+  w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},350);
+};
+/* ---- Lista de confianza (clientes frecuentes que pasan directo a cocina) ---- */
+window.pllListaConfianza=async()=>{
+  window._noAuto=true;
+  $("modal").innerHTML=`<h3>👥 Lista de confianza</h3>
+    <p class="tenue" style="margin:-4px 0 10px">Estos números pasan <b>directo a cocina</b>, aunque el pedido sea grande. (Quien ya pidió antes también cuenta como conocido, automático.)</p>
+    <div id="pllLC">Cargando…</div>
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="pllCerrarConfianza()">Cerrar</button></div>`;
+  $("mbg").classList.add("on");
+  _pllCargarConfianza();
+};
+window.pllCerrarConfianza=()=>{ window._noAuto=false; cerrarModal(); if(state.vista==='llevar')pintarLlevar(); };
+async function _pllCargarConfianza(){
+  let filas=[];
+  try{ const r=await sb.from('cliente_confianza').select('*').eq('activo',true).order('nombre'); if(!r.error)filas=r.data||[]; }catch(e){}
+  const lista=filas.length
+    ? filas.map(c=>`<div class="mitem"><div class="info"><div class="n">${esc(c.nombre||'(sin nombre)')}</div><small>${esc(_pllTel(c.telefono))}</small></div><button onclick="pllQuitarConfianza(${c.id})">Quitar</button></div>`).join('')
+    : '<p class="tenue">Todavía no hay clientes en la lista.</p>';
+  $("pllLC").innerHTML=`
+    <label>Agregar cliente</label>
+    <input id="pllNom" placeholder="Nombre (opcional)" style="margin-bottom:8px">
+    <input id="pllTelNew" placeholder="Teléfono a 10 dígitos (ej. 2871234567)" inputmode="numeric">
+    <button class="pll-b-cocina" style="width:100%;margin-top:10px;padding:12px;border-radius:11px;font-weight:800;color:#fff;border:none" onclick="pllAgregarConfianza()">+ Agregar a la lista</button>
+    <div class="sec-t" style="margin-top:16px">En la lista (${filas.length})</div>
+    ${lista}`;
+}
+window.pllAgregarConfianza=async()=>{
+  const nom=($("pllNom").value||'').trim();
+  let tel=($("pllTelNew").value||'').replace(/\D/g,'');
+  if(tel.length===10)tel='52'+tel;
+  else if(tel.length===12&&tel.startsWith('52')){/* ya viene bien */}
+  else if(tel.length===13&&tel.startsWith('521'))tel='52'+tel.slice(3);
+  else { alert('Escribe el teléfono a 10 dígitos (ej. 2871234567).'); return; }
+  const r=await sb.from('cliente_confianza').upsert({telefono:tel,nombre:nom||null,agregado_por:(state.admin&&state.admin.nombre)||'',activo:true},{onConflict:'telefono'});
+  if(r.error){ err('No se pudo agregar',r.error); return; }
+  okmsg('Agregado a la lista'); _pllCargarConfianza();
+};
+window.pllQuitarConfianza=async(id)=>{
+  if(!confirm('¿Quitar este cliente de la lista de confianza?'))return;
+  const r=await sb.from('cliente_confianza').update({activo:false}).eq('id',id);
+  if(r.error){ err('No se pudo quitar',r.error); return; }
+  okmsg('Quitado de la lista'); _pllCargarConfianza();
+};
+window.pllSonido=()=>{try{_pllCtx=new (window.AudioContext||window.webkitAudioContext)();_pllSon=true;_pllBeep();pintarLlevar();}catch(e){alert('Este dispositivo no dejó activar el sonido.');}};
+function _pllBeep(){if(!_pllSon||!_pllCtx)return;try{[0,180].forEach((d,i)=>{const o=_pllCtx.createOscillator(),g=_pllCtx.createGain();o.type='sine';o.frequency.value=i?1046:784;o.connect(g);g.connect(_pllCtx.destination);const t=_pllCtx.currentTime+d/1000;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);o.start(t);o.stop(t+0.4);});}catch(e){}}
 </script>
 </body>
 </html>
