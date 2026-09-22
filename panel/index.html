@@ -125,6 +125,7 @@
   .pll-acc button{flex:1;min-width:100px;border-radius:11px;padding:12px 8px;font-weight:800;font-size:14px;color:#fff;border:none}
   .pll-b-cocina{background:var(--naranja)}.pll-b-listo{background:var(--verde)}.pll-b-entregar{background:#2f6fb0}.pll-b-ant{background:#e0a52c;color:#1c1c1c}
   .pll-b-aceptar{background:var(--verde)}
+  .pll-b-cobrar{background:#1f8a4c;color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
   .pll-b-rechazar{background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
   .pll-b-print{flex:0 0 auto;min-width:50px;background:var(--gris);border:1px solid var(--gris2)!important;color:var(--texto)}
   .pll-b-cancel{flex:0 0 auto;min-width:50px;background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
@@ -1227,7 +1228,7 @@ function _reimprimirNavegador(d){
   if(!w){ err("El navegador bloqueó la ventana de impresión"); return; }
   w.document.write(`<html><head><title>Ticket ${esc(d.encabezado.folio||'')}</title><meta charset="UTF-8">
     <style>@page{size:80mm auto;margin:0}
-    body{font-family:'Courier New',monospace;font-size:12px;width:72mm;margin:0 auto;padding:4mm 3mm;color:#000}
+    body{font-family:'Courier New',monospace;font-size:12px;box-sizing:border-box;width:80mm;margin:0 auto;padding:4mm 3mm;color:#000}
     .c{text-align:center}.b{font-weight:800}.r{display:flex;justify-content:space-between;gap:6px}
     .r span:last-child{white-space:nowrap}hr{border:none;border-top:1px dashed #000;margin:6px 0}</style></head>
     <body>
@@ -1798,6 +1799,7 @@ async function pintarLlevar(){
   let data;
   try{ const r=await sb.from('v_tablero_para_llevar').select('*'); if(r.error)throw r.error; data=r.data||[]; }
   catch(e){ $("main").innerHTML=`<div class="pad"><h2>🛍 Para llevar</h2><div class="aviso err">No se pudo leer los pedidos: ${esc(e.message||e)}</div></div>`; return; }
+  window._pllData=data;
   const g={por_confirmar:[],esperando_anticipo:[],nuevo:[],en_cocina:[],listo:[],entregado:[]};
   data.forEach(p=>{(g[p.estado]||(g[p.estado]=[])).push(p);});
   const porConf=g.por_confirmar.concat(g.esperando_anticipo);
@@ -1829,6 +1831,10 @@ function _pllCard(p){
   else if(p.estado==='nuevo')acc=`<button class="pll-b-cocina" onclick="pllMover(${p.id},'en_cocina')">👨‍🍳 A cocina</button>`;
   else if(p.estado==='en_cocina')acc=`<button class="pll-b-listo" onclick="pllMover(${p.id},'listo')">✅ Listo</button>`;
   else if(p.estado==='listo')acc=`<button class="pll-b-entregar" onclick="pllMover(${p.id},'entregado')">📦 Entregado</button>`;
+  // Cobrar: disponible mientras el pedido esta vivo (nuevo/en cocina/listo).
+  // Registra la venta en caja (como una mesa) e imprime el ticket.
+  const cobrable=(p.estado==='nuevo'||p.estado==='en_cocina'||p.estado==='listo');
+  if(cobrable)acc+=`<button class="pll-b-cobrar" onclick="cobrarPll(${p.id})">💵 Cobrar</button>`;
   const puedeEditar=(p.estado!=='entregado'&&p.estado!=='cancelado');
   const extra = (!puedeEditar||esConfirmar)
     ? `<button class="pll-b-print" onclick="pllImprimir(${p.id})">🖨</button>`
@@ -1845,6 +1851,33 @@ async function _pllPatch(id,campos){const r=await sb.from('pedido_whatsapp').upd
 window.pllMover=async(id,estado)=>{const c={estado};const now=new Date().toISOString();if(estado==='en_cocina')c.en_cocina_en=now;if(estado==='listo')c.listo_en=now;if(estado==='entregado')c.entregado_en=now;if(await _pllPatch(id,c)){okmsg('Actualizado');pintarLlevar();}};
 window.pllCancelar=async(id)=>{const m=prompt('Rechazar / cancelar pedido — motivo (queda registrado):');if(m===null)return;if(await _pllPatch(id,{estado:'cancelado',cancelado_en:new Date().toISOString(),notas:m||'Rechazado'})){okmsg('Pedido rechazado');pintarLlevar();}};
 window.pllAceptar=async(id)=>{ if(await _pllPatch(id,{estado:'nuevo'})){okmsg('Aceptado → pasa a cocina');pintarLlevar();} };
+/* ---- COBRAR el pedido (lo mete a caja como una mesa e imprime ticket) ---- */
+window.cobrarPll=(id)=>{
+  const p=(window._pllData||[]).find(x=>x.id===id);
+  const tot=p?_pllPesos(p.total):'';
+  const orden={EFECTIVO:0,TARJETA:1,TRANSFERENCIA:2,OTRO:3};
+  const ic={EFECTIVO:'💵',TARJETA:'💳',TRANSFERENCIA:'🏦',OTRO:'•'};
+  const fs=Object.values(cache.formas).sort((a,b)=>((orden[a.tipo]!=null?orden[a.tipo]:9)-(orden[b.tipo]!=null?orden[b.tipo]:9))||String(a.nombre).localeCompare(String(b.nombre)));
+  if(!fs.length){ err('No hay formas de pago cargadas. Recarga el Panel.'); return; }
+  const btns=fs.map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:14px;margin:8px 0;border:1px solid var(--gris2);border-radius:12px;background:var(--gris);color:var(--texto);font-weight:800;font-size:16px" onclick="cobrarPllForma(${id},${f.id})">${ic[f.tipo]||'•'} ${esc(f.nombre)}</button>`).join('');
+  window._noAuto=true;
+  $("modal").innerHTML=`<h3>💵 Cobrar pedido${p?(' '+esc(p.folio||'')):''}</h3>
+    <p class="tenue" style="margin:-4px 0 10px">Total a cobrar: <b style="color:var(--verde);font-size:17px">${tot}</b><br>Elige cómo pagó el cliente. Se registra en <b>caja y en el corte</b>, e imprime el ticket de 80mm.</p>
+    ${btns}
+    <div class="acc" style="margin-top:8px"><button class="cancelar" onclick="cobrarPllCerrar()">Cancelar</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.cobrarPllCerrar=()=>{ window._noAuto=false; cerrarModal(); if(state.vista==='llevar')pintarLlevar(); };
+window.cobrarPllForma=async(id,formaId)=>{
+  try{
+    const r=await sb.rpc('cobrar_pedido_whatsapp',{p_pedido:id,p_forma_id:formaId,p_empleado_clave:(state.admin&&state.admin.clave)||null});
+    if(r.error)throw r.error;
+    window._noAuto=false; cerrarModal();
+    okmsg('Cobrado ✓ · registrado en caja');
+    try{ await pllImprimir(id); }catch(e){}
+    pintarLlevar();
+  }catch(e){ err('No se pudo cobrar el pedido.',e); }
+};
 window.pllImprimir=async(id)=>{
   let p=null;try{const r=await sb.from('pedido_whatsapp').select('*').eq('id',id).limit(1);p=(r.data||[])[0];}catch(e){}
   if(!p){err("No se pudo leer el pedido para imprimir");return;}
@@ -1852,7 +1885,7 @@ window.pllImprimir=async(id)=>{
   const fecha=new Date(p.creado_en||Date.now()).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});
   const lineas=its.map(x=>{const t=_pllTerm(x),n=_pllNota(x);return `<div class="it2">${esc(_pllCant(x))} x ${esc(_pllNom(x))}${t?' ['+esc(t)+']':''}</div>${n?`<div class="nt">- ${esc(n)}</div>`:''}`;}).join('');
   const html=`<html><head><meta charset="utf-8"><title>${esc(p.folio||id)}</title><style>
-    @page{size:72mm auto;margin:0}body{width:72mm;margin:0;padding:6px 4px;color:#000;background:#fff;font-family:'Courier New',monospace}
+    @page{size:80mm auto;margin:0}body{box-sizing:border-box;width:80mm;margin:0;padding:6px 5px;color:#000;background:#fff;font-family:'Courier New',monospace}
     .tt{text-align:center;font-weight:800;font-size:15px}.big{font-size:20px;font-weight:900;text-align:center;margin:4px 0}
     hr{border:none;border-top:1px dashed #000;margin:6px 0}.row{font-size:14px;line-height:1.5}
     .it2{font-size:15px;font-weight:700;margin:3px 0}.nt{font-size:13px;margin-left:10px}</style></head><body>
