@@ -97,34 +97,6 @@
   .buscar{background:var(--blanco);color:var(--texto)}
   .buscar::placeholder{color:var(--tenue)}
   .mitem{background:var(--blanco)}
-  /* ===== Para llevar (tablero de pedidos WhatsApp del bot) ===== */
-  .pll-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:2px}
-  .pll-son{background:var(--blanco);border:1px solid var(--gris2);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
-  .pll-son.on{border-color:var(--verde);color:#8fd6a5}
-  .pll-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-  .pll-card{background:var(--blanco);border:1px solid var(--gris2);border-left:5px solid var(--gris2);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:9px}
-  .pll-card.nuevo{border-left-color:var(--oro)}
-  .pll-card.esperando_anticipo{border-left-color:#e0a52c}
-  .pll-card.en_cocina{border-left-color:var(--naranja)}
-  .pll-card.listo{border-left-color:var(--verde)}
-  .pll-card.entregado{opacity:.55}
-  .pll-top{display:flex;align-items:center;gap:10px}
-  .pll-folio{font-size:19px;font-weight:800}
-  .pll-crono{margin-left:auto;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px}
-  .pll-crono.v{background:rgba(46,125,70,.2);color:#8fd6a5}.pll-crono.a{background:rgba(224,165,44,.2);color:#ffd77a}.pll-crono.r{background:rgba(192,57,43,.22);color:#ff9c90}
-  .pll-cli{font-weight:700}
-  .pll-tel{color:var(--tenue);font-size:13px}.pll-tel a{color:#7ab6ff;text-decoration:none}
-  .pll-items{background:var(--gris);border:1px solid var(--gris2);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:6px}
-  .pll-it{font-size:14px;line-height:1.35}.pll-it .c{color:var(--oro);font-weight:800}
-  .pll-term{display:inline-block;background:#2a1f10;color:#ffcf7a;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:5px}
-  .pll-nota{display:block;color:var(--naranja);font-size:12px;margin-top:1px}
-  .pll-notped{background:#2a1f10;color:#ffcf7a;border-radius:8px;padding:6px 9px;font-size:12px}
-  .pll-tot{display:flex;justify-content:space-between;font-weight:800;font-size:15px}.pll-tot .m{color:var(--verde)}
-  .pll-acc{display:flex;gap:7px;flex-wrap:wrap}
-  .pll-acc button{flex:1;min-width:100px;border-radius:11px;padding:12px 8px;font-weight:800;font-size:14px;color:#fff;border:none}
-  .pll-b-cocina{background:var(--naranja)}.pll-b-listo{background:var(--verde)}.pll-b-entregar{background:#2f6fb0}.pll-b-ant{background:#e0a52c;color:#1c1c1c}
-  .pll-b-print{flex:0 0 auto;min-width:50px;background:var(--gris);border:1px solid var(--gris2)!important;color:var(--texto)}
-  .pll-b-cancel{flex:0 0 auto;min-width:50px;background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
 </style>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icono-180.png">
@@ -146,13 +118,13 @@
 <header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
-  <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="cuentas" onclick="irA('cuentas')">Cuentas del día</button>
 
   <button data-v="caja" onclick="irA('caja')">Caja / Turno</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
+  <button data-v="auditoria" onclick="irA('auditoria')">Auditoría</button>
   <button data-v="menu" onclick="irA('menu')">Menú</button>
   <button data-v="empleados" onclick="irA('empleados')">Empleados</button>
   <button data-v="reportes" onclick="irA('reportes')">Reportes</button>
@@ -224,7 +196,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
     if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
     state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
     $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
-    const _permCajero=['cuentas','caja','llevar']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
+    const _permCajero=['cuentas','caja']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
     state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
@@ -620,15 +592,14 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes(
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
-  if(!state.rango) state.rango=rangoHoy();   // SEGURO: nunca calcular con rango vacio (evita "reading 'ini'")
   window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
   if(state.vista!=='monitor' && window._monTimer){clearInterval(window._monTimer);window._monTimer=null;}
   if(state.vista==='monitor'){return pintarMonitor();}
-  if(state.vista==='llevar'){return pintarLlevar();}
   if(state.vista==='reportes'){return pintarReportes();}
   if(state.vista==='menu'){return pintarMenu();}
   if(state.vista==='empleados'){return pintarEmpleados();}
   if(state.vista==='factura'){return pintarFactura();}
+  if(state.vista==='auditoria'){return pintarAuditoria(window._audISO||null);}
 
   if(state.vista==='cuentas'){return pintarCuentas();}
 
@@ -643,11 +614,9 @@ async function render(){
 }
 
 /* ---- Auto-refresco: recarga sola la vista de consulta, sin estorbar ---- */
-const VISTAS_AUTO=['ventas','cuentas','reportes','propinas','llevar'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
+const VISTAS_AUTO=['ventas','cuentas','reportes','propinas'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
 function _tickAuto(){
   try{
-    if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
-    if(!state.rango)return;                                          // sin rango de fechas todavia: no calcular
     if(window._noAuto)return;                                        // pantalla de selección abierta: no refrescar
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
@@ -723,6 +692,37 @@ function pintarPropinas({cerr,pagos}){
     ${rows?`<tr class="tot-row"><td>TOTAL</td><td class="n">$${totProp.toFixed(2)}</td><td class="n">$${totMesero.toFixed(2)}</td><td class="n">$${totBote.toFixed(2)}</td></tr>`:''}</tbody></table>
     <p class="tenue" style="margin-top:12px">Se paga a diario: a cada mesero su 70%, y el 30% de todos se junta en el bote de cocina.</p></div>`;
 }
+
+/* ---- AUDITORÍA (registro de acciones sensibles) ---- */
+window._audISO=null;
+window.pintarAuditoria=async(iso)=>{
+  window._audISO=iso||null;
+  $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando auditoría…</div></div>`;
+  try{
+    let q=sb.from("auditoria").select("id,empleado_id,accion,entidad,entidad_id,detalle,creado_en").order("creado_en",{ascending:false}).limit(400);
+    if(iso){ const [y,m,dd]=iso.split('-').map(Number); const ini=new Date(y,m-1,dd,0,0,0,0), fin=new Date(y,m-1,dd+1,0,0,0,0); q=q.gte("creado_en",ini.toISOString()).lt("creado_en",fin.toISOString()); }
+    const {data,error}=await q; if(error) throw error;
+    const rows=data||[];
+    const eids=[...new Set(rows.map(r=>r.empleado_id).filter(Boolean))]; let nom={};
+    if(eids.length){ try{ const eq=await sb.from("empleado").select("id,nombre").in("id",eids); (eq.data||[]).forEach(e=>nom[e.id]=e.nombre);}catch(e){} }
+    const cids=[...new Set(rows.filter(r=>r.entidad==='cuenta').map(r=>r.entidad_id).filter(Boolean))]; let fol={};
+    if(cids.length){ try{ const cq=await sb.from("cuenta").select("id,folio").in("id",cids); (cq.data||[]).forEach(c=>fol[c.id]=c.folio);}catch(e){} }
+    const LBL={CORTESIA:'Cortesía',DESCUENTO_PRODUCTO:'Descuento a producto',DESCUENTO_CUENTA:'Descuento a cuenta',CANCELAR_CUENTA:'Canceló cuenta',REASIGNAR_MESERO:'Reasignó mesero',CORREGIR_FORMA_PAGO:'Corrigió forma de pago',CORREGIR_PROPINA:'Corrigió propina',REABRIR_CUENTA:'Reabrió cuenta',ANULAR_CUENTA:'Anuló cuenta',CANCELAR_PRODUCTO:'Canceló producto'};
+    const det=(d)=>{ if(!d)return ''; try{ if(typeof d==='string')d=JSON.parse(d);}catch(e){return esc(String(d));} if(typeof d!=='object'||d===null)return esc(String(d)); if(d.mesero_anterior_nombre||d.mesero_nuevo_nombre){return esc('de '+(d.mesero_anterior_nombre||'?')+' → '+(d.mesero_nuevo_nombre||'?'))+(d.motivo?(' · '+esc(String(d.motivo))):'');} const p=[]; for(const k in d){ if(d[k]!=null&&d[k]!=='')p.push(esc(k)+': '+esc(String(d[k]))); } return p.join(' · '); };
+    const _dh=new Date(); const hoyISO=`${_dh.getFullYear()}-${String(_dh.getMonth()+1).padStart(2,'0')}-${String(_dh.getDate()).padStart(2,'0')}`;
+    $("main").innerHTML=`<div class="pad">
+      <h2>Auditoría</h2>
+      <p class="tenue" style="margin:0 0 10px">Quién hizo qué y cuándo: correcciones (forma de pago, propina), cortesías, descuentos, cancelaciones, reabrir cuenta y reasignar mesero.</p>
+      <div class="rango" style="align-items:center;gap:10px;margin:0 0 12px;flex-wrap:wrap">
+        <label class="tenue">Filtrar por día:</label>
+        <input type="date" value="${iso||''}" max="${hoyISO}" onchange="pintarAuditoria(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
+        ${iso?`<button onclick="pintarAuditoria()">Ver últimos (todos los días)</button>`:'<span class="tenue" style="font-size:12px">Mostrando los últimos 400 movimientos.</span>'}
+      </div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Fecha y hora</th><th>Quién</th><th>Acción</th><th>Cuenta</th><th>Detalle</th></tr></thead>
+      <tbody>${rows.length?rows.map(r=>`<tr><td>${new Date(r.creado_en).toLocaleString('es-MX')}</td><td>${esc(nom[r.empleado_id]||('#'+(r.empleado_id||'—')))}</td><td>${esc(LBL[r.accion]||r.accion||'')}</td><td>${r.entidad==='cuenta'?esc(fol[r.entidad_id]||('#'+r.entidad_id)):esc((r.entidad||'')+(r.entidad_id?(' #'+r.entidad_id):''))}</td><td class="tenue">${det(r.detalle)}</td></tr>`).join(''):`<tr><td colspan="5" class="tenue">Sin movimientos${iso?' ese día':''}.</td></tr>`}</tbody></table></div>
+    </div>`;
+  }catch(e){ err("No se pudo cargar la auditoría. Si dice permiso denegado, hay que dar lectura a la tabla auditoria — dímelo y te paso el SQL.",e); }
+};
 
 /* ---- CANCELACIONES ---- */
 async function pintarCancelaciones(){
@@ -1183,7 +1183,8 @@ async function pintarCaja(){
       ).join('')||'<tr><td colspan="3" class="tenue">Sin propinas hoy.</td></tr>'}</tbody></table>
       <table style="margin-top:8px"><tbody>${row('Propinas pagadas',propPag)}<tr class="tenue"><td>Bote cocina 30% (se reparte mañana)</td><td class="n">${M(boteC)}</td></tr></tbody></table>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-        <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar (Corte X)</button>
+        <button class="nuevo" style="${bb}" onclick="pintarCaja()">🔄 Actualizar</button>
+        <button class="nuevo" style="${bb};background:#b0602f" onclick="corteXP(${turno.id})">🧾 Corte X (cambio de turno)</button>
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX'))">📷 Imagen</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('CARLA')">📱 Carla</button>
@@ -1219,8 +1220,14 @@ function _corteNodo(d,titulo){
     ? d.ppm.map(m=>`<tr><td>${(m.mesero||'').replace(/</g,'')}</td><td style="text-align:right">${M(m.propina_bruta)}</td><td style="text-align:right">${M(m.pagar_70)}</td><td style="text-align:right">${m.ya_pagado?('✓ '+M(m.pagado_monto)):'—'}</td></tr>`).join('')
     : '<tr><td colspan="4">Sin propinas</td></tr>';
   const c=document.createElement('div');
+  c.id='corteImgNode';
   c.style.cssText='position:fixed;left:-10000px;top:0;width:720px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;padding:26px;font-size:14px';
   c.innerHTML=`
+    <style>
+      #corteImgNode{background:#fff !important;color:#000 !important}
+      #corteImgNode table{background:#fff !important;border:none !important;border-radius:0 !important}
+      #corteImgNode th,#corteImgNode td{background:#fff !important;color:#000 !important;text-transform:none !important;letter-spacing:normal !important}
+    </style>
     <div style="font-size:24px;font-weight:bold;text-align:center;letter-spacing:1px">LOS PARES 84×88</div>
     <div style="text-align:center;font-size:14px;color:#333;margin:4px 0 16px;border-bottom:2px solid #000;padding-bottom:10px">${titulo} &nbsp;·&nbsp; ${d.fecha||''}</div>
     <div style="display:flex;gap:30px">
@@ -1253,11 +1260,11 @@ function _corteNodo(d,titulo){
     <div style="display:flex;gap:30px">
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Mesero 70%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.7)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Bote cocina 30%</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop*0.3)}</td></tr>
-          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Pagadas</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total propinas del turno</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Pagado a meseros (70%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Bote cocina (30%) — QUEDA EN CAJA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.boteC)}</td></tr>
         </table>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div>
       </div>
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
@@ -1351,11 +1358,11 @@ window.imprimirCorte=(d,titulo)=>{
       <div class="sec">PROPINAS</div>
       <div class="cols">
         <div class="col"><table>
-          <tr><td>Total</td><td class="r">${M(d.prop)}</td></tr>
-          <tr><td>Mesero 70%</td><td class="r">${M(d.prop*0.7)}</td></tr>
-          <tr><td>Bote cocina 30%</td><td class="r">${M(d.prop*0.3)}</td></tr>
-          <tr class="tot"><td>Pagadas</td><td class="r">${M(d.propPag)}</td></tr>
-        </table></div>
+          <tr><td>Total propinas del turno</td><td class="r">${M(d.prop)}</td></tr>
+          <tr><td>Pagado a meseros (70%)</td><td class="r">${M(d.propPag)}</td></tr>
+          <tr class="tot"><td>Bote cocina (30%) — QUEDA EN CAJA</td><td class="r">${M(d.boteC)}</td></tr>
+        </table>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div></div>
         <div class="col"><table>
           <tr class="hd"><td>Mesero</td><td class="r">Propina</td><td class="r">70%</td><td class="r">Pagada</td></tr>
           ${filasP}
@@ -1366,16 +1373,62 @@ window.imprimirCorte=(d,titulo)=>{
   </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
 };
+window.imprimirCorteGuardado=(i)=>{
+  const c=(window._cortesGuard||[])[i]; if(!c){alert('No hay datos de ese corte.');return;}
+  const M=v=>'$'+Number(v||0).toFixed(2); const prop=Number(c.total_propinas||0);
+  const tit=(c.tipo==='X'?'CORTE X (cambio de turno)':(c.tipo==='TURNO'?'CORTE Z (cierre de turno)':'CORTE DEL DÍA'));
+  const w=window.open('','_printCG','width=800,height=900'); if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
+  w.document.write(`<html><head><title>${tit}</title><style>
+    @page{size:letter;margin:16mm}*{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0}
+    .wrap{max-width:720px;margin:0 auto}
+    h1{font-size:24px;text-align:center;margin:0;letter-spacing:1px}
+    .sub{text-align:center;font-size:14px;color:#333;margin:4px 0 16px;border-bottom:2px solid #000;padding-bottom:10px}
+    .sec{font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    td{padding:4px 2px;border-bottom:1px solid #dcdcdc}
+    .tot td{font-weight:bold;border-top:2px solid #000;border-bottom:none}
+    .r{text-align:right}.pie{text-align:center;margin-top:22px;font-size:12px;color:#666}
+  </style></head><body><div class="wrap">
+    <h1>LOS PARES 84×88</h1>
+    <div class="sub">${tit} &nbsp;·&nbsp; ${new Date(c.creado_en).toLocaleString('es-MX')} &nbsp;·&nbsp; ${(c.nombre||'').replace(/</g,'')}</div>
+    ${c.leyenda?`<div style="text-align:center;font-size:13px;color:#333;margin:-8px 0 14px">${(c.leyenda||'').replace(/</g,'')}</div>`:''}
+    <div class="sec">VENTAS</div>
+    <table>
+      <tr><td>Efectivo</td><td class="r">${M(c.total_efectivo)}</td></tr>
+      <tr><td>Tarjeta</td><td class="r">${M(c.total_tarjeta)}</td></tr>
+      <tr><td>Transferencia</td><td class="r">${M(c.total_transferencia)}</td></tr>
+      <tr><td>Cortesías</td><td class="r">${M(c.total_cortesias)}</td></tr>
+      <tr><td>Cuentas cerradas</td><td class="r">${c.num_cuentas}</td></tr>
+      <tr class="tot"><td>VENTA</td><td class="r">${M(c.total_ventas)}</td></tr>
+    </table>
+    <div class="sec">PROPINAS</div>
+    <table>
+      <tr><td>Total propinas</td><td class="r">${M(prop)}</td></tr>
+      <tr><td>Pagado a meseros (70%)</td><td class="r">${M(prop*0.7)}</td></tr>
+      <tr class="tot"><td>Bote cocina (30%) — QUEDA EN CAJA</td><td class="r">${M(prop*0.3)}</td></tr>
+    </table>
+    <div class="pie">Corte guardado tal cual se registró en el momento · Los Pares 84×88 · Tuxtepec, Oaxaca</div>
+  </div></body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
+};
 function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toFixed(2);
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
     `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n- Bote cocina (30%): ${M(d.boteC)}\n= EFECTIVO DEL RESTAURANTE: ${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}\n\n`+
     `VENTAS\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n\n`+
-    `PROPINAS\nTotal: ${M(d.prop)}\nMesero 70%: ${M(d.prop*0.7)}\nBote cocina 30%: ${M(d.prop*0.3)}\n\n`+
-    `PROPINAS PAGADAS\nPagado a meseros: ${M(d.propPag)}\nBote por repartir (30%): ${M(d.boteC)}\n`+
-    ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'')+
+    `PROPINAS\nTotal propinas del turno: ${M(d.prop)}\nPagado a meseros (70%): ${M(d.propPag)}\nBote cocina (30%) - QUEDA EN CAJA: ${M(d.boteC)}\n(El bote no se saca hoy: se reparte a cocina al dia siguiente)\n\n`+
+    `PAGADO A CADA MESERO (70%)\n`+
+    ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'  (sin propinas)\n')+
     `\nCortesias: ${M(d.cort)}`;
 }
 function _corteTexto(tipo){ return _corteTextoDe(window._cajaData, tipo); }
+window.corteXP=async(id)=>{ if(!confirm("¿Hacer un Corte X (cambio de turno)?\n\nGuarda una foto del corte hasta ahorita, se imprime y se genera la imagen para WhatsApp. NO cierra el turno: el día sigue vivo con todo hasta el Corte Z."))return;
+  try{
+    const r=await sb.rpc("generar_corte",{p_tipo:'X',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
+    try{ imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
+    try{ compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
+    okmsg("Corte X guardado ✓ — se imprimió y se generó la imagen. El turno sigue abierto.");pintarCaja();
+  }catch(e){err("No se pudo hacer el Corte X.",e);}};
 window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
   try{
     // 1) Pagar afuerza las propinas del turno que sigan pendientes (nada queda colgando)
@@ -1439,6 +1492,20 @@ window.pintarCorteHist=async(iso)=>{
     const efEsper=fondo+ef+dep-ret-propPag; const efRest=efEsper-boteC;
     const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,efRest,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
     window._corteHistData=d;
+    // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
+    let cortesGuard=[];
+    if(turnos.length){ try{ const cg=await sb.from("corte").select("id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en").in("turno_id",turnos).order("creado_en",{ascending:true}); cortesGuard=cg.data||[]; }catch(e){} }
+    let cgNom={}; { const eids=[...new Set(cortesGuard.map(c=>c.empleado_id).filter(Boolean))]; if(eids.length){ try{ const eq2=await sb.from("empleado").select("id,nombre").in("id",eids); (eq2.data||[]).forEach(e=>cgNom[e.id]=e.nombre);}catch(e){} } }
+    let cgTur={}; { const tids=[...new Set(cortesGuard.map(c=>c.turno_id).filter(Boolean))]; if(tids.length){ try{ const tq2=await sb.from("turno").select("id,abierto_en,cerrado_en").in("id",tids); (tq2.data||[]).forEach(t=>cgTur[t.id]=t);}catch(e){} } }
+    const _fHM=(dt)=> dt? new Date(dt).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const _leyenda=(c)=>{ const t=cgTur[c.turno_id]; if(!t||!t.abierto_en) return ''; const cierre=t.cerrado_en||c.creado_en; return `Turno del ${_fHM(t.abierto_en)} → cerró ${_fHM(cierre)}`; };
+    window._cortesGuard=cortesGuard.map(c=>({...c, nombre:cgNom[c.empleado_id]||'—', leyenda:_leyenda(c)}));
+    const cortesGuardHtml = cortesGuard.length
+      ? `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div>
+         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo / día real del turno</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
+         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
+         <p class="tenue" style="margin-top:6px">Cada renglón es un Corte completo por sí solo — <b>no se suman entre ellos</b>. Si un turno se fue a la madrugada, la leyenda dice el día real (cuándo abrió y cuándo cerró). Toca 🖨 para abrir/imprimir cada uno.</p>`
+      : `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte X ni Z (no se usó el botón 🧾 Corte X ni 🔒 Corte Z, o el turno cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     const hoy0=new Date(); hoy0.setHours(0,0,0,0); const esHoy=ini.getTime()===hoy0.getTime();
     $("main").innerHTML=`<div class="pad">
@@ -1469,6 +1536,7 @@ window.pintarCorteHist=async(iso)=>{
       <div class="sec-t" style="margin-top:16px">Propinas por mesero</div>
       <table><thead><tr><th>Mesero</th><th class="n">Propina</th><th class="n">Le toca (70%)</th><th class="n">A cocina (30%)</th><th class="n">Pagada</th></tr></thead>
       <tbody>${(ppm&&ppm.length)?ppm.map(mm=>`<tr><td>${esc(mm.mesero)}</td><td class="n">${M(mm.propina_bruta)}</td><td class="n">${M(mm.pagar_70)}</td><td class="n">${M(Number(mm.propina_bruta)*0.30)}</td><td class="n">${mm.ya_pagado?('✓ '+M(mm.pagado_monto)):'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="tenue">Sin propinas ese día.</td></tr>'}</tbody></table>
+      ${cortesGuardHtml}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
         <button class="nuevo" style="${bb};background:#5a4a9c" onclick="imprimirCorte(window._corteHistData,'CORTE DEL DIA '+window._corteHistData.fechaCorta)">🖨 Imprimir</button>
         <button class="nuevo" style="${bb};background:#2e7d46" onclick="compartirCorteImagen(window._corteHistData,'CORTE DEL DÍA '+window._corteHistData.fechaCorta)">📷 Imagen</button>
@@ -1565,93 +1633,6 @@ window.pintarVerificar=async(turnoId)=>{
 function okmsg(m){const d=document.createElement("div");d.className="aviso ok";d.textContent=m;d.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),1800);}
 function err(t,e){const m=(e&&(e.message||e.hint||e.details))||String(e);const d=document.createElement("div");d.className="aviso err";d.innerHTML=`<b>${t}</b><br>${m}`;d.style.cssText="position:fixed;bottom:20px;left:12px;right:12px;z-index:30;margin:0";document.body.appendChild(d);setTimeout(()=>d.remove(),6000);console.error(t,e);}
 function grande(t,e){const m=(e&&(e.message||e.hint))||String(e);$("main").innerHTML=`<div class="aviso err" style="margin:24px"><b>${t}</b><br>${m}</div>`;}
-
-/* ============================================================================
-   PARA LLEVAR — tablero de pedidos del bot de WhatsApp (tabla pedido_whatsapp)
-   Vive DENTRO del Panel (pestaña 🛍 Para llevar). Lee la vista
-   v_tablero_para_llevar y mueve el estado nuevo->en_cocina->listo->entregado.
-   Al escribir, el trigger _marca_cambio dispara la sincronizacion sola.
-   ========================================================================== */
-let _pllPrev=null,_pllSon=false,_pllCtx=null;
-function _pllItems(p){let it=p.items;if(typeof it==='string'){try{it=JSON.parse(it);}catch(e){it=[];}}return Array.isArray(it)?it:[];}
-function _pllNom(x){return x.producto||x.nombre||x.desc||'Producto';}
-function _pllCant(x){return x.cantidad!=null?x.cantidad:(x.cant!=null?x.cant:(x.qty!=null?x.qty:1));}
-function _pllTerm(x){return x.termino||x.term||'';}
-function _pllNota(x){return x.especificaciones||x.notas||x.nota||x.obs||'';}
-function _pllPesos(n){return '$'+Number(n||0).toFixed(2);}
-function _pllTel(t){t=String(t||'');const d=t.replace(/\D/g,'').slice(-10);return d.length===10?`${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6)}`:t;}
-function _pllTiempo(seg){seg=Math.max(0,Math.floor(seg||0));const m=Math.floor(seg/60);if(m<1)return'ahorita';if(m<60)return`hace ${m} min`;const h=Math.floor(m/60);return`hace ${h} h ${m%60} min`;}
-function _pllCrono(seg,estado){const m=(seg||0)/60;const lim=estado==='listo'?[5,12]:[10,20];if(m<lim[0])return'v';if(m<lim[1])return'a';return'r';}
-async function pintarLlevar(){
-  window._noAuto=false;
-  let data;
-  try{ const r=await sb.from('v_tablero_para_llevar').select('*'); if(r.error)throw r.error; data=r.data||[]; }
-  catch(e){ $("main").innerHTML=`<div class="pad"><h2>🛍 Para llevar</h2><div class="aviso err">No se pudo leer los pedidos: ${esc(e.message||e)}</div></div>`; return; }
-  const g={esperando_anticipo:[],nuevo:[],en_cocina:[],listo:[],entregado:[]};
-  data.forEach(p=>{(g[p.estado]||(g[p.estado]=[])).push(p);});
-  const nAt=g.esperando_anticipo.length+g.nuevo.length;
-  if(_pllPrev!==null && nAt>_pllPrev)_pllBeep();
-  _pllPrev=nAt;
-  let h=`<div class="pad"><div class="pll-head"><h2 style="margin:0">🛍 Para llevar <span class="tenue" style="font-size:13px;font-weight:400">· WhatsApp</span></h2>
-    <button class="pll-son ${_pllSon?'on':''}" onclick="pllSonido()">${_pllSon?'🔔 Sonido activado':'🔔 Activar sonido'}</button></div>
-    <p class="tenue" style="margin:4px 0 14px">Se actualiza solo. Cocina directo, pero <b>siempre pasa por caja</b>.</p>`;
-  h+=_pllSec('🕗 Esperando anticipo',g.esperando_anticipo,'Ninguno esperando anticipo');
-  h+=_pllSec('🆕 Nuevos (mandar a cocina)',g.nuevo,'Sin pedidos nuevos');
-  h+=_pllSec('👨‍🍳 En cocina',g.en_cocina,'Nada en preparación');
-  h+=_pllSec('✅ Listos (entregar)',g.listo,'Nada listo por ahora');
-  const ent=g.entregado||[];
-  h+=`<details style="margin-top:16px"><summary class="tenue" style="cursor:pointer;font-weight:700;padding:6px 0">📦 Entregados hoy (${ent.length})</summary><div class="pll-cols" style="margin-top:8px">${ent.length?ent.map(_pllCard).join(''):'<div class="proximamente">Nada entregado hoy.</div>'}</div></details>`;
-  h+=`</div>`;
-  $("main").innerHTML=h;
-}
-function _pllSec(t,arr,vacio){return `<div class="sec-t">${t} · ${arr.length}</div>`+(arr.length?`<div class="pll-cols">${arr.map(_pllCard).join('')}</div>`:`<div class="proximamente">${vacio}</div>`);}
-function _pllCard(p){
-  const its=_pllItems(p);
-  const itemsHtml=its.length?its.map(x=>{const t=_pllTerm(x),n=_pllNota(x);return `<div class="pll-it"><span class="c">${esc(_pllCant(x))}×</span> ${esc(_pllNom(x))}${t?`<span class="pll-term">${esc(t)}</span>`:''}${n?`<span class="pll-nota">↳ ${esc(n)}</span>`:''}</div>`;}).join(''):'<div class="pll-it tenue">Sin detalle</div>';
-  const seg=p.segundos_desde_creado||0,cl=_pllCrono(seg,p.estado);
-  const telH=String(p.telefono_cliente||'').replace(/\D/g,'');
-  let acc='';
-  if(p.estado==='esperando_anticipo')acc=`<button class="pll-b-ant" onclick="pllAnticipo(${p.id})">✓ Anticipo recibido</button>`;
-  else if(p.estado==='nuevo')acc=`<button class="pll-b-cocina" onclick="pllMover(${p.id},'en_cocina')">👨‍🍳 A cocina</button>`;
-  else if(p.estado==='en_cocina')acc=`<button class="pll-b-listo" onclick="pllMover(${p.id},'listo')">✅ Listo</button>`;
-  else if(p.estado==='listo')acc=`<button class="pll-b-entregar" onclick="pllMover(${p.id},'entregado')">📦 Entregado</button>`;
-  const extra=(p.estado!=='entregado'&&p.estado!=='cancelado')?`<button class="pll-b-print" onclick="pllImprimir(${p.id})">🖨</button><button class="pll-b-cancel" onclick="pllCancelar(${p.id})">✕</button>`:`<button class="pll-b-print" onclick="pllImprimir(${p.id})">🖨</button>`;
-  const notaPed=p.notas?`<div class="pll-notped">📝 ${esc(p.notas)}</div>`:'';
-  const antAviso=p.estado==='esperando_anticipo'?`<div class="pll-notped">⚠️ Cliente nuevo · pedido &gt; $1,000 · falta comprobante</div>`:'';
-  return `<div class="pll-card ${p.estado}"><div class="pll-top"><span class="pll-folio">${esc(p.folio||('#'+p.id))}</span><span class="pll-crono ${cl}">${_pllTiempo(seg)}</span></div>
-    <div><div class="pll-cli">${esc(p.nombre_cliente||'Cliente')}</div><div class="pll-tel">📞 <a href="https://wa.me/${telH}" target="_blank" rel="noopener">${esc(_pllTel(p.telefono_cliente))}</a></div></div>
-    ${antAviso}<div class="pll-items">${itemsHtml}</div>${notaPed}
-    <div class="pll-tot"><span>Total</span><span class="m">${_pllPesos(p.total)}</span></div>
-    <div class="pll-acc">${acc}${extra}</div></div>`;
-}
-async function _pllPatch(id,campos){const r=await sb.from('pedido_whatsapp').update(campos).eq('id',id);if(r.error){err("No se pudo guardar el cambio",r.error);return false;}return true;}
-window.pllMover=async(id,estado)=>{const c={estado};const now=new Date().toISOString();if(estado==='en_cocina')c.en_cocina_en=now;if(estado==='listo')c.listo_en=now;if(estado==='entregado')c.entregado_en=now;if(await _pllPatch(id,c)){okmsg('Actualizado');pintarLlevar();}};
-window.pllAnticipo=async(id)=>{if(!confirm('¿Ya llegó el comprobante del anticipo?\nEl pedido pasará a cocina.'))return;if(await _pllPatch(id,{anticipo_recibido:true,estado:'nuevo'})){okmsg('Anticipo confirmado');pintarLlevar();}};
-window.pllCancelar=async(id)=>{const m=prompt('Cancelar pedido — motivo (queda registrado):');if(m===null)return;if(await _pllPatch(id,{estado:'cancelado',cancelado_en:new Date().toISOString(),notas:m||'Cancelado'})){okmsg('Pedido cancelado');pintarLlevar();}};
-window.pllImprimir=async(id)=>{
-  let p=null;try{const r=await sb.from('pedido_whatsapp').select('*').eq('id',id).limit(1);p=(r.data||[])[0];}catch(e){}
-  if(!p){err("No se pudo leer el pedido para imprimir");return;}
-  const its=_pllItems(p);
-  const fecha=new Date(p.creado_en||Date.now()).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});
-  const lineas=its.map(x=>{const t=_pllTerm(x),n=_pllNota(x);return `<div class="it2">${esc(_pllCant(x))} x ${esc(_pllNom(x))}${t?' ['+esc(t)+']':''}</div>${n?`<div class="nt">- ${esc(n)}</div>`:''}`;}).join('');
-  const html=`<html><head><meta charset="utf-8"><title>${esc(p.folio||id)}</title><style>
-    @page{size:72mm auto;margin:0}body{width:72mm;margin:0;padding:6px 4px;color:#000;background:#fff;font-family:'Courier New',monospace}
-    .tt{text-align:center;font-weight:800;font-size:15px}.big{font-size:20px;font-weight:900;text-align:center;margin:4px 0}
-    hr{border:none;border-top:1px dashed #000;margin:6px 0}.row{font-size:14px;line-height:1.5}
-    .it2{font-size:15px;font-weight:700;margin:3px 0}.nt{font-size:13px;margin-left:10px}</style></head><body>
-    <div class="tt">LOS PARES 84x88</div><div class="tt">*** PARA LLEVAR ***</div><div class="tt">WhatsApp</div><hr>
-    <div class="big">${esc(p.folio||('#'+id))}</div>
-    <div class="row">Cliente: ${esc(p.nombre_cliente||'-')}</div><div class="row">Tel: ${esc(_pllTel(p.telefono_cliente))}</div><div class="row">${fecha}</div><hr>
-    ${lineas||'<div class="it2">Sin productos</div>'}<hr>
-    <div class="row" style="font-size:16px;font-weight:900">TOTAL: ${_pllPesos(p.total)}</div>
-    ${p.notas?`<hr><div class="row">Nota: ${esc(p.notas)}</div>`:''}<hr>
-    <div class="tt" style="font-size:12px">Cocina directo · SIEMPRE pasa por caja</div><br><br>.</body></html>`;
-  const w=window.open('','_blank','width=380,height=600');
-  if(!w){err("El navegador bloqueó la ventana de impresión");return;}
-  w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},350);
-};
-window.pllSonido=()=>{try{_pllCtx=new (window.AudioContext||window.webkitAudioContext)();_pllSon=true;_pllBeep();pintarLlevar();}catch(e){alert('Este dispositivo no dejó activar el sonido.');}};
-function _pllBeep(){if(!_pllSon||!_pllCtx)return;try{[0,180].forEach((d,i)=>{const o=_pllCtx.createOscillator(),g=_pllCtx.createGain();o.type='sine';o.frequency.value=i?1046:784;o.connect(g);g.connect(_pllCtx.destination);const t=_pllCtx.currentTime+d/1000;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);o.start(t);o.stop(t+0.4);});}catch(e){}}
 </script>
 </body>
 </html>
