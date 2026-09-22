@@ -150,8 +150,17 @@ async function probarConexion(url,llave){
   }catch(e){ return null; }
 }
 async function conectar(){
-  if(LOCAL_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
-  if(LOCAL_IP_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_IP_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
+  // Si la página se abre desde la CAJITA LOCAL (pos.lospares.com / IP local /
+  // localhost) probamos la base local primero. Si se abre desde la NUBE
+  // (github.io, datos móviles, cualquier internet) vamos DIRECTO a la nube:
+  // así no se atora probando direcciones locales que solo existen en el restaurante.
+  const host=(location.hostname||"").toLowerCase();
+  const esLocal = host==="pos.lospares.com" || host==="localhost" || host==="127.0.0.1"
+    || host.startsWith("192.168.") || host.startsWith("10.") || host.endsWith(".local");
+  if(esLocal){
+    if(LOCAL_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
+    if(LOCAL_IP_URL && LOCAL_LLAVE){ const c=await probarConexion(LOCAL_IP_URL,LOCAL_LLAVE); if(c){modo="LOCAL";return c;} }
+  }
   modo="NUBE";
   return window.supabase.createClient(CLOUD_URL,CLOUD_LLAVE);
 }
