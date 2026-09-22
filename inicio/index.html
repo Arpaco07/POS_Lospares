@@ -78,16 +78,33 @@
       (m==="local") ? "Abriendo la cajita local (rápido, sin depender de internet)."
                     : "Abriendo desde la nube.";
   }
-  aplicar("nube");
-  (function detectar(){
-    try{
-      var ctrl = new AbortController();
-      var t = setTimeout(function(){ ctrl.abort(); }, 2000);
-      fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
-        .then(function(){ clearTimeout(t); aplicar("local"); })
-        .catch(function(){ clearTimeout(t); aplicar("nube"); });
-    }catch(e){ aplicar("nube"); }
-  })();
+
+  // ¿Dónde se ABRIÓ este arrancador?
+  var _host = (location.hostname||"").toLowerCase();
+  var _esLocal = (_host==="pos.lospares.com" || _host==="localhost" || _host==="127.0.0.1"
+    || _host.indexOf("192.168.")===0 || _host.indexOf("10.")===0);
+
+  if(_esLocal){
+    // Se abrió DESDE la cajita local: estás en el restaurante.
+    aplicar("local");
+  }else{
+    // Se abrió desde la NUBE (github.io) / datos / cualquier internet:
+    // se muestra la nube AL INSTANTE (no se queda cargando con datos).
+    aplicar("nube");
+    // Además, sin estorbar, probamos rapidito si SÍ se alcanza la cajita local
+    // (por si estás en el restaurante conectado por WiFi): si responde, usamos LOCAL.
+    // Con datos móviles esto falla enseguida y todo se queda en NUBE.
+    (function detectar(){
+      try{
+        var ctrl = new AbortController();
+        var t = setTimeout(function(){ ctrl.abort(); }, 1200);
+        fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
+          .then(function(){ clearTimeout(t); aplicar("local"); })
+          .catch(function(){ clearTimeout(t); /* se queda en NUBE */ });
+      }catch(e){ /* se queda en NUBE */ }
+    })();
+  }
+
   document.getElementById("forzarLocal").onclick = function(){ aplicar("local"); };
   document.getElementById("forzarNube").onclick  = function(){ aplicar("nube"); };
 
