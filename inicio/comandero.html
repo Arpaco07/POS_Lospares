@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comandero · Los Pares 84×88</title>
+<!-- Manifiesto PROPIO: hace que este icono sea una app aparte ("Comandero"),
+     distinta del hub. Arranca directo en esta pagina. -->
+<link rel="manifest" href="manifest_comandero.json">
+<link rel="apple-touch-icon" href="/POS_Lospares/icon-192.png">
+<link rel="icon" href="/POS_Lospares/icon-192.png">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+  :root{ --oro:#d4af37; --carbon:#111; --carbon2:#1c1c1c; --linea:#333; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:radial-gradient(circle at 50% 0%,#222,#111 60%);color:#f4f4f4;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:34px 20px}
+  .logo img{width:150px;height:150px;border-radius:30px;
+    box-shadow:0 8px 30px rgba(212,175,55,.25);border:1px solid #2a2a2a}
+  .sub{color:var(--oro);letter-spacing:8px;font-size:14px;margin-top:14px;text-align:center}
+  .estado{margin:26px 0 6px;font-size:16px;display:flex;align-items:center;gap:10px;
+    background:var(--carbon2);border:1px solid var(--linea);border-radius:999px;padding:10px 20px}
+  .dot{width:12px;height:12px;border-radius:50%;background:#888}
+  .dot.local{background:#38c172}.dot.nube{background:#3aa0ff}
+  .pie{margin-top:8px;font-size:13px;color:#999;text-align:center}
+  .ir{margin-top:22px;display:none;background:var(--oro);color:#111;font-weight:700;
+    font-size:17px;text-decoration:none;border-radius:14px;padding:14px 26px}
+  .ir:active{transform:scale(.98)}
+</style>
+</head>
+<body>
+  <div class="logo">
+    <img src="/POS_Lospares/icon-512.png" alt="Los Pares 84×88" onerror="this.onerror=null;this.src='/POS_Lospares/icon-192.png'">
+  </div>
+  <div class="sub">C O M A N D E R O</div>
+  <div class="estado"><span class="dot" id="dot"></span><span id="txt">Entrando al Comandero…</span></div>
+  <div class="pie" id="pie"></div>
+  <a class="ir" id="ir">Entrar ahora →</a>
+
+<script>
+  var LOCAL = "https://pos.lospares.com/";
+  var NUBE  = "https://arpaco07.github.io/POS_Lospares/";
+  var COMANDERO = "";          // el comandero vive en la raiz de cada base
+  var yaFui = false, decidido = false;
+
+  var dot = document.getElementById("dot");
+  var txt = document.getElementById("txt");
+  var pie = document.getElementById("pie");
+  var ir  = document.getElementById("ir");
+
+  function irA(m){
+    if(yaFui) return; yaFui = true;
+    var base = (m==="local") ? LOCAL : NUBE;
+    location.replace(base + COMANDERO);
+  }
+  function pinta(m){
+    dot.className = "dot " + m;
+    txt.textContent = (m==="local") ? "En el restaurante (LOCAL)" : "Desde la nube";
+    pie.textContent = (m==="local") ? "Abriendo la cajita local (rápido)."
+                                    : "Abriendo desde la nube.";
+  }
+  function decide(m){ if(decidido) return; decidido = true; pinta(m); irA(m); }
+
+  // ¿Dónde se abrió?
+  var _host = (location.hostname||"").toLowerCase();
+  var _esLocal = (_host==="pos.lospares.com" || _host==="localhost" || _host==="127.0.0.1"
+    || _host.indexOf("192.168.")===0 || _host.indexOf("10.")===0);
+
+  if(_esLocal){
+    // Estás en el restaurante (abrió desde la cajita): comandero LOCAL directo.
+    decide("local");
+  }else{
+    // Abrió desde la nube: probar rapidito si se alcanza la cajita local.
+    txt.textContent = "Buscando la cajita…";
+    try{
+      var ctrl = new AbortController();
+      var t = setTimeout(function(){ ctrl.abort(); }, 1200);
+      fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
+        .then(function(){ clearTimeout(t); decide("local"); })
+        .catch(function(){ clearTimeout(t); decide("nube"); });
+    }catch(e){ decide("nube"); }
+    // Respaldo: si en 1.6s no decidió (muy raro), entra por nube.
+    setTimeout(function(){ decide("nube"); }, 1600);
+    // Botón manual por si el usuario prefiere entrar de inmediato.
+    ir.style.display = "inline-block";
+    ir.onclick = function(){ decide( dot.className.indexOf("local")>=0 ? "local" : "nube" ); };
+  }
+
+  // Service worker (para instalar como app y abrir aunque no haya red).
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js").catch(function(){});
+  }
+</script>
+</body>
+</html>
