@@ -1254,7 +1254,9 @@ window.anularCuentaP=async(id)=>{
    Solo imprime en la impresora de CAJA cuando estas en LOCAL (el asistente esta
    en la HP). Si estas en NUBE o el asistente esta apagado, cae a impresion del
    navegador (80mm). No cobra ni cambia nada: solo vuelve a imprimir. */
-function _printUrlCaja(){ return modo==='LOCAL' ? "https://pos.lospares.com/print" : null; }
+// Siempre intenta la impresora de CAJA (térmica 80mm) vía el asistente en la HP.
+// Si no responde (estás fuera del restaurante o el asistente apagado), cae al navegador.
+function _printUrlCaja(){ return "https://pos.lospares.com/print"; }
 window.reimprimirTicketP=async(id)=>{
   const {cts}=window._ctasCache||{cts:[]}; const c=(cts||[]).find(x=>x.id===id);
   try{
