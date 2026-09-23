@@ -1879,29 +1879,57 @@ function _pllTiempo(seg){seg=Math.max(0,Math.floor(seg||0));const m=Math.floor(s
 function _pllCrono(seg,estado){const m=(seg||0)/60;const lim=estado==='listo'?[5,12]:[10,20];if(m<lim[0])return'v';if(m<lim[1])return'a';return'r';}
 async function pintarLlevar(){
   window._noAuto=false;
+  if(!state.pllDia) state.pllDia=new Date();
+  const hoy = esMismoDia(state.pllDia, new Date());
   let data;
-  try{ const r=await sb.from('v_tablero_para_llevar').select('*'); if(r.error)throw r.error; data=r.data||[]; }
-  catch(e){ $("main").innerHTML=`<div class="pad"><h2>🛍 Para llevar</h2><div class="aviso err">No se pudo leer los pedidos: ${esc(e.message||e)}</div></div>`; return; }
+  try{
+    if(hoy){
+      const r=await sb.from('v_tablero_para_llevar').select('*'); if(r.error)throw r.error; data=r.data||[];
+    }else{
+      const ini=new Date(state.pllDia.getFullYear(),state.pllDia.getMonth(),state.pllDia.getDate());
+      const fin=new Date(ini); fin.setDate(fin.getDate()+1);
+      const r=await sb.from('pedido_whatsapp').select('*').gte('creado_en',ini.toISOString()).lt('creado_en',fin.toISOString()).order('creado_en',{ascending:true});
+      if(r.error)throw r.error;
+      const now=Date.now();
+      data=(r.data||[]).map(p=>({...p, segundos_desde_creado: Math.floor((now-new Date(p.creado_en).getTime())/1000)}));
+    }
+  }catch(e){ $("main").innerHTML=`<div class="pad"><h2>🛍 Para llevar</h2><div class="aviso err">No se pudo leer los pedidos: ${esc(e.message||e)}</div></div>`; return; }
   window._pllData=data;
-  const g={por_confirmar:[],esperando_anticipo:[],nuevo:[],en_cocina:[],listo:[],entregado:[]};
+  const g={por_confirmar:[],esperando_anticipo:[],nuevo:[],en_cocina:[],listo:[],entregado:[],cancelado:[]};
   data.forEach(p=>{(g[p.estado]||(g[p.estado]=[])).push(p);});
   const porConf=g.por_confirmar.concat(g.esperando_anticipo);
-  const nAt=porConf.length+g.nuevo.length;
-  if(_pllPrev!==null && nAt>_pllPrev)_pllBeep();
-  _pllPrev=nAt;
+  if(hoy){ const nAt=porConf.length+g.nuevo.length; if(_pllPrev!==null && nAt>_pllPrev)_pllBeep(); _pllPrev=nAt; }
+  const f=state.pllDia;
   let h=`<div class="pad"><div class="pll-head"><h2 style="margin:0">🛍 Para llevar <span class="tenue" style="font-size:13px;font-weight:400">· WhatsApp</span></h2>
     <button class="pll-son ${_pllSon?'on':''}" onclick="pllSonido()">${_pllSon?'🔔 Sonido activado':'🔔 Activar sonido'}</button>
     <button class="pll-son" onclick="pllListaConfianza()">👥 Lista de confianza</button></div>
-    <p class="tenue" style="margin:4px 0 14px">Se actualiza solo. Cocina directo, pero <b>siempre pasa por caja</b>.</p>`;
-  h+=_pllSec('⚠️ Por confirmar (pedido grande de cliente nuevo)',porConf,'Nada por confirmar');
-  h+=_pllSec('🆕 Nuevos (mandar a cocina)',g.nuevo,'Sin pedidos nuevos');
-  h+=_pllSec('👨‍🍳 En cocina',g.en_cocina,'Nada en preparación');
-  h+=_pllSec('✅ Listos (entregar)',g.listo,'Nada listo por ahora');
-  const ent=g.entregado||[];
-  h+=`<details style="margin-top:16px"><summary class="tenue" style="cursor:pointer;font-weight:700;padding:6px 0">📦 Entregados hoy (${ent.length})</summary><div class="pll-cols" style="margin-top:8px">${ent.length?ent.map(_pllCard).join(''):'<div class="proximamente">Nada entregado hoy.</div>'}</div></details>`;
+    <div class="rango" style="justify-content:space-between;align-items:center;margin:8px 0 10px">
+      <button onclick="pllNavDia(-1)">‹ Día anterior</button>
+      <input type="date" value="${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}" onchange="pllIrDia(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
+      <button onclick="pllNavDia(1)" ${hoy?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
+    </div>`;
+  if(hoy){
+    h+=`<p class="tenue" style="margin:0 0 14px">Se actualiza solo. Cocina directo, pero <b>siempre pasa por caja</b>.</p>`;
+    h+=_pllSec('⚠️ Por confirmar (pedido grande de cliente nuevo)',porConf,'Nada por confirmar');
+    h+=_pllSec('🆕 Nuevos (mandar a cocina)',g.nuevo,'Sin pedidos nuevos');
+    h+=_pllSec('👨‍🍳 En cocina',g.en_cocina,'Nada en preparación');
+    h+=_pllSec('✅ Listos (entregar)',g.listo,'Nada listo por ahora');
+    const ent=g.entregado||[];
+    h+=`<details style="margin-top:16px"><summary class="tenue" style="cursor:pointer;font-weight:700;padding:6px 0">📦 Entregados hoy (${ent.length})</summary><div class="pll-cols" style="margin-top:8px">${ent.length?ent.map(_pllCard).join(''):'<div class="proximamente">Nada entregado hoy.</div>'}</div></details>`;
+  }else{
+    h+=`<p class="tenue" style="margin:0 0 14px">Vista del <b>${esc(f.toLocaleDateString('es-MX',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}))}</b> · ${data.length} pedido(s). Los botones siguen activos por si necesitas corregir.</p>`;
+    if(porConf.length) h+=_pllSec('⚠️ Por confirmar',porConf,'');
+    if(g.nuevo.length) h+=_pllSec('🆕 Nuevos',g.nuevo,'');
+    if(g.en_cocina.length) h+=_pllSec('👨‍🍳 En cocina',g.en_cocina,'');
+    if(g.listo.length) h+=_pllSec('✅ Listos',g.listo,'');
+    h+=_pllSec('📦 Entregados',g.entregado,'Nada entregado ese día');
+    if(g.cancelado.length) h+=_pllSec('✕ Cancelados / rechazados',g.cancelado,'');
+  }
   h+=`</div>`;
   $("main").innerHTML=h;
 }
+window.pllNavDia=(delta)=>{ const d=new Date(state.pllDia||new Date()); d.setDate(d.getDate()+delta); if(d>new Date())d.setTime(Date.now()); state.pllDia=d; pintarLlevar(); };
+window.pllIrDia=(v)=>{ if(!v)return; const p=v.split('-'); let d=new Date(+p[0],+p[1]-1,+p[2]); if(d>new Date())d=new Date(); state.pllDia=d; pintarLlevar(); };
 function _pllSec(t,arr,vacio){return `<div class="sec-t">${t} · ${arr.length}</div>`+(arr.length?`<div class="pll-cols">${arr.map(_pllCard).join('')}</div>`:`<div class="proximamente">${vacio}</div>`);}
 function _pllCard(p){
   const its=_pllItems(p);
