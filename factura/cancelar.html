@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Cancelar facturas — Los Pares 84×88</title>
+<style>
+  :root{
+    --negro:#141210; --carbon:#1c1a17; --carbon2:#232019; --gris:#2a2620; --gris2:#3a352c;
+    --texto:#f3ead8; --tenue:#b7ad98; --oro:#d4af37; --naranja:#e1622c;
+    --verde:#2e7d46; --verde2:#8fd6a5; --rojo:#c0392b; --rojo2:#ff9c90;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--negro);color:var(--texto);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
+  header{display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(180deg,#1c1a17,#141210);border-bottom:1px solid var(--gris2);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  .logo{font-weight:900;font-size:20px;letter-spacing:.5px}
+  .logo b{color:var(--naranja)}
+  .tag{border:1px solid var(--oro);color:var(--oro);border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800}
+  .sp{flex:1}
+  .who{font-size:13px;color:var(--tenue)}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  .pad{padding:16px;max-width:1000px;margin:0 auto}
+  input,select{font-family:inherit;font-size:16px;background:var(--gris);border:1px solid var(--gris2);color:var(--texto);border-radius:10px;padding:11px 12px;width:100%}
+  input::placeholder{color:#8f8676}
+  .btn{border:none;border-radius:11px;padding:11px 16px;font-weight:800;font-size:15px}
+  .btn-oro{background:var(--oro);color:#1c1a17}
+  .btn-gris{background:var(--gris);border:1px solid var(--gris2)!important;color:var(--texto)}
+  .btn-rojo{background:var(--rojo);color:#fff}
+  .btn-verde{background:var(--verde);color:#fff}
+
+  /* Login */
+  #login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px}
+  #login .caja{background:var(--carbon);border:1px solid var(--gris2);border-radius:18px;padding:26px 22px;width:100%;max-width:340px;text-align:center}
+  #login h1{margin:0 0 4px;font-size:22px}
+  #login p{margin:0 0 16px;color:var(--tenue);font-size:14px}
+  #pinErr{color:var(--rojo2);min-height:18px;font-size:14px;margin-top:8px}
+
+  /* Lista */
+  .barra{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .barra input{max-width:340px}
+  .stat{color:var(--tenue);font-size:13px}
+  .card{background:var(--carbon);border:1px solid var(--gris2);border-radius:14px;padding:14px;margin-bottom:11px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .card .info{flex:1;min-width:220px}
+  .fol{font-weight:800;font-size:16px}
+  .uuid{color:var(--tenue);font-size:12px;word-break:break-all}
+  .meta{color:var(--tenue);font-size:13px;margin-top:3px}
+  .tot{font-weight:900;font-size:18px;color:var(--verde2);white-space:nowrap}
+  .badge{border-radius:999px;padding:3px 11px;font-size:12px;font-weight:800;white-space:nowrap}
+  .b-timbrada{background:rgba(46,125,70,.18);color:var(--verde2)}
+  .b-cancelada{background:rgba(192,57,43,.2);color:var(--rojo2)}
+  .b-proceso{background:rgba(224,165,44,.2);color:#ffd77a}
+  .vacio{color:var(--tenue);text-align:center;padding:40px 10px}
+
+  /* Modal */
+  #bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+  #bg.on{display:flex}
+  .modal{background:var(--carbon2);border:1px solid var(--gris2);border-radius:16px;padding:20px;width:100%;max-width:460px;max-height:92vh;overflow:auto}
+  .modal h3{margin:0 0 6px;font-size:19px}
+  .modal .sub{color:var(--tenue);font-size:13px;margin:0 0 14px}
+  .op{display:block;border:1px solid var(--gris2);background:var(--gris);border-radius:12px;padding:12px;margin:8px 0;cursor:pointer}
+  .op.sel{border-color:var(--oro);box-shadow:0 0 0 1px var(--oro) inset}
+  .op b{display:block;font-size:15px}
+  .op small{color:var(--tenue);font-size:12.5px}
+  .acc{display:flex;gap:10px;margin-top:16px}
+  .acc .btn{flex:1}
+  #sustBox{display:none;margin-top:6px}
+  #res{margin-top:12px;font-size:14px}
+  .ok{color:var(--verde2)} .no{color:var(--rojo2)}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#000;border:1px solid var(--gris2);color:#fff;padding:10px 16px;border-radius:10px;z-index:40;display:none;max-width:92vw}
+  .toast.on{display:block}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN (PIN admin) ===== -->
+<div id="login">
+  <div class="caja">
+    <div class="logo" style="font-size:24px;margin-bottom:8px">Los <b>Pares</b> <span class="tag">84×88</span></div>
+    <h1>Cancelar facturas</h1>
+    <p>Entra con tu <b>PIN de administrador</b>.</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN (4 dígitos)" autocomplete="off" onkeydown="if(event.key==='Enter')entrar()">
+    <div class="acc" style="margin-top:12px"><button class="btn btn-oro" style="flex:1" onclick="entrar()">Entrar</button></div>
+    <div id="pinErr"></div>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="app" style="display:none">
+  <header>
+    <div class="logo">Los <b>Pares</b></div>
+    <span class="tag">Facturas</span>
+    <div class="sp"></div>
+    <span class="who" id="who"></span>
+    <button class="btn btn-gris" onclick="cargar()">↻ Actualizar</button>
+  </header>
+  <div class="pad">
+    <div class="barra">
+      <input id="q" placeholder="Buscar por folio, RFC, nombre o UUID…" oninput="pintar()">
+      <select id="filtro" onchange="pintar()" style="max-width:200px">
+        <option value="todas">Todas</option>
+        <option value="timbrada">Solo activas (timbradas)</option>
+        <option value="cancelada">Solo canceladas</option>
+      </select>
+      <span class="stat" id="stat"></span>
+    </div>
+    <div id="lista"></div>
+  </div>
+</div>
+
+<!-- ===== MODAL CANCELAR ===== -->
+<div id="bg">
+  <div class="modal">
+    <h3>Cancelar factura</h3>
+    <p class="sub" id="mSub"></p>
+    <div id="motivos">
+      <label class="op sel" data-m="02" onclick="selMot('02')"><b>02 · Errores sin relación</b><small>El más común. La factura tenía un error y NO hay otra que la sustituya.</small></label>
+      <label class="op" data-m="01" onclick="selMot('01')"><b>01 · Errores con relación</b><small>Se emitió otra factura que la sustituye. Pide el UUID de esa nueva factura.</small></label>
+      <label class="op" data-m="03" onclick="selMot('03')"><b>03 · No se llevó a cabo la operación</b><small>La venta no se realizó (no hubo consumo/entrega).</small></label>
+      <label class="op" data-m="04" onclick="selMot('04')"><b>04 · Operación nominativa de una global</b><small>Se relaciona en una factura global. Uso poco frecuente.</small></label>
+    </div>
+    <div id="sustBox">
+      <label style="font-size:13px;color:var(--tenue)">UUID de la factura que la sustituye (obligatorio para el 01):</label>
+      <input id="sust" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" autocomplete="off" style="margin-top:6px">
+    </div>
+    <div id="res"></div>
+    <div class="acc">
+      <button class="btn btn-gris" onclick="cerrar()">Volver</button>
+      <button class="btn btn-rojo" id="btnConf" onclick="confirmar()">Cancelar factura</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ====== Config NUBE (aquí viven las facturas y las funciones de Finkok) ====== */
+const NUBE_URL = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
+const NUBE_KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
+const sb = supabase.createClient(NUBE_URL, NUBE_KEY);
+const FN_CANCELAR = NUBE_URL + "/functions/v1/factura-cancelar";
+
+let ADMIN = null;
+let FACTURAS = [];
+let sel = null;      // factura elegida para cancelar
+let motivo = "02";
+
+const $ = id => document.getElementById(id);
+const money = n => "$" + Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => (s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); setTimeout(()=>e.classList.remove("on"),3000); }
+function fechaCorta(s){ try{ return new Date(s).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'}); }catch(e){ return s||''; } }
+
+/* ====== Login con PIN admin ====== */
+async function entrar(){
+  const pin = ($("pin").value||"").trim();
+  if(pin.length<3){ $("pinErr").textContent="PIN muy corto"; return; }
+  $("pinErr").textContent="Verificando…";
+  try{
+    const {data,error} = await sb.rpc("login_pin",{p_pin:pin});
+    if(error) throw error;
+    if(!data || !data.length){ $("pinErr").textContent="PIN incorrecto"; return; }
+    const u = data[0];
+    if(!(u.es_admin || u.rol==='ADMIN')){ $("pinErr").textContent="Solo administrador puede cancelar facturas"; return; }
+    ADMIN = u;
+    $("login").style.display="none";
+    $("app").style.display="block";
+    $("who").textContent = u.nombre || "Admin";
+    cargar();
+  }catch(e){ $("pinErr").textContent = "No se pudo entrar: " + (e.message||e); }
+}
+
+/* ====== Cargar y pintar la lista ====== */
+async function cargar(){
+  $("lista").innerHTML = '<div class="vacio">Cargando facturas…</div>';
+  try{
+    const { data, error } = await sb.from("factura_emitida")
+      .select("*").order("timbrada_en",{ascending:false}).limit(500);
+    if(error) throw error;
+    FACTURAS = data||[];
+    pintar();
+  }catch(e){
+    $("lista").innerHTML = '<div class="vacio no">No se pudieron cargar las facturas.<br>'+esc(e.message||e)+'</div>';
+  }
+}
+
+function pintar(){
+  const q = ($("q").value||"").toLowerCase().trim();
+  const f = $("filtro").value;
+  let arr = FACTURAS.slice();
+  if(f!=="todas") arr = arr.filter(x=>x.estado===f);
+  if(q) arr = arr.filter(x=>
+    (x.folio_ticket||"").toLowerCase().includes(q) ||
+    (x.rfc_receptor||"").toLowerCase().includes(q) ||
+    (x.nombre_receptor||"").toLowerCase().includes(q) ||
+    (x.uuid_cfdi||"").toLowerCase().includes(q));
+
+  $("stat").textContent = `${arr.length} factura(s)`;
+  if(!arr.length){ $("lista").innerHTML = '<div class="vacio">No hay facturas que coincidan.</div>'; return; }
+
+  $("lista").innerHTML = arr.map(x=>{
+    const badge = x.estado==="cancelada" ? '<span class="badge b-cancelada">Cancelada</span>'
+                : x.estado==="en_proceso" ? '<span class="badge b-proceso">En proceso</span>'
+                : '<span class="badge b-timbrada">Timbrada</span>';
+    const cli = x.rfc_receptor && x.rfc_receptor!=="XAXX010101000"
+        ? `${esc(x.nombre_receptor||"")} · ${esc(x.rfc_receptor)}`
+        : "Público en general";
+    const boton = x.estado==="timbrada"
+        ? `<button class="btn btn-rojo" onclick='abrir(${JSON.stringify(x.id)})'>Cancelar</button>`
+        : (x.estado==="cancelada" && x.cancelada_en ? `<span class="meta">Cancelada ${fechaCorta(x.cancelada_en)}</span>` : "");
+    return `<div class="card">
+      <div class="info">
+        <div class="fol">${esc(x.folio_ticket||"(sin folio)")} ${badge}</div>
+        <div class="meta">${cli}</div>
+        <div class="meta">${fechaCorta(x.timbrada_en)}</div>
+        <div class="uuid">${esc(x.uuid_cfdi||"")}</div>
+      </div>
+      <div class="tot">${money(x.total)}</div>
+      <div>${boton}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ====== Modal de cancelación ====== */
+function abrir(id){
+  sel = FACTURAS.find(x=>x.id===id);
+  if(!sel) return;
+  motivo = "02";
+  document.querySelectorAll('#motivos .op').forEach(o=>o.classList.toggle('sel', o.dataset.m==='02'));
+  $("sustBox").style.display="none";
+  $("sust").value="";
+  $("res").innerHTML="";
+  $("btnConf").disabled=false;
+  const cli = sel.rfc_receptor && sel.rfc_receptor!=="XAXX010101000" ? `${sel.nombre_receptor||""} (${sel.rfc_receptor})` : "Público en general";
+  $("mSub").innerHTML = `<b>${esc(sel.folio_ticket||"")}</b> · ${esc(cli)} · <b>${money(sel.total)}</b><br><span class="uuid">${esc(sel.uuid_cfdi||"")}</span>`;
+  $("bg").classList.add("on");
+}
+function cerrar(){ $("bg").classList.remove("on"); sel=null; }
+function selMot(m){
+  motivo = m;
+  document.querySelectorAll('#motivos .op').forEach(o=>o.classList.toggle('sel', o.dataset.m===m));
+  $("sustBox").style.display = (m==='01') ? "block" : "none";
+}
+
+async function confirmar(){
+  if(!sel) return;
+  if(motivo==='01' && !($("sust").value||"").trim()){
+    $("res").innerHTML = '<span class="no">El motivo 01 necesita el UUID de la factura que la sustituye.</span>';
+    return;
+  }
+  $("btnConf").disabled=true;
+  $("res").innerHTML = 'Enviando la cancelación al SAT… (puede tardar unos segundos)';
+  try{
+    let url = `${FN_CANCELAR}?uuid=${encodeURIComponent(sel.uuid_cfdi)}&motivo=${motivo}`;
+    if(motivo==='01') url += `&folio_sustitucion=${encodeURIComponent(($("sust").value||"").trim())}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if(d.cancelada){
+      $("res").innerHTML = `<span class="ok">✓ ${esc(d.estatus_cancelacion||"Cancelación aceptada")} (estatus ${esc(d.estatus_uuid||"")}).</span>`;
+      toast("Factura cancelada ✓");
+      // reflejar en la lista y refrescar
+      setTimeout(()=>{ cerrar(); cargar(); }, 1200);
+    }else{
+      const msg = d.error || d.estatus_cancelacion || d.mensaje_error || "No se pudo cancelar (revisa el estatus).";
+      $("res").innerHTML = `<span class="no">✕ ${esc(msg)}</span><br><span class="meta">Si la factura es > $1,000 y tiene RFC de cliente, el SAT puede pedir la <b>aceptación del receptor</b> (queda en proceso).</span>`;
+      $("btnConf").disabled=false;
+    }
+  }catch(e){
+    $("res").innerHTML = `<span class="no">Error de conexión: ${esc(e.message||e)}</span>`;
+    $("btnConf").disabled=false;
+  }
+}
+</script>
+</body>
+</html>
