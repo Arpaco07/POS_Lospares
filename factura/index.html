@@ -58,7 +58,7 @@
     <label>RFC</label>
     <input id="rfc" placeholder="Tu RFC" style="text-transform:uppercase" autocomplete="off">
     <label>Razón social / Nombre (sin régimen: sin "SA de CV")</label>
-    <input id="nombre" placeholder="Como aparece en tu constancia" autocomplete="off">
+    <input id="nombre" placeholder="Como aparece en tu constancia" style="text-transform:uppercase" autocomplete="off">
     <div class="row2">
       <div><label>Código Postal</label><input id="cp" placeholder="Ej. 68370" inputmode="numeric"></div>
       <div><label>Uso de la factura</label>
@@ -96,6 +96,7 @@
 <script>
   // ===== CONFIGURA AQUÍ (ya vienen tus datos de la nube) =====
   const FN  = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-timbrar";
+  const EFN = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/enviar-factura";
   const KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   // ============================================================
   const $ = (id) => document.getElementById(id);
@@ -113,9 +114,11 @@
     if(!validaTicket(caja)) return;
     const f=$("folio").value.trim(), t=parseFloat($("total").value);
     let url = `${FN}?apikey=${KEY}&folio=${encodeURIComponent(f)}&total=${t}`;
+    let correoCliente = "";
     if(!general){
       const rfc=$("rfc").value.trim().toUpperCase(), nom=$("nombre").value.trim(), cp=$("cp").value.trim(), reg=$("regimen").value, uso=$("uso").value, cor=$("correo").value.trim();
       if(!rfc||!nom||!cp){ msg("msg2","err","Llena RFC, nombre y código postal."); return; }
+      correoCliente = cor;
       url += `&rfc=${encodeURIComponent(rfc)}&nombre=${encodeURIComponent(nom)}&cp=${encodeURIComponent(cp)}&regimen=${reg}&uso=${uso}&correo=${encodeURIComponent(cor)}`;
     }
     msg(caja,"ok","Generando tu factura… espera unos segundos ⏳");
@@ -124,7 +127,10 @@
       const d = await r.json();
       if(d.timbrado){
         window._fac = d;
-        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button>`);
+        window._caja = caja;
+        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviar por correo</button><div id="envio" style="margin-top:6px"></div>`);
+        // Si el cliente puso correo, se lo mandamos solito
+        if(correoCliente) enviarCorreo(correoCliente);
       } else if(d.motivo){
         msg(caja,"err","⚠️ "+d.motivo);
       } else if(d.mensaje_error){
@@ -148,11 +154,11 @@
   // ---- Leer un atributo del XML timbrado ----
   function attr(xml, re){ const m = xml.match(re); return m ? m[1] : ""; }
 
-  // ---- Descargar PDF (representación impresa, marca Los Pares + QR SAT) ----
-  function descargarPDF(){
+  // ---- Construir el PDF (representación impresa) y entregarlo al callback ----
+  //  cb(doc) recibe el documento jsPDF ya armado (para guardarlo o mandarlo por correo).
+  function _genPDF(cb){
     const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay factura."); return; }
     const x = d.xml_timbrado;
-    // Datos del CFDI/timbre
     const emisorRfc = attr(x, /Emisor[^>]*Rfc="([^"]+)"/);
     const emisorNom = attr(x, /Emisor[^>]*Nombre="([^"]+)"/);
     const emisorReg = attr(x, /Emisor[^>]*RegimenFiscal="([^"]+)"/);
@@ -165,10 +171,8 @@
     const selloSAT = attr(x, /SelloSAT="([^"]+)"/);
     const noCertSAT = attr(x, /NoCertificadoSAT="([^"]+)"/);
     const uuid = d.uuid;
-    // Cadena original del timbre (para el QR): ||1.1|UUID|FechaTimbrado|SelloCFDI(los ultimos 8)|NoCertSAT||  -> el QR del SAT usa una URL
     const qrUrl = "https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id="+uuid+"&re="+emisorRfc+"&rr="+recRfc+"&tt="+d.total+"&fe="+encodeURIComponent(selloCFDI.slice(-8));
 
-    // Generar QR en un canvas oculto
     const cont = document.createElement("div"); cont.style.display="none"; document.body.appendChild(cont);
     new QRCode(cont, { text: qrUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
     setTimeout(()=>{
@@ -177,7 +181,6 @@
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({unit:"mm", format:"letter"});
       const W = 216; let y = 16;
-      // Encabezado
       doc.setFontSize(20); doc.setTextColor(30); doc.setFont(undefined,"bold");
       doc.text("Los Pares 84x88", 14, y);
       doc.setFontSize(9); doc.setTextColor(120); doc.setFont(undefined,"normal");
@@ -194,7 +197,6 @@
       L("Fecha: "+fecha); L("Concepto: Consumo en restaurante");
       L("Subtotal: $"+d.subtotal+"    IVA: $"+d.iva);
       doc.setFont(undefined,"bold"); doc.setFontSize(13); L("TOTAL: $"+d.total); doc.setFontSize(10); doc.setFont(undefined,"normal");
-      // Bloque fiscal + QR
       y+=4; doc.setDrawColor(200); doc.setLineWidth(0.3); doc.line(14, y, W-14, y); y+=6;
       doc.addImage(qrData, "PNG", 14, y, 34, 34);
       const xr = 54; let yr = y;
@@ -209,9 +211,37 @@
       doc.text("Sello SAT:", 14, y); doc.text(selloSAT, 14, y+3, {maxWidth: W-28});
       doc.setFontSize(7); doc.setTextColor(150);
       doc.text("Este documento es una representacion impresa de un CFDI. Los Pares 84x88 - Tuxtepec, Oaxaca.", 14, 270);
-      doc.save("Factura_"+uuid+".pdf");
+      try{ cb(doc); }catch(e){ console.log(e); }
       cont.remove();
     }, 350);
+  }
+
+  // ---- Descargar PDF ----
+  function descargarPDF(){ _genPDF((doc)=>{ doc.save("Factura_"+window._fac.uuid+".pdf"); }); }
+
+  // ---- Enviar por correo (PDF + XML) vía la función enviar-factura ----
+  function enviarCorreo(to){
+    const d = window._fac; if(!d){ alert("Primero genera la factura."); return; }
+    to = (to || ($("correo") ? $("correo").value.trim() : "") || "").trim();
+    if(!to){ to = (prompt("¿A qué correo te enviamos la factura?")||"").trim(); }
+    if(!to || !/@/.test(to)){ if(to) alert("Correo no válido."); return; }
+    const envio = $("envio");
+    if(envio) envio.innerHTML = `<div class="msg ok">📧 Enviando la factura a ${to}…</div>`;
+    _genPDF(async (doc)=>{
+      try{
+        const pdf64 = doc.output("datauristring").split(",")[1];
+        const r = await fetch(EFN, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
+          body: JSON.stringify({ to, nombre:(d.tipo&&d.tipo.indexOf("Con datos")>=0? ($("nombre").value.trim()||"Cliente"):"Cliente"), uuid:d.uuid, total:d.total, xml:d.xml_timbrado, pdf_base64:pdf64 })
+        });
+        const j = await r.json();
+        if(envio){
+          if(j.ok) envio.innerHTML = `<div class="msg ok">📧 ¡Listo! Te enviamos la factura a <b>${to}</b>. (Revisa spam por si acaso.)</div>`;
+          else envio.innerHTML = `<div class="msg err">No se pudo enviar el correo: ${j.error||"intenta de nuevo"}</div>`;
+        }
+      }catch(e){ if(envio) envio.innerHTML = `<div class="msg err">Error enviando el correo. Puedes descargar el PDF/XML mientras tanto.</div>`; }
+    });
   }
 </script>
 </body></html>
