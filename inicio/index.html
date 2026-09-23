@@ -51,6 +51,8 @@
       <span><div class="t">Panel</div><div class="d">Caja, cortes y administración</div></span><span class="flecha">→</span></a>
     <a class="card" id="bFactura"><span class="emoji">🧮</span>
       <span><div class="t">Factura</div><div class="d">Facturación CFDI</div></span><span class="flecha">→</span></a>
+    <a class="card" id="bCancelar"><span class="emoji">🚫</span>
+      <span><div class="t">Cancelar factura</div><div class="d">Cancelar CFDI (solo admin)</div></span><span class="flecha">→</span></a>
   </div>
 
   <div class="pie">
@@ -61,7 +63,7 @@
 <script>
   var LOCAL = "https://pos.lospares.com/";
   var NUBE  = "https://arpaco07.github.io/POS_Lospares/";
-  var RUTAS = { comandero:"", panel:"panel/", factura:"factura/" };
+  var RUTAS = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"factura/cancelar.html" };
   var modo = null;
 
   function aplicar(m){
@@ -70,6 +72,7 @@
     document.getElementById("bComandero").href = base + RUTAS.comandero;
     document.getElementById("bPanel").href     = base + RUTAS.panel;
     document.getElementById("bFactura").href   = base + RUTAS.factura;
+    document.getElementById("bCancelar").href  = base + RUTAS.cancelar;
     var dot = document.getElementById("dot");
     dot.className = "dot " + m;
     document.getElementById("txtEstado").textContent =
