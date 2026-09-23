@@ -1017,17 +1017,98 @@ async function pintarFactura(){
   }
 
   $("main").innerHTML=`<div class="pad"><h2>Facturación (CFDI 4.0)</h2>
+    <div class="sec-t">Facturas timbradas</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input class="buscar" id="feq" placeholder="Buscar folio, RFC, nombre o UUID…" oninput="pintarFacEmitidas()" style="max-width:320px;margin:0">
+      <button onclick="cargarFacEmitidas()">↻ Actualizar</button>
+      <span class="tenue" id="feStat"></span>
+    </div>
+    <div id="facEmitidas" style="margin-bottom:22px">Cargando facturas…</div>
     <div class="sec-t">1) Busca el ticket</div>
     <input class="buscar" id="fFolio" placeholder="Folio del ticket (ej. L-000009)" value="${(f.folio||'').replace(/"/g,'&quot;')}">
     <button onclick="facBuscarTicket()">Buscar ticket</button>
     ${bloque}
-    <div class="sec-t" style="margin-top:16px">Facturas recientes</div>
+    <div class="sec-t" style="margin-top:16px">Facturas preparadas (flujo viejo)</div>
     ${listaFac}
     <div class="kpi" style="margin-top:14px"><div class="l">Emisor</div>
       <div style="margin-top:6px;line-height:1.6"><b>RFC:</b> AUHC8806083I9 · <b>Régimen:</b> 612 · <b>CP:</b> 68370<br>Carla Arguello Hernández · Restaurantes-bar con servicio de meseros</div></div>
-    <p class="tenue" style="margin-top:10px">El timbrado real se activa al conectar el <b>PAC</b>. Por ahora la factura queda <b>preparada (PENDIENTE)</b> con todos sus datos y su desglose de IVA.</p>
+    <p class="tenue" style="margin-top:10px">El timbrado real ya está en <b>producción</b> y se hace desde el portal <b>factura.lospares.com</b>. Arriba ves las facturas timbradas reales (y las puedes cancelar). Esto de abajo es el flujo viejo de preparar por ticket.</p>
   </div>`;
+  cargarFacEmitidas();
 }
+
+/* ===== Facturas TIMBRADAS reales (viven en la NUBE: factura_emitida) + cancelar ===== */
+let _feData=[]; let _sbNubeFE=null;
+function _nubeFE(){ if(!_sbNubeFE) _sbNubeFE=window.supabase.createClient("https://nkpzjnfazuqlbvctyqzg.supabase.co","sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB"); return _sbNubeFE; }
+const _FE_CANCELAR="https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-cancelar";
+function _feMoney(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _feFecha(s){try{return new Date(s).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});}catch(e){return s||'';}}
+window.cargarFacEmitidas=async()=>{
+  const cont=$("facEmitidas"); if(!cont)return;
+  cont.innerHTML='<div class="cargando">Cargando facturas…</div>';
+  try{
+    const {data,error}=await _nubeFE().from("factura_emitida").select("*").order("timbrada_en",{ascending:false}).limit(300);
+    if(error)throw error;
+    _feData=data||[]; pintarFacEmitidas();
+  }catch(e){ cont.innerHTML='<div class="aviso err">No se pudieron cargar las facturas: '+esc(e.message||e)+'</div>'; }
+};
+window.pintarFacEmitidas=()=>{
+  const cont=$("facEmitidas"); if(!cont)return;
+  const q=(($("feq")&&$("feq").value)||"").toLowerCase().trim();
+  const tot=_feData.length, canc=_feData.filter(x=>x.estado==='cancelada').length, act=tot-canc;
+  if($("feStat"))$("feStat").textContent=`${tot} en total · ${act} activas · ${canc} canceladas`;
+  let arr=_feData.slice();
+  if(q)arr=arr.filter(x=>(x.folio_ticket||"").toLowerCase().includes(q)||(x.rfc_receptor||"").toLowerCase().includes(q)||(x.nombre_receptor||"").toLowerCase().includes(q)||(x.uuid_cfdi||"").toLowerCase().includes(q));
+  if(!arr.length){ cont.innerHTML='<div class="tenue">No hay facturas'+(q?' que coincidan':' todavía (aparecen aquí las que se timbran desde el portal)')+'.</div>'; return; }
+  cont.innerHTML=arr.map(x=>{
+    const badge=x.estado==='cancelada'?'<span style="background:rgba(192,57,43,.2);color:#ff9c90;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">Cancelada</span>':(x.estado==='en_proceso'?'<span style="background:rgba(224,165,44,.2);color:#ffd77a;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">En proceso</span>':'<span style="background:rgba(46,125,70,.2);color:#8fd6a5;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">Timbrada</span>');
+    const cli=(x.rfc_receptor&&x.rfc_receptor!=="XAXX010101000")?`${esc(x.nombre_receptor||'')} · ${esc(x.rfc_receptor)}`:'Público en general';
+    const btn=x.estado==='timbrada'?`<button style="background:#c0392b;color:#fff;border:none;border-radius:9px;padding:9px 12px;font-weight:800;cursor:pointer" onclick="feCancelar(${x.id})">Cancelar</button>`:'';
+    return `<div style="background:var(--blanco);border:1px solid var(--gris2);border-radius:12px;padding:12px;margin-bottom:9px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:800">${esc(x.folio_ticket||'(sin folio)')} ${badge}</div>
+        <div class="tenue" style="font-size:13px">${cli}</div>
+        <div class="tenue" style="font-size:12px">${_feFecha(x.timbrada_en)}</div>
+        <div class="tenue" style="font-size:11px;word-break:break-all">${esc(x.uuid_cfdi||'')}</div>
+      </div>
+      <div style="font-weight:900;color:#2e7d46;white-space:nowrap">${_feMoney(x.total)}</div>
+      <div>${btn}</div>
+    </div>`;
+  }).join("");
+};
+window.feCancelar=(id)=>{
+  const x=_feData.find(f=>f.id===id); if(!x)return;
+  window._noAuto=true;
+  const cli=(x.rfc_receptor&&x.rfc_receptor!=="XAXX010101000")?`${x.nombre_receptor||''} (${x.rfc_receptor})`:'Público en general';
+  $("modal").innerHTML=`<h3>Cancelar factura</h3>
+    <p class="tenue" style="margin:-4px 0 10px"><b>${esc(x.folio_ticket||'')}</b> · ${esc(cli)} · <b>${_feMoney(x.total)}</b><br><span style="font-size:11px;word-break:break-all">${esc(x.uuid_cfdi||'')}</span></p>
+    <label style="font-size:13px;color:var(--tenue)">Motivo de cancelación (SAT)</label>
+    <select id="feMot" onchange="document.getElementById('feSustBox').style.display=(this.value==='01'?'block':'none')" style="width:100%;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700;margin-top:5px">
+      <option value="02">02 · Errores sin relación (el más común)</option>
+      <option value="01">01 · Errores con relación (pide UUID que la sustituye)</option>
+      <option value="03">03 · No se llevó a cabo la operación</option>
+      <option value="04">04 · Operación nominativa de una global</option>
+    </select>
+    <div id="feSustBox" style="display:none;margin-top:8px"><label style="font-size:13px;color:var(--tenue)">UUID de la factura que la sustituye</label><input id="feSust" placeholder="XXXXXXXX-..." style="width:100%;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);margin-top:5px"></div>
+    <div id="feRes" style="margin-top:10px"></div>
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="feCerrar()">Volver</button><button class="ok" style="background:#c0392b" onclick="feDoCancel(${id})">Cancelar factura</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.feCerrar=()=>{ window._noAuto=false; cerrarModal(); };
+window.feDoCancel=async(id)=>{
+  const x=_feData.find(f=>f.id===id); if(!x)return;
+  const mot=$("feMot").value;
+  const sust=(($("feSust")&&$("feSust").value)||"").trim();
+  if(mot==='01'&&!sust){ $("feRes").innerHTML='<div class="aviso err">El motivo 01 necesita el UUID que la sustituye.</div>'; return; }
+  $("feRes").innerHTML='<div class="tenue">Enviando cancelación al SAT… (unos segundos)</div>';
+  try{
+    let url=`${_FE_CANCELAR}?uuid=${encodeURIComponent(x.uuid_cfdi)}&motivo=${mot}`;
+    if(mot==='01')url+=`&folio_sustitucion=${encodeURIComponent(sust)}`;
+    const r=await fetch(url); const d=await r.json();
+    if(d.cancelada){ $("feRes").innerHTML='<div class="aviso ok">✓ '+esc(d.estatus_cancelacion||'Cancelada')+'</div>'; okmsg("Factura cancelada ✓"); setTimeout(()=>{feCerrar();cargarFacEmitidas();},1200); }
+    else{ $("feRes").innerHTML='<div class="aviso err">✕ '+esc(d.error||d.estatus_cancelacion||d.mensaje_error||'No se pudo cancelar')+'<br><span class="tenue">Si es &gt; $1,000 con RFC de cliente, el SAT puede pedir aceptación del receptor.</span></div>'; }
+  }catch(e){ $("feRes").innerHTML='<div class="aviso err">Error de conexión: '+esc(e.message||e)+'</div>'; }
+};
 
 window.facBuscarTicket=async()=>{
   const folio=($("fFolio").value||'').trim();
