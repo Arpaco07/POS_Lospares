@@ -1719,8 +1719,18 @@ window.pintarCorteHist=async(iso)=>{
     const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,efRest,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
     window._corteHistData=d;
     // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
+    const _CGSEL="id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en";
     let cortesGuard=[];
-    if(turnos.length){ try{ const cg=await sb.from("corte").select("id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en").in("turno_id",turnos).order("creado_en",{ascending:true}); cortesGuard=cg.data||[]; }catch(e){} }
+    try{
+      let _arr=[];
+      // (a) cortes GUARDADOS ese día (por su fecha), aunque el turno haya cruzado la medianoche o ese día no tenga cuentas
+      const _cgFecha=await sb.from("corte").select(_CGSEL).gte("creado_en",ini.toISOString()).lt("creado_en",fin.toISOString());
+      _arr=_arr.concat(_cgFecha.data||[]);
+      // (b) cortes de los turnos que operaron ese día
+      if(turnos.length){ const _cgTur=await sb.from("corte").select(_CGSEL).in("turno_id",turnos); _arr=_arr.concat(_cgTur.data||[]); }
+      // quitar repetidos (un corte puede caer por fecha y por turno) y ordenar por hora
+      const _vis={}; cortesGuard=_arr.filter(c=>{ if(_vis[c.id])return false; _vis[c.id]=1; return true; }).sort((a,b)=> new Date(a.creado_en)-new Date(b.creado_en));
+    }catch(e){ cortesGuard=[]; }
     let cgNom={}; { const eids=[...new Set(cortesGuard.map(c=>c.empleado_id).filter(Boolean))]; if(eids.length){ try{ const eq2=await sb.from("empleado").select("id,nombre").in("id",eids); (eq2.data||[]).forEach(e=>cgNom[e.id]=e.nombre);}catch(e){} } }
     let cgTur={}; { const tids=[...new Set(cortesGuard.map(c=>c.turno_id).filter(Boolean))]; if(tids.length){ try{ const tq2=await sb.from("turno").select("id,abierto_en,cerrado_en").in("id",tids); (tq2.data||[]).forEach(t=>cgTur[t.id]=t);}catch(e){} } }
     const _fHM=(dt)=> dt? new Date(dt).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
@@ -1741,7 +1751,12 @@ window.pintarCorteHist=async(iso)=>{
         <input type="date" value="${iso}" onchange="pintarCorteHist(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
         <button onclick="histDia(1)" ${esHoy?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
       </div>
-      ${cuentas.length===0?`<div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px">No hubo cuentas cobradas ese día.</div>`:`
+      ${cuentas.length===0?`<div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px">No hubo cuentas cobradas ese día. Si abajo hay Cortes X/Z guardados, tócalos con 🖨 para verlos.</div>
+      ${cortesGuardHtml}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="nuevo" style="${bb};background:#2f6fb0" onclick="pintarVerificar()">🔎 Verificar corte</button>
+        <button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button>
+      </div>`:`
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Efectivo en caja</div>
