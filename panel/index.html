@@ -1769,9 +1769,10 @@ window.pintarCorteHist=async(iso)=>{
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('CARLA')">📱 Carla</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('ARTURO')">📱 Arturo</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCorteHist('PARES')">📱 Los Pares</button>
+        <button class="nuevo" style="${bb};background:#2f6fb0" onclick="pintarVerificar()">🔎 Verificar corte</button>
         <button class="nuevo" style="${bb}" onclick="pintarCaja()">← Volver a Caja</button>
       </div>
-      <p class="tenue" style="margin-top:8px">Reconstruido desde las cuentas cobradas de ese día (mismo cálculo que el Corte Z).</p>`}
+      <p class="tenue" style="margin-top:8px">Reconstruido desde las cuentas cobradas de ese día (mismo cálculo que el Corte Z). Para verificar un día pasado, toca <b>🔎 Verificar corte</b> y elige el turno de ese día en la lista.</p>`}
     </div>`;
   }catch(e){ err("No se pudo reconstruir el corte.",e); }
 };
