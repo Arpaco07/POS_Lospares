@@ -1207,8 +1207,11 @@ async function pintarCuentas(){
     const filas=(cts||[]).map(c=>{
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
       const hora=c.cerrada_en?new Date(c.cerrada_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
-      const fps=pagos.filter(p=>p.cuenta_id===c.id).map(p=>cache.formas[p.forma_pago_id]?.nombre||'—').join(', ')||'—';
-      return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer"><td>${hora}</td><td>${esc(c.folio||('#'+c.id))}</td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>${esc(fps)}</td><td class="n">${M(c.total)}</td><td class="n">${M(c.propina)}</td></tr>`;
+      const _pc=pagos.filter(p=>p.cuenta_id===c.id);
+      const fps=_pc.map(p=>cache.formas[p.forma_pago_id]?.nombre||'—').join(', ')||'—';
+      const _pagado=_pc.reduce((a,p)=>a+Number(p.importe||0),0);
+      const _sobre=_pc.length>1 && _pagado > Number(c.total||0)+Number(c.propina||0)+0.01;
+      return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer${_sobre?';background:rgba(192,57,43,.12)':''}"><td>${hora}</td><td>${_sobre?'<span title="Cobrado de más: posible pago duplicado" style="color:#e74c3c;font-weight:800">⚠ </span>':''}${esc(c.folio||('#'+c.id))}</td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>${esc(fps)}</td><td class="n">${M(c.total)}</td><td class="n">${M(c.propina)}</td></tr>`;
     }).join("");
     $("main").innerHTML=`<div class="pad">
       <h2>Cuentas del día <span class="tenue" style="font-size:14px">· ${esc(r.label)}</span></h2>
@@ -1236,18 +1239,22 @@ window.verCuentaPanel=(id)=>{
   window._verId=id; const M=v=>'$'+Number(v||0).toFixed(2); const admin=!state.soloLectura;
   const ps=pagos.filter(p=>p.cuenta_id===id);
   const bcorr='padding:5px 10px;border-radius:8px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto);font-size:13px;font-weight:700';
+  const _pagado=ps.reduce((a,p)=>a+Number(p.importe||0),0);
+  const _exceso=_pagado-Number(c.total||0)-Number(c.propina||0);
+  const _sobre=ps.length>1 && _exceso>0.01;
   const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gris2)">
       <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
-      ${admin?`<span style="white-space:nowrap"><button style="${bcorr}" onclick="corrForma(${p.id})">Forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button></span>`:''}
+      ${admin?`<span style="white-space:nowrap"><button style="${bcorr}" onclick="corrForma(${p.id})">Forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button>${_sobre?` <button style="${bcorr};color:#e74c3c;border-color:#e74c3c" onclick="quitarPagoDup(${p.id})">✕ Quitar</button>`:''}</span>`:''}
     </div>`;}).join("")||'<div class="tenue">Sin pagos registrados.</div>';
+  const avisoSobre=_sobre?`<div style="background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86;border-radius:10px;padding:10px 12px;margin:8px 0;font-size:13px"><b>⚠ Cobrado de más: ${M(_exceso)}</b> (pagado ${M(_pagado)} vs total ${M(c.total)} + propina ${M(c.propina)}). Casi siempre es un pago duplicado.${admin?' Quita el que sobra con <b>✕ Quitar</b>; la propina y el corte se corrigen solos.':' Avísale a un administrador.'}</div>`:'';
   const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
   const _dur=(a,b)=>{ if(!a||!b) return ''; const m=Math.max(0,Math.round((new Date(b)-new Date(a))/60000)); return m>=60?`${Math.floor(m/60)} h ${m%60} min`:`${m} min`; };
   $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))}</h3>
     <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} · Propina ${M(c.propina)}</p>
     <p class="tenue" style="margin-top:-6px">Apertura <b>${_hm(c.abierta_en)}</b> · Cierre <b>${_hm(c.cerrada_en)}</b>${_dur(c.abierta_en,c.cerrada_en)?` · duró ${_dur(c.abierta_en,c.cerrada_en)}`:''}</p>
     <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
-    <div class="sec-t" style="margin-top:12px">Pagos registrados</div><div>${filas}</div>
+    <div class="sec-t" style="margin-top:12px">Pagos registrados</div>${avisoSobre}<div>${filas}</div>
     ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
@@ -1282,6 +1289,12 @@ async function _pintarProdsCuenta(cuentaId){
       <div class="tenue" style="font-size:12px;margin-top:6px">Captura = cuando el mesero lo anotó · A cocina = cuando se envió a cocina/barra ("—" en cuentas anteriores al 29 sep).</div>`;
   }catch(e){ cont.innerHTML='<div class="tenue">No se pudieron cargar los productos.</div>'; }
 }
+window.quitarPagoDup=async(pagoId)=>{
+  if(!confirm("¿Quitar este pago?\n\nSolo se permite si la cuenta sigue cubierta con los demás pagos (es decir, si de verdad estaba duplicado). Queda en auditoría."))return;
+  try{const r=await sb.rpc("eliminar_pago_duplicado",{p_pago:pagoId,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+    cerrarModal();okmsg("Pago duplicado eliminado ✓ (propina y totales corregidos)");pintarCuentas();
+  }catch(e){err("No se pudo quitar el pago.",e);}
+};
 window.corrForma=(pagoId)=>{
   const opts=Object.values(cache.formas).map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700" onclick="finForma(${pagoId},${f.id})">${esc(f.nombre)}</button>`).join("");
   $("modal").innerHTML=`<h3>Cambiar forma de pago</h3><p class="tenue">Elige la forma correcta:</p>${opts}<div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
@@ -1348,8 +1361,10 @@ window.reimprimirTicketP=async(id)=>{
     const fecha=(c&&c.cerrada_en)? new Date(c.cerrada_en).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
     const mesero=(c&&cache.empleados[c.mesero_id]&&cache.empleados[c.mesero_id].nombre)||'';
     const subN=(c&&c.subtotal!=null)?c.subtotal:(c?c.total:0);
+    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
     const data={ area:'CAJA',
-      encabezado:{ mesa:(c&&c.tipo_venta)||'', folio:(c&&c.folio)||('#'+id), fecha, mesero },
+      encabezado:{ mesa:(c&&c.tipo_venta)||'', folio:(c&&c.folio)||('#'+id), fecha, mesero,
+                   apertura:_hm(c&&c.abierta_en), cierre:_hm(c&&c.cerrada_en), cierre_etq:'Cerrada' },
       items,
       subtotal:M(subN),
       descuento:(c&&Number(c.descuento_total)>0)?M(c.descuento_total):'',
@@ -1382,6 +1397,7 @@ function _reimprimirNavegador(d){
     <hr>
     <div class="r" style="font-size:11px"><span>${esc(d.encabezado.mesa||'')}</span><span>Folio ${esc(d.encabezado.folio||'')}</span></div>
     <div style="font-size:11px">${esc(d.encabezado.fecha||'')}${d.encabezado.mesero?' · Le atendió: '+esc(d.encabezado.mesero):''}</div>
+    ${d.encabezado.apertura?`<div style="font-size:11px">Abierta ${esc(d.encabezado.apertura)} · Cerrada ${esc(d.encabezado.cierre||'--:--')}</div>`:''}
     <div class="c" style="font-size:11px">(REIMPRESIÓN)</div>
     <hr>${filas}<hr>
     <div class="r"><span>Subtotal</span><span>${esc(d.subtotal)}</span></div>
