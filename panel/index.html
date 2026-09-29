@@ -437,14 +437,16 @@ window.verMesaMonitor=async(folio)=>{
   try{
     const {data:cc}=await sb.from("cuenta").select("id,folio,mesa_id,mesero_id,tipo_venta,total,abierta_en").eq("folio",folio).eq("estado","ABIERTA").limit(1);
     const c=cc&&cc[0]; if(!c){ alert("Esa mesa ya se cerró o cambió."); return; }
-    const {data:its}=await sb.from("cuenta_producto").select("cantidad,importe,es_cortesia,producto_id,estado").eq("cuenta_id",c.id);
+    const {data:its}=await sb.from("cuenta_producto").select("*").eq("cuenta_id",c.id).order("creado_en",{ascending:true});
     const items=(its||[]).filter(x=>(x.estado||'')!=='CANCELADO');
     const pids=[...new Set(items.map(i=>i.producto_id))]; let pmap={};
     if(pids.length){ const {data:pr}=await sb.from("producto").select("id,nombre").in("id",pids); (pr||[]).forEach(p=>pmap[p.id]=p.nombre); }
     let mesa=''; try{ const {data:mm}=await sb.from("mesa").select("nombre,numero").eq("id",c.mesa_id).limit(1); if(mm&&mm[0]) mesa=mm[0].nombre||('Mesa '+mm[0].numero); }catch(e){}
     const M=v=>'$'+Number(v||0).toFixed(2);
     const min=Math.max(0,Math.round((Date.now()-new Date(c.abierta_en).getTime())/60000));
-    const rows=items.map(i=>`<div class="row"><span>${Number(i.cantidad)}× ${esc(pmap[i.producto_id]||('#'+i.producto_id))}${i.es_cortesia?' 🎁':''}</span><span>${M(i.importe)}</span></div>`).join("")||'<div class="tenue">Sin productos aún.</div>';
+    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
+    const _TL={1:'1er',2:'2do',3:'3er',4:'4to',5:'5to'};
+    const rows=items.map(i=>`<div class="row"><span><span class="tenue" style="font-size:12px">${_hm(i.creado_en)}${i.impreso_en?' → cocina '+_hm(i.impreso_en):(i.estado==='PENDIENTE'?' · sin enviar':'')} · ${_TL[Number(i.tiempo)||1]||i.tiempo}</span><br>${Number(i.cantidad)}× ${esc(pmap[i.producto_id]||('#'+i.producto_id))}${i.es_cortesia?' 🎁':''}</span><span>${M(i.importe)}</span></div>`).join("")||'<div class="tenue">Sin productos aún.</div>';
     $("modal").innerHTML=`<h3>${esc(mesa||c.folio)} <span class="tenue" style="font-weight:400;font-size:13px">· ${esc(cache.empleados[c.mesero_id]?.nombre||'')}</span></h3>
       <p class="tenue">${esc(c.tipo_venta||'')} · ${esc(c.folio||'')} · lleva ${min} min</p>
       <div class="sec-t">Consumo</div><div class="tot">${rows}
@@ -1192,7 +1194,7 @@ async function pintarCuentas(){
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando cuentas…</div></div>`;
   try{
     const {data:cts,error}=await sb.from("cuenta")
-      .select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,cerrada_en")
+      .select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,abierta_en,cerrada_en")
       .eq("estado","CERRADA").gte("cerrada_en",iso(r.ini)).lt("cerrada_en",iso(r.fin))
       .order("cerrada_en",{ascending:false});
     if(error)throw error;
@@ -1239,9 +1241,13 @@ window.verCuentaPanel=(id)=>{
       <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
       ${admin?`<span style="white-space:nowrap"><button style="${bcorr}" onclick="corrForma(${p.id})">Forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button></span>`:''}
     </div>`;}).join("")||'<div class="tenue">Sin pagos registrados.</div>';
+  const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
+  const _dur=(a,b)=>{ if(!a||!b) return ''; const m=Math.max(0,Math.round((new Date(b)-new Date(a))/60000)); return m>=60?`${Math.floor(m/60)} h ${m%60} min`:`${m} min`; };
   $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))}</h3>
     <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} · Propina ${M(c.propina)}</p>
-    <div class="sec-t">Pagos registrados</div><div>${filas}</div>
+    <p class="tenue" style="margin-top:-6px">Apertura <b>${_hm(c.abierta_en)}</b> · Cierre <b>${_hm(c.cerrada_en)}</b>${_dur(c.abierta_en,c.cerrada_en)?` · duró ${_dur(c.abierta_en,c.cerrada_en)}`:''}</p>
+    <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
+    <div class="sec-t" style="margin-top:12px">Pagos registrados</div><div>${filas}</div>
     ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
@@ -1249,7 +1255,33 @@ window.verCuentaPanel=(id)=>{
       </div>`:''}
     <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="reimprimirTicketP(${id})">🖨 Reimprimir ticket</button></div>`;
   $("mbg").classList.add("on");
+  _pintarProdsCuenta(id);
 };
+/* Productos de la cuenta con HORAS (pedido de caja, 29 sep): hora de captura,
+   hora en que se envió a cocina/barra (impreso_en, módulo 51) y tiempo de
+   servicio (1er/2do...). Sirve para llevar control de tiempos. */
+const _TIEMPOS_LBL={1:'1er',2:'2do',3:'3er',4:'4to',5:'5to'};
+async function _pintarProdsCuenta(cuentaId){
+  const cont=$("ctaProds"); if(!cont) return;
+  try{
+    const {data:its,error}=await sb.from("cuenta_producto").select("*").eq("cuenta_id",cuentaId).order("creado_en",{ascending:true});
+    if(error) throw error;
+    const items=(its||[]);
+    const pids=[...new Set(items.map(i=>i.producto_id))]; const pmap={};
+    if(pids.length){ const {data:pr}=await sb.from("producto").select("id,nombre").in("id",pids); (pr||[]).forEach(p=>pmap[p.id]=p.nombre); }
+    const hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
+    const M=v=>'$'+Number(v||0).toFixed(2);
+    if(!items.length){ cont.innerHTML='<div class="tenue">Sin productos.</div>'; return; }
+    cont.innerHTML=`<div style="overflow:auto"><table style="font-size:13px"><thead><tr><th>Captura</th><th>A cocina</th><th>Tiempo</th><th>Producto</th><th class="n">Importe</th></tr></thead><tbody>${
+      items.map(i=>{
+        const canc=(i.estado||'')==='CANCELADO';
+        const ti=Number(i.tiempo)||1;
+        const nom=`${Number(i.cantidad)||1}× ${esc(pmap[i.producto_id]||('#'+i.producto_id))}${i.peso_kg?` (${i.peso_kg} kg)`:''}${i.nota_libre?` <span class="tenue">· ${esc(i.nota_libre)}</span>`:''}`;
+        return `<tr${canc?' style="opacity:.45;text-decoration:line-through"':''}><td>${hm(i.creado_en)}</td><td>${i.impreso_en?hm(i.impreso_en):((i.estado==='IMPRESO')?'<span class="tenue">—</span>':'<span class="tenue">no enviado</span>')}</td><td>${_TIEMPOS_LBL[ti]||ti}</td><td>${nom}${i.es_cortesia?' 🎁':''}${canc?' <span class="tenue">(cancelado)</span>':''}</td><td class="n">${i.es_cortesia?'$0.00':M(i.importe)}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      <div class="tenue" style="font-size:12px;margin-top:6px">Captura = cuando el mesero lo anotó · A cocina = cuando se envió a cocina/barra ("—" en cuentas anteriores al 29 sep).</div>`;
+  }catch(e){ cont.innerHTML='<div class="tenue">No se pudieron cargar los productos.</div>'; }
+}
 window.corrForma=(pagoId)=>{
   const opts=Object.values(cache.formas).map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700" onclick="finForma(${pagoId},${f.id})">${esc(f.nombre)}</button>`).join("");
   $("modal").innerHTML=`<h3>Cambiar forma de pago</h3><p class="tenue">Elige la forma correcta:</p>${opts}<div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
