@@ -154,10 +154,7 @@
   /* ===== NUBE (Supabase): respaldo + acceso desde el cel ===== */
   const CLOUD_URL   = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
   const CLOUD_LLAVE = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
-  /* ===== CAJITA LOCAL (déjalo VACÍO hasta montar la mini PC) =====
-     Cuando exista, pon aquí su dirección y llave, ej:
-       const LOCAL_URL   = "http://192.168.1.50:8000";
-       const LOCAL_LLAVE = "llave-anon-de-la-cajita"; */
+  /* ===== CAJITA LOCAL (la HP del restaurante, 192.168.88.254) ===== */
   const LOCAL_URL = "https://pos.lospares.com";
   const LOCAL_LLAVE = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   /* IP directa de la HP (funciona SIN internet, cuando el dominio no resuelve) */
@@ -182,8 +179,9 @@
 </footer>
 <div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<!-- Librerías LOCALES (carpeta lib/): el comandero arranca aunque NO haya internet -->
+<script src="lib/supabase.js"></script>
+<script src="lib/jspdf.umd.min.js"></script>
 <script>
 const $=(id)=>document.getElementById(id);
 let sb=null, modo="NUBE", PRINT_URL="";
@@ -656,8 +654,13 @@ async function enviar(){
   }catch(e){err("No se pudo preparar el envío.",e);}
 }
 window.cancelarEnvio=()=>{ window._envio=null; cerrarModal(); renderComanda(); };
+window._enviando=false;
 window.confirmarEnvio=async()=>{
   const env=window._envio; if(!env){cerrarModal();return;}
+  // CANDADO anti doble-toque: el segundo toque ya no encuentra nada que enviar
+  if(window._enviando) return;
+  window._enviando=true; window._envio=null;
+  const btn=document.querySelector('#modal button.ok'); if(btn){btn.disabled=true;btn.textContent="Enviando…";}
   try{
     const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"})
       .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
@@ -666,8 +669,9 @@ window.confirmarEnvio=async()=>{
       try{ await fetch(PRINT_URL+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:env.porAreaImp})}); }
       catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
     }
-    window._envio=null; cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
-  }catch(e){err("No se pudo enviar.",e);}
+    cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
+  }catch(e){ window._envio=env; if(btn){btn.disabled=false;btn.textContent="LISTO — enviar";} err("No se pudo enviar.",e); }
+  finally{ window._enviando=false; }
 };
 /* ---- REIMPRIMIR: reenvía a cocina/barra lo YA enviado (no cobra ni duplica) ---- */
 window.reimprimir=async()=>{
@@ -881,7 +885,11 @@ window.cobrarParte=async(sub,etiqueta,debe)=>{
     <button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
   $("modalBg").classList.add("on");
 };
+window._pagandoParte=false;
 window.finParte=async(sub,clave,nombre,debe,prop)=>{
+  // CANDADO anti doble-toque en el pago de una parte
+  if(window._pagandoParte) return;
+  window._pagandoParte=true;
   cerrarModal();
   let ref=null;
   if(clave!=='EF'){ ref=prompt("Referencia (últimos 4 dígitos, opcional):")||null; }
@@ -898,6 +906,7 @@ window.finParte=async(sub,clave,nombre,debe,prop)=>{
       $("modalBg").classList.add("on");
     }else{ flash("Cobrado ✓ — faltan "+faltan); pintarDivision(); }
   }catch(e){err("No se pudo cobrar la parte.",e);}
+  finally{ window._pagandoParte=false; }
 };
 async function imprimirParte(sub,formaNom,debe,prop){
   if(!PRINT_URL)return;
@@ -927,16 +936,23 @@ async function exigirTurno(){
   alert("⚠️ No hay TURNO abierto.\n\nPídele al cajero o al administrador que abra el turno en el PANEL (Caja / Turno) antes de cobrar.");
   return false;
 }
+window._cobrando=false;
 async function cobrarYCerrar(){
-  if(!(await exigirTurno()))return;
-  try{for(let i=0;i<state.pagos.length;i++){const p=state.pagos[i];const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:p.importe,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});if(r.error)throw r.error;}
+  // CANDADO anti doble-toque: si ya se está cobrando esta cuenta, el segundo toque no hace nada.
+  if(window._cobrando) return;
+  window._cobrando=true;
+  const btnC=document.querySelector('button.cerrar'); if(btnC){btnC.disabled=true;btnC.textContent="Cobrando…";}
+  try{
+    if(!(await exigirTurno())){ if(btnC){btnC.disabled=false;btnC.textContent="Cobrar y cerrar";} return; }
+    for(let i=0;i<state.pagos.length;i++){const p=state.pagos[i];const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:p.importe,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});if(r.error)throw r.error;}
     const c=await sb.rpc("cerrar_cuenta",{p_cuenta:state.cuentaId});if(c.error)throw c.error;
     if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
     const pg=state.pagos.map(p=>`<div class="r"><span>${p.nombre}</span><span>$${p.importe.toFixed(2)}</span></div>`).join("");
     $("modal").innerHTML=`<h3>Cobrado ✓</h3><div class="ticket"><div class="r"><span>${state.mesaNom}</span><span>PAGADO</span></div><hr>${pg}
       ${state.propina>0?`<div class="r"><span>Propina</span><span>$${state.propina.toFixed(2)}</span></div>`:''}</div>
       <div class="acciones"><button class="ok" onclick="cerrarModal();renderInicio()">Listo</button></div>`;$("modalBg").classList.add("on");
-  }catch(e){err("No se pudo cerrar la cuenta.",e);}
+  }catch(e){ if(btnC){btnC.disabled=false;btnC.textContent="Cobrar y cerrar";} err("No se pudo cerrar la cuenta.",e); }
+  finally{ window._cobrando=false; }
 }
 
 /* ---- RESUMEN DEL DÍA ---- */
