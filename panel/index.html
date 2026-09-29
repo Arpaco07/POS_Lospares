@@ -142,7 +142,7 @@
 <script>
   const CLOUD_URL="https://nkpzjnfazuqlbvctyqzg.supabase.co";
   const CLOUD_LLAVE="sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
-  /* CAJITA LOCAL — vacío hasta montar la mini PC */
+  /* CAJITA LOCAL — la HP del restaurante (192.168.88.254) */
   const LOCAL_URL="https://pos.lospares.com";
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
@@ -166,9 +166,10 @@
 <main id="main"><div class="cargando">Cargando…</div></main>
 <div class="modal-bg" id="mbg"><div class="modal" id="modal"></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<!-- Librerías LOCALES (carpeta lib/ en la raíz): el Panel arranca aunque NO haya internet -->
+<script src="../lib/supabase.js"></script>
+<script src="../lib/jspdf.umd.min.js"></script>
+<script src="../lib/html2canvas.min.js"></script>
 <script>
 const $=(id)=>document.getElementById(id);
 let sb=null, modo="NUBE";
@@ -1648,14 +1649,27 @@ function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toF
     `\nCortesias: ${M(d.cort)}`;
 }
 function _corteTexto(tipo){ return _corteTextoDe(window._cajaData, tipo); }
-window.corteXP=async(id)=>{ if(!confirm("¿Hacer un Corte X (cambio de turno)?\n\nGuarda una foto del corte hasta ahorita, se imprime y se genera la imagen para WhatsApp. NO cierra el turno: el día sigue vivo con todo hasta el Corte Z."))return;
+/* CANDADO anti doble-clic para Corte X y Corte Z: un solo corte por clic, aunque toquen dos veces */
+window._cortando=false;
+window.corteXP=async(id)=>{
+  if(window._cortando) return;
+  if(!confirm("¿Hacer un Corte X (cambio de turno)?\n\nGuarda una foto del corte hasta ahorita, se imprime y se genera la imagen para WhatsApp. NO cierra el turno: el día sigue vivo con todo hasta el Corte Z."))return;
+  if(window._cortando) return;
+  window._cortando=true;
+  document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=true; });
   try{
     const r=await sb.rpc("generar_corte",{p_tipo:'X',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
     try{ imprimirCorte(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     try{ compartirCorteImagen(window._cajaData,'CORTE X - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     okmsg("Corte X guardado ✓ — se imprimió y se generó la imagen. El turno sigue abierto.");pintarCaja();
-  }catch(e){err("No se pudo hacer el Corte X.",e);}};
-window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
+  }catch(e){err("No se pudo hacer el Corte X.",e); document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=false; });}
+  finally{ window._cortando=false; }};
+window.corteZP=async(id)=>{
+  if(window._cortando) return;
+  if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
+  if(window._cortando) return;
+  window._cortando=true;
+  document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=true; });
   try{
     // 1) Pagar afuerza las propinas del turno que sigan pendientes (nada queda colgando)
     let pagAuto=0;
@@ -1682,7 +1696,8 @@ window.corteZP=async(id)=>{ if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Y
     try{ imprimirCorte(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     try{ compartirCorteImagen(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     okmsg("Corte Z hecho ✓"+(pagAuto>0?(" — se pagaron $"+pagAuto.toFixed(2)+" de propinas pendientes"):"")+" · se imprimió y se generó la imagen para WhatsApp");pintarCaja();
-  }catch(e){err("No se pudo cerrar el turno.",e);}};
+  }catch(e){err("No se pudo cerrar el turno.",e); document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=false; });}
+  finally{ window._cortando=false; }};
 window.waCaja=(quien)=>{ const d=window._cajaData; if(!d){alert("Primero abre la caja.");return;}
   window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTexto('DE TURNO (X)')),'_blank');
 };
@@ -1995,7 +2010,12 @@ window.cobrarPll=(id)=>{
   $("mbg").classList.add("on");
 };
 window.cobrarPllCerrar=()=>{ window._noAuto=false; cerrarModal(); if(state.vista==='llevar')pintarLlevar(); };
+window._cobrandoPll=false;
 window.cobrarPllForma=async(id,formaId)=>{
+  // CANDADO anti doble-clic: un pedido no se cobra dos veces aunque toquen dos formas de pago seguidas
+  if(window._cobrandoPll) return;
+  window._cobrandoPll=true;
+  document.querySelectorAll('#modal button.op').forEach(b=>b.disabled=true);
   try{
     const r=await sb.rpc('cobrar_pedido_whatsapp',{p_pedido:id,p_forma_id:formaId,p_empleado_clave:(state.admin&&state.admin.clave)||null});
     if(r.error)throw r.error;
@@ -2003,7 +2023,8 @@ window.cobrarPllForma=async(id,formaId)=>{
     okmsg('Cobrado ✓ · registrado en caja');
     try{ await pllImprimir(id); }catch(e){}
     pintarLlevar();
-  }catch(e){ err('No se pudo cobrar el pedido.',e); }
+  }catch(e){ document.querySelectorAll('#modal button.op').forEach(b=>b.disabled=false); err('No se pudo cobrar el pedido.',e); }
+  finally{ window._cobrandoPll=false; }
 };
 window.pllImprimir=async(id)=>{
   let p=null;try{const r=await sb.from('pedido_whatsapp').select('*').eq('id',id).limit(1);p=(r.data||[])[0];}catch(e){}
