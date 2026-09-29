@@ -147,7 +147,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -204,9 +204,37 @@ function badgeModo(){return modo==="LOCAL"
 const state={admin:null,pin:"",vista:"ventas",rango:null,soloLectura:false};
 const cache={empleados:{},formas:{},areas:{}};
 
+/* ===== LATIDO DEL ESPEJO (modulo 49 + sincronizador v2.7) =====
+   En NUBE: ¿hace cuanto la cajita subio datos? Si pasan >10 min, aviso ROJO
+   (asi nadie confunde "no hubo ventas" con "el espejo esta atrasado").
+   En LOCAL: ¿esta vivo el sincronizador? ¿alcanza la nube? */
+function _pillLat(color,txt){ return `<span style="background:${color};color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap">${txt}</span>`; }
+async function pintarLatido(){
+  const el=$("latido"); if(!el||!sb) return;
+  try{
+    const r=await sb.from("sync_latido").select("ultimo,ultimo_nube_ok,nube_ok,subieron,bajaron").eq("id",1).maybeSingle();
+    if(r.error){ el.innerHTML=""; return; }                      // tabla aun no existe (modulo 49): no molestar
+    const d=r.data||{};
+    if(!d.ultimo){ el.innerHTML=_pillLat('#8a6d1f','⏳ Espejo: sin latido aún'); return; }
+    const hm=(t)=>new Date(t).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+    const min=Math.max(0,Math.floor((Date.now()-new Date(d.ultimo).getTime())/60000));
+    const hace= min<1 ? 'hace un momento' : `hace ${min} min`;
+    if(modo==="NUBE"){
+      if(min<=3)       el.innerHTML=_pillLat('#2e7d46',`✓ Espejo al día · ${hace}`);
+      else if(min<=10) el.innerHTML=_pillLat('#b8860b',`⏳ Espejo ${hace}`);
+      else             el.innerHTML=_pillLat('#a1262d',`⚠ La cajita NO sincroniza desde las ${hm(d.ultimo)}`);
+    }else{
+      if(min>10)                 el.innerHTML=_pillLat('#a1262d',`⚠ Sincronizador detenido desde las ${hm(d.ultimo)}`);
+      else if(d.nube_ok===false) el.innerHTML=_pillLat('#b8860b',`☁ Sin nube${d.ultimo_nube_ok?` (último OK ${hm(d.ultimo_nube_ok)})`:''} · local sigue bien`);
+      else                       el.innerHTML=_pillLat('#2e7d46',`☁ Nube al día · ${hace}`);
+    }
+  }catch(e){ el.innerHTML=""; }
+}
+
 window.addEventListener("DOMContentLoaded",init);
 async function init(){
   try{ sb=await conectar(); const b=$("modo"); if(b)b.innerHTML=badgeModo();
+    pintarLatido(); setInterval(pintarLatido, 30000);   // latido del espejo cada 30 s
     const e=await sb.from("empleado").select("id,clave,nombre,es_admin");
     (e.data||[]).forEach(x=>cache.empleados[x.id]=x);
     const f=await sb.from("forma_pago").select("id,tipo,nombre");
