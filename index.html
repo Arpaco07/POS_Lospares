@@ -742,10 +742,20 @@ async function pintarCobro(){
       <button class="chip2 ${pOnLibre?'on':''}" onclick="setPropLibre()">Otro${state.propina>0&&pOnLibre?' ($'+state.propina.toFixed(0)+')':''}</button><button class="chip2 ${state.propina===0?'on':''}" onclick="setProp(0)">Sin propina</button></div>
     <div class="sec-t">¿Cómo pagó? ${state.pagos.length?'(partido)':''} — restan $${restan.toFixed(2)}${cambio>0?` · cambio $${cambio.toFixed(2)}`:''}</div>
     <div class="fp">${fp}</div><div>${ph}</div>
+    ${(state.pagos.length&&restan>0.01)?`<div class="tenue" style="font-size:12px;margin:4px 0 8px">Faltan $${restan.toFixed(2)}. Si es por la propina, quita el pago (✕) y vuelve a capturarlo con el total nuevo; no agregues un pago solo por la propina.</div>`:''}
     <div class="acbar"><button class="cerrar" ${restan>0.01?'disabled':''} onclick="cobrarYCerrar()">Cobrar y cerrar</button></div></div>`;
 }
-window.setProp=(pct)=>{state.propina=pct?Math.round(Number(state.cobro.total)*pct)/100:0;pintarCobro();};
-window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(!isNaN(v)&&v>=0){state.propina=v;pintarCobro();}};
+/* Si la propina se elige DESPUES de capturar el pago (pasaba seguido), el pago
+   unico se ajusta solo al nuevo total + propina. Antes quedaba "restan $45" y
+   el cajero metia otro pago suelto de $45 -> el corte no cuadraba. */
+function ajustarPagoPorPropina(prev){
+  const total=Number(state.cobro.total);
+  if(state.pagos.length===1 && Math.abs(state.pagos[0].importe-(total+prev))<0.01){
+    state.pagos[0].importe=Math.round((total+state.propina)*100)/100;
+  }
+}
+window.setProp=(pct)=>{const prev=state.propina;state.propina=pct?Math.round(Number(state.cobro.total)*pct)/100:0;ajustarPagoPorPropina(prev);pintarCobro();};
+window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(!isNaN(v)&&v>=0){const prev=state.propina;state.propina=v;ajustarPagoPorPropina(prev);pintarCobro();}};
 window.agregarPago=(clave,nombre)=>{const total=Number(state.cobro.total)+state.propina;const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);const restan=Math.max(total-pagado,0);
   const v=parseFloat(prompt(`Monto en ${nombre}:`,restan.toFixed(2)));if(isNaN(v)||v<=0)return;state.pagos.push({clave,nombre,importe:v});pintarCobro();};
 window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
@@ -950,7 +960,19 @@ async function cobrarYCerrar(){
   const btnC=document.querySelector('button.cerrar'); if(btnC){btnC.disabled=true;btnC.textContent="Cobrando…";}
   try{
     if(!(await exigirTurno())){ if(btnC){btnC.disabled=false;btnC.textContent="Cobrar y cerrar";} return; }
-    for(let i=0;i<state.pagos.length;i++){const p=state.pagos[i];const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:p.importe,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});if(r.error)throw r.error;}
+    // Lo que de verdad entra a caja: total + propina. Si con EFECTIVO dieron de
+    // mas (cambio), se registra solo lo que se queda en caja, no el billete.
+    const debe=Math.round((Number(state.cobro.total)+state.propina)*100)/100; let acum=0;
+    for(let i=0;i<state.pagos.length;i++){
+      const p=state.pagos[i];
+      const tipo=(cache.formas.find(f=>f.clave===p.clave)||{}).tipo||'';
+      let imp=p.importe;
+      if(tipo==='EFECTIVO' && acum+imp>debe+0.005) imp=Math.round((debe-acum)*100)/100;
+      if(imp<=0){ continue; }                      // ya estaba cubierto: no registrar un pago en $0
+      acum+=imp;
+      const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:imp,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});
+      if(r.error)throw r.error;
+    }
     const c=await sb.rpc("cerrar_cuenta",{p_cuenta:state.cuentaId});if(c.error)throw c.error;
     if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
     const pg=state.pagos.map(p=>`<div class="r"><span>${p.nombre}</span><span>$${p.importe.toFixed(2)}</span></div>`).join("");
