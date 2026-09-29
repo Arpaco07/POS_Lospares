@@ -553,7 +553,12 @@ window.quitarLinea=async(id,estado,nombre)=>{
 async function verCuenta(){
   try{const l=await lineasCuenta();
     await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});
-    const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();
+    const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total,abierta_en,cerrada_en,estado").eq("id",state.cuentaId).single();
+    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
+    const apertura=_hm(c.abierta_en);
+    const cerrada=c.estado==='CERRADA'&&c.cerrada_en;             // si ya se cobró, la hora real de cierre; si no, la hora de este ticket
+    const cierre=_hm(cerrada?c.cerrada_en:new Date());
+    const cierreEtq=cerrada?'Cerrada':'Ticket';
     let atendio=state.mesero.nombre;
     try{ const{data:cm}=await sb.from("cuenta").select("empleado:mesero_id(nombre)").eq("id",state.cuentaId).single(); const em=cm&&(Array.isArray(cm.empleado)?cm.empleado[0]:cm.empleado); if(em&&em.nombre) atendio=em.nombre; }catch(e){}
     const mpl=await modsDe(l.map(x=>x.id));
@@ -576,6 +581,7 @@ async function verCuenta(){
       <hr>
       <div class="r" style="font-size:11px"><span>${state.mesaNom}</span><span>Folio ${c.folio||''}</span></div>
       <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Le atendió: ${atendio}</div>
+      <div style="font-size:11px">Abierta ${apertura} · ${cierreEtq} ${cierre}</div>
       <hr>${filas}<hr>
       <div class="r"><span>Subtotal</span><span>$${Number(c.subtotal).toFixed(2)}</span></div>
       ${Number(c.descuento_total)>0?`<div class="r"><span>Descuentos</span><span>- $${Number(c.descuento_total).toFixed(2)}</span></div>`:''}
@@ -583,7 +589,7 @@ async function verCuenta(){
       <div style="text-align:center;margin-top:12px;font-size:11px">¡Gracias por su visita!<br>WhatsApp 287 881 8488 · @lospares8488</div>`;
     window._ticket=tk;
     window._ticketData={ area:'CAJA',
-      encabezado:{mesa:state.mesaNom, folio:c.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:atendio},
+      encabezado:{mesa:state.mesaNom, folio:c.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:atendio, apertura, cierre, cierre_etq:cierreEtq},
       items:Object.values(grupos).map(g=>({etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.mods?' · '+g.mods:''), imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2)})),
       subtotal:'$'+Number(c.subtotal).toFixed(2),
       descuento:Number(c.descuento_total)>0?'$'+Number(c.descuento_total).toFixed(2):'',
