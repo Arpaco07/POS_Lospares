@@ -459,14 +459,19 @@ window.verMesaMonitor=async(folio)=>{
 async function pintarReportes(){
   window._noAuto=false;
   if(!state.rep) state.rep={cat:null,sub:null};
-  $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
+  $("main").innerHTML=`<div class="pad"><h2>Reporte de productos</h2>${barraRango()}<div class="cargando">Calculando…</div></div>`;
   try{
     const desde=iso(state.rango.ini), hasta=iso(state.rango.fin);
-    const r=await sb.rpc("reporte_ventas",{p_desde:desde,p_hasta:hasta}); if(r.error)throw r.error;
+    // Productos HECHOS: todo lo enviado a cocina/barra en el periodo, esté la mesa
+    // pagada o no (módulo 55). El dinero cobrado vive en el corte, no aquí.
+    const modoConsumo = true;
+    const r=await sb.rpc("reporte_consumo",{p_desde:desde,p_hasta:hasta}); if(r.error)throw r.error;
     const filas=r.data||[];
-    const fp=await sb.rpc("reporte_formas_pago",{p_desde:desde,p_hasta:hasta}); if(fp.error)throw fp.error;
-    const formas=fp.data||[];
-    window._repData={filas, formas, rango:state.rango.label};
+    let formas=[], cancel=[];
+    try{ const fp=await sb.rpc("reporte_formas_pago",{p_desde:desde,p_hasta:hasta}); formas=fp.data||[]; }catch(e){}
+    // Lo que cocina ya hizo y luego se canceló / regresó (merma). Módulo 55 v2.
+    try{ const rc=await sb.rpc("reporte_consumo_cancelados",{p_desde:desde,p_hasta:hasta}); cancel=rc.data||[]; }catch(e){}
+    window._repData={filas, formas, cancel, rango:state.rango.label+' · productos hechos (enviados a cocina/barra)'};
 
     const totalGeneral=filas.reduce((a,x)=>a+Number(x.importe),0);
     const piezasTot=filas.reduce((a,x)=>a+Number(x.cantidad),0);
@@ -476,7 +481,7 @@ async function pintarReportes(){
       const sc=(cats[x.categoria].subs[x.subgrupo]||={imp:0,pz:0,prods:[]}); sc.imp+=Number(x.importe); sc.pz+=Number(x.cantidad); sc.prods.push(x); });
 
     let cuerpo="";
-    if(!filas.length){ cuerpo='<div class="proximamente">No hubo ventas en el periodo.</div>'; }
+    if(!filas.length){ cuerpo='<div class="proximamente">No se envió nada a cocina/barra en el periodo.</div>'; }
     else if(state.rep.all){
       cuerpo=`<button onclick="repSecciones()" style="margin-bottom:10px">‹ Ver por secciones</button>`+
         Object.entries(cats).sort((a,b)=>b[1].imp-a[1].imp).map(([c,cv])=>
@@ -484,7 +489,7 @@ async function pintarReportes(){
           Object.entries(cv.subs).sort((a,b)=>b[1].imp-a[1].imp).map(([sg,sv])=>
             `<div style="display:flex;justify-content:space-between;margin:8px 2px 2px;font-weight:700;color:#666"><span>${sg}</span><span>${sv.pz} pz · $${sv.imp.toFixed(2)}</span></div>`+
             sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).map(p=>
-              `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} vendidos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("")
+              `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} hechos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("")
           ).join("")
         ).join("");
     }
@@ -501,22 +506,31 @@ async function pintarReportes(){
       const sv=(cats[state.rep.cat]&&cats[state.rep.cat].subs[state.rep.sub])||{prods:[]};
       cuerpo=`<button onclick="repSubVolver()" style="margin-bottom:8px">‹ ${state.rep.cat}</button><div class="sec-t">${state.rep.cat} › ${state.rep.sub}</div>`+
         sv.prods.sort((a,b)=>Number(b.importe)-Number(a.importe)).map(p=>
-          `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} vendidos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("");
+          `<div class="cta"><div class="info"><div class="n">${p.producto}</div><small>${Number(p.cantidad)} hechos${Number(p.cortesias)>0?` · ${Number(p.cortesias)} cortesía`:''}</small></div><div class="t">$${Number(p.importe).toFixed(2)}</div></div>`).join("");
     }
 
     const formasHtml = formas.length? formas.map(f=>`<div class="row"><span>${f.forma}</span><span>$${Number(f.importe).toFixed(2)}</span></div>`).join("") : '<div class="tenue">Sin pagos.</div>';
+    const cancelPz=cancel.reduce((a,x)=>a+Number(x.cantidad),0), cancelImp=cancel.reduce((a,x)=>a+Number(x.importe),0);
+    const cancelHtml = cancel.length
+      ? cancel.map(x=>`<div class="row"><span>${Number(x.cantidad)}× ${esc(x.producto)} <span class="tenue" style="font-size:12px">· ${esc(x.subgrupo)} · ${esc(x.motivo)}</span></span><span>$${Number(x.importe).toFixed(2)}</span></div>`).join("")
+        +`<div class="row" style="font-weight:800;border-top:1px solid var(--gris2);margin-top:4px;padding-top:6px"><span>Total cancelado después de enviar</span><span>${cancelPz} pz · $${cancelImp.toFixed(2)}</span></div>`
+      : '<div class="tenue">Nada cancelado después de enviarse a cocina.</div>';
 
-    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button><button onclick="imprimirProductos()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#5a4a9c;color:#fff">🖨 Todo</button><button onclick="pintarSelImp()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#2f6fb0;color:#fff">☑ Elegir secciones</button></h2>${barraRango()}
+    $("main").innerHTML=`<div class="pad"><h2>Reporte de productos <button onclick="repPDF()" style="float:right;padding:8px 14px;border-radius:10px;font-weight:700;background:var(--negro);color:#fff">📄 PDF</button><button onclick="imprimirProductos()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#5a4a9c;color:#fff">🖨 Todo</button><button onclick="pintarSelImp()" style="float:right;margin-right:8px;padding:8px 14px;border-radius:10px;font-weight:700;background:#2f6fb0;color:#fff">☑ Elegir secciones</button></h2>${barraRango()}
+      <div class="tenue" style="font-size:12px;margin:2px 0 10px">Todo lo <b>enviado a cocina/barra</b> en el periodo, esté la mesa pagada o no (para cuadrar insumos). No incluye lo capturado sin enviar ni lo cancelado. El dinero cobrado está en Caja / Turno.</div>
       <div class="kpis">
-        <div class="kpi big"><div class="l">Venta del periodo</div><div class="v">$${totalGeneral.toFixed(2)}</div></div>
-        <div class="kpi"><div class="l">Piezas vendidas</div><div class="v">${piezasTot}</div></div>
+        <div class="kpi big"><div class="l">Valor de lo enviado</div><div class="v">$${totalGeneral.toFixed(2)}</div></div>
+        <div class="kpi"><div class="l">Piezas hechas</div><div class="v">${piezasTot}</div></div>
       </div>
       ${cuerpo}
-      <div class="sec-t" style="margin-top:16px">¿Cómo pagaron?</div><div class="tot">${formasHtml}</div>
+      <div class="sec-t" style="margin-top:16px">Cancelado o regresado DESPUÉS de enviarse a cocina (merma)</div>
+      <div class="tenue" style="font-size:12px;margin:0 0 6px">Cocina ya lo hizo pero no se cobró: producto cancelado por admin, regresado por el cliente, o cuenta cancelada después de enviar. No está incluido en los totales de arriba.</div>
+      <div class="tot">${cancelHtml}</div>
+      <div class="sec-t" style="margin-top:16px">Cobrado en el periodo (cuentas cerradas) — ¿cómo pagaron?</div><div class="tot">${formasHtml}</div>
     </div>`;
   }catch(e){
     const msg=(e&&(e.message||e.hint||e.details))||"error desconocido";
-    $("main").innerHTML=`<div class="pad"><h2>Reportes de ventas</h2>${barraRango()}
+    $("main").innerHTML=`<div class="pad"><h2>Reporte de productos</h2>${barraRango()}
       <div class="aviso err" style="margin-top:10px">No se pudo cargar el reporte.<br><b>${msg}</b></div></div>`;
     console.error("reporte:",e);
   }
@@ -544,7 +558,7 @@ function _printProductos(filas, titulo){
   }).join('');
   const w=window.open('','_printProd','width=800,height=900');
   if(!w){alert('Permite las ventanas emergentes para imprimir.');return;}
-  w.document.write(`<html><head><title>Productos vendidos</title><style>
+  w.document.write(`<html><head><title>Productos hechos (enviados a cocina/barra)</title><style>
     @page{size:letter;margin:14mm}
     *{box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0}
@@ -574,7 +588,7 @@ function _printProductos(filas, titulo){
 }
 /* Imprime según lo que tengas abierto (todo / categoría / subgrupo) */
 window.imprimirProductos=()=>{
-  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos vendidos en el periodo.");return;}
+  const R=window._repData; if(!R||!R.filas.length){alert("No hay productos enviados a cocina en el periodo.");return;}
   const selCat=(state.rep&&state.rep.cat)||null, selSub=(state.rep&&state.rep.sub)||null;
   const filas=R.filas.filter(x=>(!selCat||x.categoria===selCat)&&(!selSub||x.subgrupo===selSub));
   const titulo = selSub ? `${selCat} › ${selSub}` : (selCat ? selCat : 'TODOS LOS PRODUCTOS');
@@ -622,7 +636,7 @@ window.repPDF=()=>{
     const { jsPDF } = window.jspdf;
     const doc=new jsPDF({unit:'mm',format:'letter'}); const PW=215.9,PH=279.4; const M=v=>'$'+Number(v||0).toFixed(2);
     doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('LOS PARES 84x88',PW/2,15,{align:'center'});
-    doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('REPORTE DE VENTAS',PW/2,22,{align:'center'});
+    doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('REPORTE DE PRODUCTOS HECHOS (ENVIADOS A COCINA/BARRA)',PW/2,22,{align:'center'});
     doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text(R.rango+'  ·  '+new Date().toLocaleString('es-MX'),PW/2,27,{align:'center'});
     const cats={};
     R.filas.forEach(x=>{(cats[x.categoria]||={imp:0,pz:0,subs:{}});cats[x.categoria].imp+=Number(x.importe);cats[x.categoria].pz+=Number(x.cantidad);
@@ -649,19 +663,23 @@ window.repPDF=()=>{
     });
     chk(20); const tot=R.filas.reduce((a,x)=>a+Number(x.importe),0);
     doc.setFillColor(30,30,30);doc.rect(14,y,PW-28,9,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(12);
-    doc.text('VENTA TOTAL',18,y+6);doc.text(M(tot),PW-18,y+6,{align:'right'});doc.setTextColor(0);y+=14;
+    doc.text('VALOR DE LO ENVIADO',18,y+6);doc.text(M(tot),PW-18,y+6,{align:'right'});doc.setTextColor(0);y+=14;
+    if(R.cancel&&R.cancel.length){ chk(12); doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Cancelado o regresado DESPUES de enviarse a cocina (merma)',16,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);
+      R.cancel.forEach(x=>{chk(5);doc.text(Number(x.cantidad)+'x '+x.producto+'  ('+x.motivo+')',18,y);doc.text(M(x.importe),PW-16,y,{align:'right'});y+=4.6;});
+      const ct=R.cancel.reduce((a,x)=>a+Number(x.importe),0); doc.setFont('helvetica','bold'); chk(6); doc.text('Total cancelado despues de enviar',18,y);doc.text(M(ct),PW-16,y,{align:'right'});y+=7; }
     if(R.formas&&R.formas.length){ doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Como pagaron?',16,y);y+=5;
       doc.setFont('helvetica','normal');doc.setFontSize(9);
       R.formas.forEach(f=>{chk(5);doc.text(f.forma,18,y);doc.text(M(f.importe),PW-16,y,{align:'right'});y+=4.6;}); }
     doc.save('reporte_ventas_lospares.pdf');
   }catch(e){ alert("No se pudo generar el PDF: "+((e&&e.message)||e)); console.error(e); }
 };
-window.repCat=(c)=>{state.rep={cat:c,sub:null};pintarReportes();};
+window.repCat=(c)=>{state.rep={cat:c,sub:null,modo:state.rep&&state.rep.modo};pintarReportes();};
 window.repSub=(sg)=>{state.rep.sub=sg;pintarReportes();};
-window.repVolver=()=>{state.rep={cat:null,sub:null};pintarReportes();};
+window.repVolver=()=>{state.rep={cat:null,sub:null,modo:state.rep&&state.rep.modo};pintarReportes();};
 window.repSubVolver=()=>{state.rep.sub=null;pintarReportes();};
-window.repTodo=()=>{state.rep={cat:null,sub:null,all:true};pintarReportes();};
-window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false};pintarReportes();};
+window.repTodo=()=>{state.rep={cat:null,sub:null,all:true,modo:state.rep&&state.rep.modo};pintarReportes();};
+window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false,modo:state.rep&&state.rep.modo};pintarReportes();};
 
 function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 async function render(){
