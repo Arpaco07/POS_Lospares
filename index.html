@@ -850,6 +850,7 @@ async function pintarDivision(){
         ${p.pagada?`<div class="tenue" style="font-size:12px;margin-top:6px">Propina $${Number(p.propina).toFixed(2)}</div>`
           :`<div class="acbar" style="margin-top:8px">
               ${modo==='CONSUMO'?`<button onclick="asignarProductos(${p.subcuenta_id},'${esc(p.etiqueta)}')">Asignar productos</button>`:''}
+              <button ${debe<=0?'disabled':''} onclick="verTicketParte(${p.subcuenta_id})">🧾 Ticket</button>
               <button class="cerrar" ${debe<=0?'disabled':''} onclick="cobrarParte(${p.subcuenta_id},'${esc(p.etiqueta)}',${debe})">Cobrar $${resta.toFixed(2)}</button>
             </div>`}
       </div>`;}).join("");
@@ -857,7 +858,7 @@ async function pintarDivision(){
       ? `<div class="aviso err" style="margin:10px 0"><b>Faltan ${sinAsignar.length} producto(s) por asignar</b><br>${sinAsignar.map(x=>cache.prodById[x.producto_id]?.nombre||'').join(', ')}</div>` : '';
     $("main").innerHTML=`<div class="pad">
       <h2>Dividir — ${state.mesaNom}</h2>
-      <p class="tenue">${modo==='IGUAL'?'Partes iguales.':'Cada quien paga lo suyo.'} Faltan ${falta} por pagar.</p>
+      <p class="tenue">${modo==='IGUAL'?'Partes iguales: cada ticket lista todos los productos con su parte del precio.':'Cada quien paga lo suyo.'} Faltan ${falta} por pagar. Con 🧾 Ticket se imprime la cuenta de esa persona antes de cobrar.</p>
       ${pend}${tarjetas}
       <div class="acbar"><button onclick="deshacerDivision()">Deshacer división</button><button onclick="renderCobro()">‹ Volver al cobro</button></div>
     </div>`;
@@ -924,21 +925,79 @@ window.finParte=async(sub,clave,nombre,debe,prop)=>{
   }catch(e){err("No se pudo cobrar la parte.",e);}
   finally{ window._pagandoParte=false; }
 };
+/* ---- Ticket de una PARTE (dividir cuenta) ---------------------------------
+   Pedido 30 sep (dos clientes que dividen "por montos exactos"): en partes
+   IGUALES el ticket de cada persona lista TODOS los productos con su parte
+   del precio (coca $20 entre 2 = $10 en cada ticket), como SoftRestaurant.
+   En CONSUMO lista solo lo asignado a esa persona. Se puede imprimir ANTES
+   de cobrar (botón 🧾 Ticket) y se imprime solo al cobrar la parte.        */
+async function datosTicketParte(sub){
+  const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+  const p=(partes||[]).find(x=>x.subcuenta_id===sub); if(!p) throw new Error("La parte no existe");
+  const n=(partes||[]).length; const debe=Number(p.debe);
+  const l=await lineasCuenta(); const mpl=await modsDe(l.map(x=>x.id));
+  let lineas = p.modo==='CONSUMO' ? l.filter(x=>x.subcuenta_id===sub) : l;
+  // agrupar renglones iguales
+  const grupos={};
+  lineas.forEach(x=>{const nom=cache.prodById[x.producto_id]?.nombre||"";const m=(mpl[x.id]||[]).join(", ");
+    const clave=[x.producto_id,x.peso_kg||'',m,x.es_cortesia?'C':'',Number(x.importe).toFixed(2)].join("|");
+    if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,mods:m,cort:x.es_cortesia,cant:0,suma:0};
+    grupos[clave].cant+=(Number(x.cantidad)||1); grupos[clave].suma+=Number(x.importe);});
+  let items=Object.values(grupos);
+  const frac = p.modo==='IGUAL' ? n : 1;
+  // parte de cada renglón; se escala para que la suma sea EXACTAMENTE lo que debe la parte
+  // (así cuadran descuentos y centavos); el último renglón absorbe el redondeo
+  const cobrables=items.filter(g=>!g.cort);
+  const bruto=cobrables.reduce((a,g)=>a+g.suma/frac,0);
+  const factor = bruto>0 ? debe/bruto : 0;
+  let acum=0;
+  cobrables.forEach((g,i)=>{ g.parte = i<cobrables.length-1 ? Math.round(g.suma/frac*factor*100)/100 : Math.round((debe-acum)*100)/100; acum+=g.parte; });
+  const etqCant=g=>(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.mods?` · ${g.mods}`:'');
+  const pref = frac>1 ? `1/${frac} ` : '';
+  const filasHtml=items.map(g=>`<div class="r"><span>${pref}${etqCant(g)}</span><span>${g.cort?'CORTESÍA':'$'+g.parte.toFixed(2)}</span></div>`).join("");
+  const itemsImp=items.map(g=>({etq:pref+etqCant(g), imp:g.cort?'CORTESIA':'$'+g.parte.toFixed(2)}));
+  return {p, n, debe, filasHtml, itemsImp};
+}
+window.verTicketParte=async(sub)=>{
+  try{
+    const d=await datosTicketParte(sub);
+    const{data:c}=await sb.from("cuenta").select("abierta_en").eq("id",state.cuentaId).single();
+    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
+    const apertura=_hm(c&&c.abierta_en), cierre=_hm(new Date());
+    const nota = d.n>1 && d.p.modo==='IGUAL' ? `<div style="text-align:center;font-size:11px">Cuenta dividida entre ${d.n} (esta es 1 de ${d.n})</div>` : '';
+    const tk=`<div style="text-align:center;font-weight:800;letter-spacing:1px">LOS PARES 84×88</div>
+      <div style="text-align:center;font-size:11px">Restaurante de carnes · Cortes premium</div>
+      <hr>
+      <div class="r" style="font-size:11px"><span>${state.mesaNom} · ${d.p.etiqueta}</span><span>Folio ${d.p.folio||''}</span></div>
+      <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Le atendió: ${state.mesero.nombre}</div>
+      <div style="font-size:11px">Abierta ${apertura} · Ticket ${cierre}</div>${nota}
+      <hr>${d.filasHtml}<hr>
+      <div class="r" style="font-size:18px;font-weight:800;margin-top:6px"><span>TOTAL</span><span>$${d.debe.toFixed(2)}</span></div>
+      <div style="text-align:center;margin-top:12px;font-size:11px">¡Gracias por su visita!</div>`;
+    window._ticket=tk;
+    window._ticketData={ area:'CAJA',
+      encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (1 de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre, apertura, cierre, cierre_etq:'Ticket'},
+      items:d.itemsImp, subtotal:'$'+d.debe.toFixed(2), descuento:'', total:'$'+d.debe.toFixed(2) };
+    $("modal").innerHTML=`<h3>Cuenta — ${esc(d.p.etiqueta)}</h3><div class="ticket">${tk}</div>
+      <div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cerrar</button>
+      <button class="ok" style="background:var(--negro)" onclick="imprimirTicket()">🖨️ Imprimir</button></div>`;
+    $("modalBg").classList.add("on");
+  }catch(e){err("No se pudo armar el ticket de la parte.",e);}
+};
 async function imprimirParte(sub,formaNom,debe,prop){
   if(!PRINT_URL)return;
   try{
-    const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
-    const p=(partes||[]).find(x=>x.subcuenta_id===sub); if(!p)return;
-    let items=[];
-    if(p.modo==='CONSUMO'){
-      const l=await lineasCuenta();
-      items=l.filter(x=>x.subcuenta_id===sub).map(x=>({nombre:cache.prodById[x.producto_id]?.nombre||'',importe:Number(x.importe)}));
-    }else{
-      items=[{nombre:p.etiqueta+" (parte igual)",importe:Number(p.debe)}];
-    }
+    const d=await datosTicketParte(sub);
+    const{data:c}=await sb.from("cuenta").select("abierta_en").eq("id",state.cuentaId).single();
+    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
+    const items=d.itemsImp.slice();
+    if(prop>0) items.push({etq:'Propina', imp:'$'+Number(prop).toFixed(2)});
+    items.push({etq:'Pago: '+formaNom, imp:''});
     await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({encabezado:{mesa:state.mesaNom+" · "+p.etiqueta,folio:p.folio||'',fecha:new Date().toLocaleString('es-MX'),mesero:state.mesero.nombre},
-        items:items,subtotal:debe,propina:prop,total:debe+prop,pago:formaNom})});
+      body:JSON.stringify({area:'CAJA',
+        encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (1 de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
+                    apertura:_hm(c&&c.abierta_en), cierre:_hm(new Date()), cierre_etq:'Cerrada'},
+        items:items, subtotal:'$'+Number(debe).toFixed(2), descuento:'', total:'$'+(Number(debe)+Number(prop||0)).toFixed(2)})});
   }catch(e){ /* si el asistente está apagado, no truena */ }
 }
 
