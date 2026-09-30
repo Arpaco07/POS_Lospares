@@ -1211,19 +1211,46 @@ async function pintarCuentas(){
   const M=v=>'$'+Number(v||0).toFixed(2);
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando cuentas…</div></div>`;
   try{
-    const {data:cts,error}=await sb.from("cuenta")
+    const {data:cerr,error}=await sb.from("cuenta")
       .select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,abierta_en,cerrada_en")
       .eq("estado","CERRADA").gte("cerrada_en",iso(r.ini)).lt("cerrada_en",iso(r.fin))
       .order("cerrada_en",{ascending:false});
     if(error)throw error;
+    /* Anuladas del día (30 sep): se listan también, para que un folio "que falta"
+       nunca sea una duda. No suman a la venta. */
+    let anul=[];
+    try{ const ra=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,abierta_en,cerrada_en")
+          .eq("estado","CANCELADA").gte("abierta_en",iso(r.ini)).lt("abierta_en",iso(r.fin)); anul=ra.data||[]; }catch(e){}
+    const cts=[...(cerr||[]),...anul];
+    /* Folios del día: rango y huecos reales (folios que no existen en ninguna cuenta) */
+    let folioInfo='';
+    try{
+      const nums=cts.map(c=>String(c.folio||'')).filter(f=>/^[A-Z]-\d+$/.test(f));
+      if(nums.length){
+        const pref=nums[0].slice(0,2); const ns=nums.map(f=>parseInt(f.slice(2),10));
+        const a=Math.min(...ns), b=Math.max(...ns); const pad=n=>pref+String(n).padStart(6,'0');
+        const {data:todos}=await sb.from("cuenta").select("folio,estado").gte("folio",pad(a)).lte("folio",pad(b));
+        const existe={}; (todos||[]).forEach(x=>existe[x.folio]=x.estado);
+        const faltan=[], abiertas=[];
+        for(let n=a;n<=b;n++){ const f=pad(n); if(!(f in existe)) faltan.push(f); else if(existe[f]==='ABIERTA') abiertas.push(f); }
+        folioInfo=`<p class="tenue" style="margin:-4px 0 10px">Folios del día: <b>${pad(a)}</b> a <b>${pad(b)}</b>`
+          +(anul.length?` · ${anul.length} anulada(s)`:'')
+          +(abiertas.length?` · aún abiertas: ${abiertas.join(', ')}`:'')
+          +(faltan.length?` · <span style="color:#e9d9a6">sin cuenta (borradas o de antes del arreglo): ${faltan.join(', ')}</span>`:' · <span style="color:#7bd88f">sin huecos</span>')+'</p>';
+      }
+    }catch(e){}
     const ids=(cts||[]).map(c=>c.id); let pagos=[];
     if(ids.length){ const rp=await sb.from("pago").select("id,cuenta_id,forma_pago_id,importe,propina,referencia").in("cuenta_id",ids); pagos=rp.data||[]; }
     window._ctasCache={cts:cts||[],pagos};
     let tV=0,tP=0; const pf={};
-    (cts||[]).forEach(c=>tV+=Number(c.total));
+    (cts||[]).forEach(c=>{ if(c.estado==='CERRADA') tV+=Number(c.total); });
     pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';pf[t]=(pf[t]||0)+Number(p.importe);tP+=Number(p.propina||0);});
     const filas=(cts||[]).map(c=>{
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
+      if(c.estado==='CANCELADA'){
+        const ha=c.abierta_en?new Date(c.abierta_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
+        return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer;opacity:.55"><td>${ha}</td><td>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-weight:800;font-size:11px">ANULADA</span></td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>—</td><td class="n" style="text-decoration:line-through">${M(c.total)}</td><td class="n">—</td></tr>`;
+      }
       const hora=c.cerrada_en?new Date(c.cerrada_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
       const _pc=pagos.filter(p=>p.cuenta_id===c.id);
       const fps=_pc.map(p=>cache.formas[p.forma_pago_id]?.nombre||'—').join(', ')||'—';
@@ -1233,6 +1260,7 @@ async function pintarCuentas(){
     }).join("");
     $("main").innerHTML=`<div class="pad">
       <h2>Cuentas del día <span class="tenue" style="font-size:14px">· ${esc(r.label)}</span></h2>
+      ${folioInfo}
       <div class="rango" style="justify-content:space-between;align-items:center;margin:0 0 12px">
         <button onclick="navDia(-1)">‹ Día anterior</button>
         <input type="date" value="${r.ini.getFullYear()}-${String(r.ini.getMonth()+1).padStart(2,'0')}-${String(r.ini.getDate()).padStart(2,'0')}" onchange="irCuentasDia(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
@@ -1260,6 +1288,13 @@ window.verCuentaPanel=(id)=>{
   const _pagado=ps.reduce((a,p)=>a+Number(p.importe||0),0);
   const _exceso=_pagado-Number(c.total||0)-Number(c.propina||0);
   const _sobre=ps.length>1 && _exceso>0.01;
+  if(c.estado==='CANCELADA'){
+    $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-size:14px">ANULADA</span></h3>
+      <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} (no cuenta en la venta)</p>
+      <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
+      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+    $("mbg").classList.add("on"); _pintarProdsCuenta(id); return;
+  }
   const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gris2)">
       <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
