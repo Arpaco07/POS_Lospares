@@ -1065,7 +1065,77 @@ async function pintarFactura(){
     }
   }
 
+  const _inp='width:100%;padding:10px;border:1px solid var(--gris2);border-radius:9px;background:var(--gris);color:var(--texto);font-size:15px;font-family:inherit';
+  const bloqueManual = state.soloLectura ? '' : `
+    <div class="sec-t">Factura manual <span class="tenue" style="font-weight:400">· sin ticket: eventos, anticipos, boutique, juntar varias visitas</span></div>
+    <button id="fmAbrir" onclick="fmToggle()" style="background:var(--negro);color:var(--oro);border:1px solid var(--oro2);border-radius:10px;padding:11px 16px;font-weight:800;margin-bottom:10px">➕ Nueva factura manual</button>
+    <div id="fmBox" style="display:none;background:var(--blanco);border:1px solid var(--gris2);border-radius:12px;padding:14px;margin-bottom:22px">
+
+      <div style="font-weight:800;margin-bottom:4px">¿Qué se va a facturar?</div>
+      <div class="tenue" style="font-size:13px;margin-bottom:8px">Los precios van <b>con IVA incluido</b>, igual que como se cobran en caja.</div>
+      <div id="fmCon"></div>
+      <button onclick="fmAgregar()" style="background:var(--gris);color:var(--texto);border:1px solid var(--gris2);border-radius:9px;padding:9px 14px;font-weight:700;margin-top:8px">+ Agregar renglón</button>
+
+      <div style="background:var(--negro);border-radius:11px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--tenue)"><span>Subtotal</span><span id="fmSub">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--tenue)"><span>IVA 16%</span><span id="fmIva">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900;color:var(--oro);border-top:1px solid var(--gris2);margin-top:7px;padding-top:8px"><span>TOTAL</span><span id="fmTot">$0.00</span></div>
+      </div>
+
+      <div style="font-weight:800;margin:16px 0 4px">Datos fiscales del cliente</div>
+      <div class="tenue" style="font-size:13px;margin-bottom:8px">Deben coincidir EXACTO con su Constancia. Déjalo vacío para público en general.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label class="tenue" style="font-size:12px">RFC</label><input id="fmRfc" style="${_inp};text-transform:uppercase" placeholder="Vacío = público en general"></div>
+        <div><label class="tenue" style="font-size:12px">Código Postal</label><input id="fmCp" style="${_inp}" placeholder="Ej. 68370" inputmode="numeric"></div>
+      </div>
+      <label class="tenue" style="font-size:12px;display:block;margin-top:8px">Razón social (sin "SA de CV")</label>
+      <input id="fmNom" style="${_inp};text-transform:uppercase" placeholder="Como aparece en su constancia">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+        <div><label class="tenue" style="font-size:12px">Régimen fiscal</label>
+          <select id="fmReg" style="${_inp}">
+            <option value="601">601 · General de Ley Personas Morales</option>
+            <option value="612">612 · Persona Física con Actividad Empresarial</option>
+            <option value="626">626 · RESICO</option>
+            <option value="603">603 · Personas Morales Fines no Lucrativos</option>
+            <option value="605">605 · Sueldos y Salarios</option>
+            <option value="606">606 · Arrendamiento</option>
+            <option value="616">616 · Sin obligaciones fiscales</option>
+          </select></div>
+        <div><label class="tenue" style="font-size:12px">Uso del CFDI</label>
+          <select id="fmUso" style="${_inp}">
+            <option value="G03">G03 · Gastos en general</option>
+            <option value="G01">G01 · Adquisición de mercancías</option>
+            <option value="I01">I01 · Construcciones</option>
+            <option value="D01">D01 · Honorarios médicos</option>
+            <option value="P01">P01 · Por definir</option>
+          </select></div>
+      </div>
+      <label class="tenue" style="font-size:12px;display:block;margin-top:8px">Correo del cliente (ahí le llegan el XML y el PDF)</label>
+      <input id="fmCorreo" type="email" style="${_inp}" placeholder="cliente@empresa.com">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+        <div><label class="tenue" style="font-size:12px">Forma de pago</label>
+          <select id="fmForma" style="${_inp}">
+            <option value="01">01 · Efectivo</option>
+            <option value="03">03 · Transferencia</option>
+            <option value="04">04 · Tarjeta de crédito</option>
+            <option value="28">28 · Tarjeta de débito</option>
+            <option value="99">99 · Por definir</option>
+          </select></div>
+        <div><label class="tenue" style="font-size:12px">Método</label>
+          <select id="fmMetodo" style="${_inp}">
+            <option value="PUE">PUE · Una sola exhibición</option>
+            <option value="PPD">PPD · En parcialidades</option>
+          </select></div>
+      </div>
+      <p class="tenue" style="font-size:12px;margin:8px 0 0">Si pagó <b>en efectivo más de $2,000</b>, al cliente no le va a ser deducible aunque la factura esté bien — es regla del SAT, por operación. Conviene decírselo antes.</p>
+
+      <button id="fmBtn" onclick="fmTimbrar()" style="width:100%;background:var(--naranja);color:#fff;border-radius:11px;padding:14px;font-weight:800;font-size:16px;margin-top:14px">Generar la factura</button>
+      <div id="fmMsg"></div>
+    </div>`;
+
   $("main").innerHTML=`<div class="pad"><h2>Facturación (CFDI 4.0)</h2>
+    ${bloqueManual}
     <div class="sec-t">Facturas timbradas</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <input class="buscar" id="feq" placeholder="Buscar folio, RFC, nombre o UUID…" oninput="pintarFacEmitidas()" style="max-width:320px;margin:0">
@@ -1090,13 +1160,17 @@ async function pintarFactura(){
 let _feData=[]; let _sbNubeFE=null;
 function _nubeFE(){ if(!_sbNubeFE) _sbNubeFE=window.supabase.createClient("https://nkpzjnfazuqlbvctyqzg.supabase.co","sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB"); return _sbNubeFE; }
 const _FE_CANCELAR="https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-cancelar";
+const _FE_MANUAL  ="https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-manual";
+const _FE_REENVIAR="https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-reenviar";
 function _feMoney(n){return '$'+Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function _feFecha(s){try{return new Date(s).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});}catch(e){return s||'';}}
 window.cargarFacEmitidas=async()=>{
   const cont=$("facEmitidas"); if(!cont)return;
   cont.innerHTML='<div class="cargando">Cargando facturas…</div>';
   try{
-    const {data,error}=await _nubeFE().from("factura_emitida").select("*").order("timbrada_en",{ascending:false}).limit(300);
+    const {data,error}=await _nubeFE().from("factura_emitida")
+      .select("id,uuid_cfdi,folio_ticket,tipo,rfc_receptor,nombre_receptor,subtotal,iva,total,estado,timbrada_en,correo,correo_resultado,manual,capturo")
+      .order("timbrada_en",{ascending:false}).limit(300);
     if(error)throw error;
     _feData=data||[]; pintarFacEmitidas();
   }catch(e){ cont.innerHTML='<div class="aviso err">No se pudieron cargar las facturas: '+esc(e.message||e)+'</div>'; }
@@ -1113,18 +1187,156 @@ window.pintarFacEmitidas=()=>{
     const badge=x.estado==='cancelada'?'<span style="background:rgba(192,57,43,.2);color:#ff9c90;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">Cancelada</span>':(x.estado==='en_proceso'?'<span style="background:rgba(224,165,44,.2);color:#ffd77a;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">En proceso</span>':'<span style="background:rgba(46,125,70,.2);color:#8fd6a5;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">Timbrada</span>');
     const cli=(x.rfc_receptor&&x.rfc_receptor!=="XAXX010101000")?`${esc(x.nombre_receptor||'')} · ${esc(x.rfc_receptor)}`:'Público en general';
     const btn=x.estado==='timbrada'?`<button style="background:#c0392b;color:#fff;border:none;border-radius:9px;padding:9px 12px;font-weight:800;cursor:pointer" onclick="feCancelar(${x.id})">Cancelar</button>`:'';
+    const btnRe=`<button style="background:var(--negro);color:var(--oro);border:1px solid var(--oro2);border-radius:9px;padding:9px 12px;font-weight:800;cursor:pointer" onclick="feReenviar(${x.id})">📧 Reenviar</button>`;
+    const esMan=x.manual?'<span style="background:rgba(212,175,55,.18);color:var(--oro);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800;margin-left:4px">Manual</span>':'';
     return `<div style="background:var(--blanco);border:1px solid var(--gris2);border-radius:12px;padding:12px;margin-bottom:9px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:200px">
-        <div style="font-weight:800">${esc(x.folio_ticket||'(sin folio)')} ${badge}</div>
+        <div style="font-weight:800">${esc(x.folio_ticket||'(sin folio)')} ${badge}${esMan}</div>
         <div class="tenue" style="font-size:13px">${cli}</div>
         <div class="tenue" style="font-size:12px">${_feFecha(x.timbrada_en)}</div>
         <div class="tenue" style="font-size:11px;word-break:break-all">${esc(x.uuid_cfdi||'')}</div>
       </div>
       <div style="font-weight:900;color:#2e7d46;white-space:nowrap">${_feMoney(x.total)}</div>
-      <div>${btn}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${btnRe}${btn}</div>
     </div>`;
   }).join("");
 };
+/* ===== FACTURA MANUAL (modulo 62 + Edge Function factura-manual) ===== */
+let _fmN=0, _fmOp=null, _fmUlt=null;
+const _fmMoney=(n)=>'$'+(Math.round(n*100)/100).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+window.fmToggle=()=>{
+  const b=$("fmBox"); if(!b)return;
+  const abierto = b.style.display!=='none';
+  b.style.display = abierto?'none':'block';
+  $("fmAbrir").textContent = abierto?'➕ Nueva factura manual':'✕ Cerrar factura manual';
+  if(!abierto && !$("fmCon").children.length) fmAgregar();
+};
+window.fmAgregar=()=>{
+  _fmN++; const i=_fmN;
+  const inp='width:100%;padding:9px;border:1px solid var(--gris2);border-radius:8px;background:var(--gris);color:var(--texto);font-size:14px;font-family:inherit';
+  const d=document.createElement('div');
+  d.id='fmc'+i;
+  d.style.cssText='border:1px solid var(--gris2);border-radius:10px;padding:10px;margin-top:8px;background:var(--gris)';
+  d.innerHTML=
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'+
+      '<span class="tenue" style="font-size:12px;font-weight:800">RENGLÓN</span>'+
+      '<button onclick="fmQuitar('+i+')" style="color:var(--rojo);font-size:13px;font-weight:800">Quitar</button></div>'+
+    '<input id="fmd'+i+'" style="'+inp+'" placeholder="Descripción — ej. Evento 15 de septiembre, salón privado" oninput="fmCalc()">'+
+    '<div style="display:grid;grid-template-columns:70px 1fr 1fr;gap:6px;margin-top:6px">'+
+      '<div><label class="tenue" style="font-size:11px">Cant.</label><input id="fmq'+i+'" value="1" inputmode="decimal" style="'+inp+'" oninput="fmCalc()"></div>'+
+      '<div><label class="tenue" style="font-size:11px">Precio c/IVA</label><input id="fmp'+i+'" inputmode="decimal" style="'+inp+'" placeholder="0.00" oninput="fmCalc()"></div>'+
+      '<div><label class="tenue" style="font-size:11px">Importe</label><input id="fmi'+i+'" readonly style="'+inp+';font-weight:800;color:var(--oro)"></div>'+
+    '</div>'+
+    '<div class="tenue" style="font-size:11px;margin-top:6px;text-decoration:underline;cursor:pointer" onclick="document.getElementById(\'fma'+i+'\').style.display=(document.getElementById(\'fma'+i+'\').style.display===\'none\'?\'grid\':\'none\')">Cambiar clave del SAT</div>'+
+    '<div id="fma'+i+'" style="display:none;grid-template-columns:1fr 1fr;gap:6px;margin-top:5px">'+
+      '<div><label class="tenue" style="font-size:11px">Clave SAT</label><input id="fmk'+i+'" value="90101500" style="'+inp+'"></div>'+
+      '<div><label class="tenue" style="font-size:11px">Unidad</label><input id="fmu'+i+'" value="E48" style="'+inp+'"></div>'+
+    '</div>';
+  $("fmCon").appendChild(d); fmCalc();
+};
+window.fmQuitar=(i)=>{ if($("fmCon").children.length<=1)return; const e=$("fmc"+i); if(e)e.remove(); fmCalc(); };
+window._fmFilas=()=>Array.from($("fmCon").children).map(d=>{
+  const i=d.id.replace('fmc','');
+  const cant=parseFloat(($("fmq"+i).value||'').replace(/,/g,''))||0;
+  const prec=parseFloat(($("fmp"+i).value||'').replace(/,/g,''))||0;
+  return {i:i,desc:($("fmd"+i).value||'').trim(),cant:cant,precio:prec,
+          clave:($("fmk"+i).value||'90101500').trim(),unidad:($("fmu"+i).value||'E48').trim(),
+          conIva:Math.round(cant*prec*100)/100};
+});
+window.fmCalc=()=>{
+  let t=0;
+  for(const f of _fmFilas()){ $("fmi"+f.i).value = f.conIva? _fmMoney(f.conIva):''; t+=f.conIva; }
+  t=Math.round(t*100)/100; const sub=Math.round((t/1.16)*100)/100;
+  $("fmSub").textContent=_fmMoney(sub); $("fmIva").textContent=_fmMoney(Math.round((t-sub)*100)/100); $("fmTot").textContent=_fmMoney(t);
+};
+window.fmTimbrar=async()=>{
+  const fs=_fmFilas().filter(f=>f.desc&&f.cant>0&&f.precio>0);
+  if(!fs.length){ $("fmMsg").innerHTML='<div class="aviso err" style="margin-top:10px">Falta un renglón con descripción, cantidad y precio.</div>'; return; }
+  const rfc=($("fmRfc").value||'').trim().toUpperCase();
+  const general=!rfc||rfc==='XAXX010101000';
+  if(!general && (!($("fmNom").value||'').trim() || !($("fmCp").value||'').trim())){
+    $("fmMsg").innerHTML='<div class="aviso err" style="margin-top:10px">Con RFC hay que capturar razón social y código postal.</div>'; return; }
+  const total=fs.reduce((a,f)=>a+f.conIva,0);
+  if(!confirm('Se va a timbrar una factura por '+_fmMoney(total)+(general?' a PÚBLICO EN GENERAL':' a '+rfc)+'.\n\nEsto no se deshace: si sale mal hay que cancelarla ante el SAT.\n\n¿Continuar?')) return;
+  if(!_fmOp) _fmOp='m'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+  $("fmBtn").disabled=true;
+  $("fmMsg").innerHTML='<div class="aviso" style="margin-top:10px">Timbrando… no cierres el Panel ⏳</div>';
+  try{
+    const r=await fetch(_FE_MANUAL,{method:'POST',
+      headers:{'Content-Type':'application/json','apikey':'sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB','Authorization':'Bearer sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB'},
+      body:JSON.stringify({op_id:_fmOp,rfc:rfc,nombre:($("fmNom").value||'').trim(),regimen:$("fmReg").value,
+        cp:($("fmCp").value||'').trim(),uso:$("fmUso").value,correo:($("fmCorreo").value||'').trim(),
+        forma:$("fmForma").value,metodo:$("fmMetodo").value,
+        capturo:(state.admin&&state.admin.nombre)||'',
+        conceptos:fs.map(f=>({desc:f.desc,cant:f.cant,precio:f.precio,clave:f.clave,unidad:f.unidad}))})});
+    const d=await r.json();
+    if(d.ya_facturado){ $("fmMsg").innerHTML='<div class="aviso" style="margin-top:10px">'+esc(d.motivo||'')+'<br>UUID: <b>'+esc(d.uuid||'')+'</b></div>'; $("fmBtn").disabled=false; return; }
+    if(!d.timbrado){ $("fmMsg").innerHTML='<div class="aviso err" style="margin-top:10px">No se pudo timbrar.<br>'+esc(d.motivo||d.mensaje_error||d.error||'Revisa los datos fiscales.')+'</div>'; $("fmBtn").disabled=false; _fmOp=null; return; }
+    _fmUlt=d;
+    $("fmMsg").innerHTML='<div class="aviso ok" style="margin-top:10px"><b>Factura timbrada ✔</b> '+_fmMoney(parseFloat(d.total))+' · '+esc(d.receptor||'')+
+      '<br><span style="font-size:11px;word-break:break-all">'+esc(d.uuid)+'</span><br>Correo: '+esc(d.correo||'')+
+      '<br><button onclick="fmBajarXML()" style="margin-top:8px;background:var(--negro);color:var(--oro);border:1px solid var(--oro2);border-radius:9px;padding:8px 14px;font-weight:800">⬇ Descargar XML</button>'+
+      ' <button onclick="fmOtra()" style="margin-top:8px;background:var(--gris);color:var(--texto);border:1px solid var(--gris2);border-radius:9px;padding:8px 14px;font-weight:800">Hacer otra</button></div>';
+    cargarFacEmitidas();
+  }catch(e){
+    $("fmMsg").innerHTML='<div class="aviso err" style="margin-top:10px">Falló la conexión. Revisa el internet.<br><span style="font-size:12px">'+esc(String(e))+'</span></div>';
+    $("fmBtn").disabled=false;
+  }
+};
+window.fmBajarXML=()=>{
+  if(!_fmUlt||!_fmUlt.xml_timbrado){alert('No hay XML.');return;}
+  const b=new Blob([_fmUlt.xml_timbrado],{type:'application/xml'}), u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download='Factura_'+_fmUlt.uuid+'.xml';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},4000);
+};
+window.fmOtra=()=>{
+  _fmUlt=null;_fmOp=null;$("fmMsg").innerHTML='';$("fmBtn").disabled=false;
+  $("fmCon").innerHTML='';_fmN=0;fmAgregar();
+  ["fmRfc","fmNom","fmCp","fmCorreo"].forEach(id=>{ if($(id)) $(id).value=''; });
+};
+
+/* ===== REENVIAR la factura por correo (Edge Function factura-reenviar) ===== */
+window.feReenviar=(id)=>{
+  const x=_feData.find(f=>f.id===id); if(!x)return;
+  window._noAuto=true;
+  const cli=(x.rfc_receptor&&x.rfc_receptor!=="XAXX010101000")?`${x.nombre_receptor||''} (${x.rfc_receptor})`:'Público en general';
+  const aviso = x.estado==='cancelada'
+    ? '<div class="aviso err" style="margin:6px 0">Esta factura está <b>CANCELADA</b> ante el SAT. Si se la mandas, al cliente no le sirve para deducir.</div>' : '';
+  $("modal").innerHTML=`<h3>Reenviar factura por correo</h3>
+    <p class="tenue" style="margin:-4px 0 10px"><b>${esc(x.folio_ticket||'')}</b> · ${esc(cli)} · <b>${_feMoney(x.total)}</b><br><span style="font-size:11px;word-break:break-all">${esc(x.uuid_cfdi||'')}</span></p>
+    ${aviso}
+    <p class="tenue" style="font-size:13px;margin:0 0 6px">Le llegan el <b>XML</b> y el <b>PDF</b>. No se vuelve a timbrar: es la misma factura.</p>
+    <label style="font-size:13px;color:var(--tenue)">¿A qué correo?</label>
+    <input id="feMail" type="email" value="${esc(x.correo||'')}" placeholder="cliente@empresa.com" style="width:100%;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);margin-top:5px">
+    ${x.correo?'<p class="tenue" style="font-size:12px;margin:6px 0 0">Es el correo que dejó al facturar. Puedes cambiarlo.</p>':'<p class="tenue" style="font-size:12px;margin:6px 0 0">Esta factura no traía correo. Captura a dónde la mandamos.</p>'}
+    <div id="feReRes" style="margin-top:10px"></div>
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="feCerrar()">Volver</button><button class="ok" id="feReBtn" onclick="feDoReenviar(${id})">Enviar</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.feDoReenviar=async(id)=>{
+  const x=_feData.find(f=>f.id===id); if(!x)return;
+  const mail=(($("feMail")&&$("feMail").value)||'').trim();
+  if(!mail||mail.indexOf('@')<0){ $("feReRes").innerHTML='<div class="aviso err">Escribe un correo válido.</div>'; return; }
+  $("feReBtn").disabled=true;
+  $("feReRes").innerHTML='<div class="aviso">Enviando… ⏳</div>';
+  try{
+    const r=await fetch(_FE_REENVIAR,{method:'POST',
+      headers:{'Content-Type':'application/json','apikey':'sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB','Authorization':'Bearer sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB'},
+      body:JSON.stringify({uuid:x.uuid_cfdi,correo:mail})});
+    const d=await r.json();
+    if(d.ok){
+      $("feReRes").innerHTML='<div class="aviso ok"><b>Enviada ✔</b> a '+esc(d.correo)+'<br><span style="font-size:12px">Con el XML y el PDF adjuntos.</span></div>';
+      cargarFacEmitidas();
+    }else{
+      $("feReRes").innerHTML='<div class="aviso err">'+esc(d.motivo||d.resultado||d.error||'No se pudo enviar.')+'</div>';
+      $("feReBtn").disabled=false;
+    }
+  }catch(e){
+    $("feReRes").innerHTML='<div class="aviso err">Falló la conexión: '+esc(String(e))+'</div>';
+    $("feReBtn").disabled=false;
+  }
+};
+
 window.feCancelar=(id)=>{
   const x=_feData.find(f=>f.id===id); if(!x)return;
   window._noAuto=true;
