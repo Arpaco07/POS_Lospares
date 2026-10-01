@@ -83,6 +83,15 @@
       <option value="621">621 · Incorporación Fiscal</option>
       <option value="616">616 · Sin obligaciones fiscales</option>
     </select>
+    <label>¿Cómo pagaste? <span style="font-weight:400;opacity:.7">(solo si la caja lo registró distinto)</span></label>
+    <select id="forma">
+      <option value="">Como lo registró la caja</option>
+      <option value="28">28 · Tarjeta de débito</option>
+      <option value="04">04 · Tarjeta de crédito</option>
+      <option value="01">01 · Efectivo</option>
+      <option value="03">03 · Transferencia</option>
+    </select>
+
     <label>Correo (para enviarte la factura)</label>
     <input id="correo" type="email" placeholder="tucorreo@ejemplo.com" autocomplete="off">
     <button class="btn o" onclick="facturar(false)">Generar mi factura</button>
@@ -90,7 +99,7 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v3 · 30 sep 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v4 · 1 oct 2026</span></div>
 </div>
 
 <script>
@@ -120,6 +129,9 @@
       if(!rfc||!nom||!cp){ msg("msg2","err","Llena RFC, nombre y código postal."); return; }
       correoCliente = cor;
       url += `&rfc=${encodeURIComponent(rfc)}&nombre=${encodeURIComponent(nom)}&cp=${encodeURIComponent(cp)}&regimen=${reg}&uso=${uso}&correo=${encodeURIComponent(cor)}`;
+      // v4: forma de pago del SAT. Vacio = la que registro la caja.
+      const fp = $("forma") ? $("forma").value : "";
+      if(fp) url += `&forma=${fp}`;
     }
     msg(caja,"ok","Generando tu factura… espera unos segundos ⏳");
     try{
