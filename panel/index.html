@@ -1310,8 +1310,48 @@ window.feReenviar=(id)=>{
     <input id="feMail" type="email" value="${esc(x.correo||'')}" placeholder="cliente@empresa.com" style="width:100%;padding:11px;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);margin-top:5px">
     ${x.correo?'<p class="tenue" style="font-size:12px;margin:6px 0 0">Es el correo que dejó al facturar. Puedes cambiarlo.</p>':'<p class="tenue" style="font-size:12px;margin:6px 0 0">Esta factura no traía correo. Captura a dónde la mandamos.</p>'}
     <div id="feReRes" style="margin-top:10px"></div>
-    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="feCerrar()">Volver</button><button class="ok" id="feReBtn" onclick="feDoReenviar(${id})">Enviar</button></div>`;
+    <div style="margin-top:12px;border-top:1px solid var(--gris2);padding-top:10px">
+      <p class="tenue" style="font-size:12px;margin:0 0 7px">¿Te lo pidió por WhatsApp? Bájalos y mándaselos como archivo:</p>
+      <button id="feBajXml" onclick="feBajar(${id},'xml')" style="background:var(--negro);color:var(--oro);border:1px solid var(--oro2);border-radius:9px;padding:9px 13px;font-weight:800;margin-right:6px">⬇ XML</button>
+      <button id="feBajPdf" onclick="feBajar(${id},'pdf')" style="background:var(--negro);color:var(--oro);border:1px solid var(--oro2);border-radius:9px;padding:9px 13px;font-weight:800">⬇ PDF</button>
+    </div>
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="feCerrar()">Volver</button><button class="ok" id="feReBtn" onclick="feDoReenviar(${id})">Enviar por correo</button></div>`;
   $("mbg").classList.add("on");
+};
+window._feCache={};
+window.feBajar=async(id,que)=>{
+  const x=_feData.find(f=>f.id===id); if(!x)return;
+  const bId = que==='xml'?'feBajXml':'feBajPdf';
+  const btn=$(bId); if(btn){btn.disabled=true; btn.textContent='Preparando…';}
+  try{
+    let d=_feCache[x.uuid_cfdi];
+    if(!d){
+      const r=await fetch(_FE_REENVIAR,{method:'POST',
+        headers:{'Content-Type':'application/json','apikey':'sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB','Authorization':'Bearer sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB'},
+        body:JSON.stringify({uuid:x.uuid_cfdi,solo_archivos:true})});
+      d=await r.json();
+      if(!d.ok){ $("feReRes").innerHTML='<div class="aviso err">'+esc(d.motivo||d.error||'No se pudieron bajar los archivos.')+'</div>'; return; }
+      _feCache[x.uuid_cfdi]=d;
+    }
+    let blob,nom;
+    if(que==='xml'){
+      if(!d.xml){ $("feReRes").innerHTML='<div class="aviso err">Esta factura no tiene XML guardado.</div>'; return; }
+      blob=new Blob([d.xml],{type:'application/xml'}); nom='Factura_'+d.uuid+'.xml';
+    }else{
+      if(!d.pdf_base64){ $("feReRes").innerHTML='<div class="aviso err">No se pudo armar el PDF. Usa el XML, que es el que vale ante el SAT.</div>'; return; }
+      const bin=atob(d.pdf_base64); const arr=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      blob=new Blob([arr],{type:'application/pdf'}); nom='Factura_'+d.uuid+'.pdf';
+    }
+    const u=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=u; a.download=nom; document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},4000);
+    $("feReRes").innerHTML='<div class="aviso ok">Descargado: <b>'+esc(nom)+'</b><br><span style="font-size:12px">Está en tu carpeta de Descargas. Mándalo por WhatsApp con el clip → Documento.</span></div>';
+  }catch(e){
+    $("feReRes").innerHTML='<div class="aviso err">Falló: '+esc(String(e))+'</div>';
+  }finally{
+    if(btn){btn.disabled=false; btn.textContent= que==='xml'?'⬇ XML':'⬇ PDF';}
+  }
 };
 window.feDoReenviar=async(id)=>{
   const x=_feData.find(f=>f.id===id); if(!x)return;
