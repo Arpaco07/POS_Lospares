@@ -90,7 +90,7 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0</div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v2 · 30 sep 2026</span></div>
 </div>
 
 <script>
@@ -128,7 +128,7 @@
       if(d.timbrado){
         window._fac = d;
         window._caja = caja;
-        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviar por correo</button><div id="envio" style="margin-top:6px"></div>`);
+        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviar por correo</button><button class="btn g" style="margin-top:8px" onclick="verXML()">👁 Ver / copiar XML</button><div id="envio" style="margin-top:6px"></div>`);
         // Si el cliente puso correo, se lo mandamos solito
         if(correoCliente) enviarCorreo(correoCliente);
       } else if(d.motivo){
@@ -142,13 +142,49 @@
   }
 
   // ---- Descargar XML timbrado ----
+  //  ARREGLO 30 sep: antes el enlace no se agregaba a la pagina y el archivo
+  //  se borraba de memoria en el mismo instante del clic (revokeObjectURL),
+  //  asi que en celulares y en Firefox NO bajaba nada (el PDF si, porque lo
+  //  arma jsPDF). Ahora se agrega al DOM, se revoca despues, y si aun asi el
+  //  navegador lo bloquea, queda el boton "Ver / copiar XML".
   function descargarXML(){
     const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay XML disponible."); return; }
-    const blob = new Blob([d.xml_timbrado], {type:"application/xml"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "Factura_"+d.uuid+".xml";
-    a.click(); URL.revokeObjectURL(a.href);
+    try{
+      const blob = new Blob([d.xml_timbrado], {type:"application/xml;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Factura_"+d.uuid+".xml";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 4000);
+    }catch(e){ verXML(); }
+  }
+
+  // ---- Respaldo: ver el XML en pantalla para copiarlo (sirve en cualquier
+  //      celular, aunque el navegador no deje bajar archivos .xml) ----
+  function verXML(){
+    const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay XML disponible."); return; }
+    const caja = $(window._caja || "msg1");
+    const prev = caja.innerHTML;
+    caja.innerHTML = `<div class="msg ok"><b>XML de tu factura</b><br>
+      <span style="font-size:13px">Toca "Copiar", pegalo en un bloc de notas y guardalo como <b>Factura.xml</b>. Tambien puedes bajarlo del portal del SAT.</span>
+      <textarea id="xmltxt" readonly style="width:100%;height:150px;margin-top:8px;font-family:monospace;font-size:11px;background:#161310;color:#efe7d6;border:1px solid #39332b;border-radius:10px;padding:8px"></textarea>
+      <button class="btn d" style="margin-top:8px" onclick="copiarXML()">Copiar XML</button>
+      <button class="btn g" style="margin-top:8px" onclick="volverCaja()">‹ Regresar</button></div>`;
+    $("xmltxt").value = d.xml_timbrado;
+    window._prevCaja = prev;
+  }
+  function volverCaja(){ const caja=$(window._caja||"msg1"); if(window._prevCaja) caja.innerHTML = window._prevCaja; }
+  function copiarXML(){
+    const t = $("xmltxt"); if(!t) return;
+    t.select(); t.setSelectionRange(0, 999999);
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t.value); }
+      else { document.execCommand("copy"); }
+      alert("XML copiado. Pegalo en un bloc de notas y guardalo como Factura.xml");
+    }catch(e){ alert("Selecciona el texto y copialo a mano."); }
   }
 
   // ---- Leer un atributo del XML timbrado ----
@@ -227,21 +263,41 @@
     if(!to || !/@/.test(to)){ if(to) alert("Correo no válido."); return; }
     const envio = $("envio");
     if(envio) envio.innerHTML = `<div class="msg ok">📧 Enviando la factura a ${to}…</div>`;
-    _genPDF(async (doc)=>{
+
+    // ARREGLO 30 sep: antes TODO el envio vivia dentro de _genPDF, asi que si
+    // el PDF no se podia armar (internet lento, cdnjs bloqueado) tampoco se
+    // mandaba el XML. Ahora el XML se manda de todos modos y el PDF se
+    // adjunta solo si alcanzo a armarse.
+    const _mandar = async (pdf64)=>{
       try{
-        const pdf64 = doc.output("datauristring").split(",")[1];
+        const cuerpo = { to,
+          nombre:(d.tipo&&d.tipo.indexOf("Con datos")>=0? ($("nombre").value.trim()||"Cliente"):"Cliente"),
+          uuid:d.uuid, total:d.total, xml:d.xml_timbrado };
+        if(pdf64) cuerpo.pdf_base64 = pdf64;
         const r = await fetch(EFN, {
           method:"POST",
           headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
-          body: JSON.stringify({ to, nombre:(d.tipo&&d.tipo.indexOf("Con datos")>=0? ($("nombre").value.trim()||"Cliente"):"Cliente"), uuid:d.uuid, total:d.total, xml:d.xml_timbrado, pdf_base64:pdf64 })
+          body: JSON.stringify(cuerpo)
         });
         const j = await r.json();
         if(envio){
-          if(j.ok) envio.innerHTML = `<div class="msg ok">📧 ¡Listo! Te enviamos la factura a <b>${to}</b>. (Revisa spam por si acaso.)</div>`;
-          else envio.innerHTML = `<div class="msg err">No se pudo enviar el correo: ${j.error||"intenta de nuevo"}</div>`;
+          if(j.ok) envio.innerHTML = `<div class="msg ok">📧 ¡Listo! Te enviamos la factura a <b>${to}</b>${pdf64?"":" (solo el XML)"}. (Revisa spam por si acaso.)</div>`;
+          else envio.innerHTML = `<div class="msg err">No se pudo enviar el correo: ${j.error||"intenta de nuevo"}<br>Usa "Ver / copiar XML" para guardarlo.</div>`;
         }
-      }catch(e){ if(envio) envio.innerHTML = `<div class="msg err">Error enviando el correo. Puedes descargar el PDF/XML mientras tanto.</div>`; }
-    });
+      }catch(e){ if(envio) envio.innerHTML = `<div class="msg err">Error enviando el correo. Usa "⬇ Descargar PDF" y "👁 Ver / copiar XML".</div>`; }
+    };
+
+    let yaMande = false;
+    const red = setTimeout(()=>{ if(!yaMande){ yaMande = true; _mandar(null); } }, 9000);  // si el PDF se tarda, manda el XML
+    try{
+      _genPDF(async (doc)=>{
+        if(yaMande) return;
+        yaMande = true; clearTimeout(red);
+        let pdf64 = null;
+        try{ pdf64 = doc.output("datauristring").split(",")[1]; }catch(e){}
+        _mandar(pdf64);
+      });
+    }catch(e){ if(!yaMande){ yaMande = true; clearTimeout(red); _mandar(null); } }
   }
 </script>
 </body></html>
