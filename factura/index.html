@@ -99,13 +99,12 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v4 · 1 oct 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v5 · 1 oct 2026</span></div>
 </div>
 
 <script>
   // ===== CONFIGURA AQUÍ (ya vienen tus datos de la nube) =====
   const FN  = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-timbrar";
-  const EFN = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/enviar-factura";
   const KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   // ============================================================
   const $ = (id) => document.getElementById(id);
@@ -140,7 +139,7 @@
       if(d.timbrado){
         window._fac = d;
         window._caja = caja;
-        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviarme también el PDF por correo</button><button class="btn g" style="margin-top:8px" onclick="verXML()">👁 Ver / copiar XML</button><div id="envio" style="margin-top:6px"></div>`);
+        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="verXML()">👁 Ver / copiar XML</button><div id="envio" style="margin-top:6px"></div>`);
         // v3 (30 sep): el correo con el XML ya lo manda el SERVIDOR al timbrar
         // (factura-timbrar v8). Aqui solo avisamos como salio, para no mandar
         // dos correos al cliente.
@@ -276,49 +275,12 @@
   // ---- Descargar PDF ----
   function descargarPDF(){ _genPDF((doc)=>{ doc.save("Factura_"+window._fac.uuid+".pdf"); }); }
 
-  // ---- Enviar por correo (PDF + XML) vía la función enviar-factura ----
-  function enviarCorreo(to){
-    const d = window._fac; if(!d){ alert("Primero genera la factura."); return; }
-    to = (to || ($("correo") ? $("correo").value.trim() : "") || "").trim();
-    if(!to){ to = (prompt("¿A qué correo te enviamos la factura?")||"").trim(); }
-    if(!to || !/@/.test(to)){ if(to) alert("Correo no válido."); return; }
-    const envio = $("envio");
-    if(envio) envio.innerHTML = `<div class="msg ok">📧 Enviando la factura a ${to}…</div>`;
+  // v5 (1 oct): se quito el envio desde el navegador. Desde `factura-timbrar`
+  // v10 el CORREO LO MANDA EL SERVIDOR al timbrar, con el XML y el PDF
+  // adjuntos. El boton viejo apuntaba a una funcion que ni siquiera existia
+  // con ese nombre (su URL real era otra), asi que siempre fallaba.
+  // Si el cliente no dejo correo, se lleva los archivos con los botones de
+  // descargar, o lo pide en el restaurante.
 
-    // ARREGLO 30 sep: antes TODO el envio vivia dentro de _genPDF, asi que si
-    // el PDF no se podia armar (internet lento, cdnjs bloqueado) tampoco se
-    // mandaba el XML. Ahora el XML se manda de todos modos y el PDF se
-    // adjunta solo si alcanzo a armarse.
-    const _mandar = async (pdf64)=>{
-      try{
-        const cuerpo = { to,
-          nombre:(d.tipo&&d.tipo.indexOf("Con datos")>=0? ($("nombre").value.trim()||"Cliente"):"Cliente"),
-          uuid:d.uuid, total:d.total, xml:d.xml_timbrado };
-        if(pdf64) cuerpo.pdf_base64 = pdf64;
-        const r = await fetch(EFN, {
-          method:"POST",
-          headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
-          body: JSON.stringify(cuerpo)
-        });
-        const j = await r.json();
-        if(envio){
-          if(j.ok) envio.innerHTML = `<div class="msg ok">📧 ¡Listo! Te enviamos la factura a <b>${to}</b>${pdf64?"":" (solo el XML)"}. (Revisa spam por si acaso.)</div>`;
-          else envio.innerHTML = `<div class="msg err">No se pudo enviar el correo: ${j.error||"intenta de nuevo"}<br>Usa "Ver / copiar XML" para guardarlo.</div>`;
-        }
-      }catch(e){ if(envio) envio.innerHTML = `<div class="msg err">Error enviando el correo. Usa "⬇ Descargar PDF" y "👁 Ver / copiar XML".</div>`; }
-    };
-
-    let yaMande = false;
-    const red = setTimeout(()=>{ if(!yaMande){ yaMande = true; _mandar(null); } }, 9000);  // si el PDF se tarda, manda el XML
-    try{
-      _genPDF(async (doc)=>{
-        if(yaMande) return;
-        yaMande = true; clearTimeout(red);
-        let pdf64 = null;
-        try{ pdf64 = doc.output("datauristring").split(",")[1]; }catch(e){}
-        _mandar(pdf64);
-      });
-    }catch(e){ if(!yaMande){ yaMande = true; clearTimeout(red); _mandar(null); } }
-  }
 </script>
 </body></html>
