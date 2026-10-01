@@ -90,7 +90,7 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v2 · 30 sep 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v3 · 30 sep 2026</span></div>
 </div>
 
 <script>
@@ -128,9 +128,18 @@
       if(d.timbrado){
         window._fac = d;
         window._caja = caja;
-        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviar por correo</button><button class="btn g" style="margin-top:8px" onclick="verXML()">👁 Ver / copiar XML</button><div id="envio" style="margin-top:6px"></div>`);
-        // Si el cliente puso correo, se lo mandamos solito
-        if(correoCliente) enviarCorreo(correoCliente);
+        msg(caja,"ok",`✅ <b>¡Factura generada!</b><br>Consumo: $${d.subtotal} + IVA $${d.iva} = <b>$${d.total}</b><br><br>Folio fiscal (UUID):<br><span class="uuid">${d.uuid}</span><br><br><button class="btn d" style="margin-top:6px" onclick="descargarXML()">⬇ Descargar XML</button><button class="btn o" style="margin-top:8px" onclick="descargarPDF()">⬇ Descargar PDF</button><button class="btn g" style="margin-top:8px" onclick="enviarCorreo()">📧 Enviarme también el PDF por correo</button><button class="btn g" style="margin-top:8px" onclick="verXML()">👁 Ver / copiar XML</button><div id="envio" style="margin-top:6px"></div>`);
+        // v3 (30 sep): el correo con el XML ya lo manda el SERVIDOR al timbrar
+        // (factura-timbrar v8). Aqui solo avisamos como salio, para no mandar
+        // dos correos al cliente.
+        const envio = $("envio");
+        if(envio && d.correo){
+          if(String(d.correo).indexOf("enviado") === 0){
+            envio.innerHTML = `<div class="msg ok">📧 Te enviamos tu <b>XML</b> a <b>${correoCliente}</b>. (Revisa spam por si acaso.)</div>`;
+          } else if(String(d.correo) !== "sin correo"){
+            envio.innerHTML = `<div class="msg err">No pudimos enviarte el correo. Descarga aquí tu XML y tu PDF.</div>`;
+          }
+        }
       } else if(d.motivo){
         msg(caja,"err","⚠️ "+d.motivo);
       } else if(d.mensaje_error){
