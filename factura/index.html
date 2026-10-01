@@ -48,7 +48,9 @@
       <div><button class="btn d" onclick="facturar(true)">Factura general</button></div>
       <div><button class="btn g" onclick="mostrarDatos()">Con mis datos</button></div>
     </div>
+    <button class="btn g" style="margin-top:8px;font-size:14px" onclick="recuperar()">🔎 Ya facturé — quiero mi factura otra vez</button>
     <div id="msg1"></div>
+    <div id="rec"></div>
   </div>
 
   <!-- PASO 2: datos fiscales -->
@@ -56,7 +58,8 @@
     <h1 style="font-size:16px;margin:0 0 6px">Tus datos fiscales</h1>
     <p class="sub" style="margin:0 0 8px">Deben coincidir EXACTO con tu Constancia de Situación Fiscal (SAT).</p>
     <label>RFC</label>
-    <input id="rfc" placeholder="Tu RFC" style="text-transform:uppercase" autocomplete="off">
+    <input id="rfc" placeholder="Tu RFC" style="text-transform:uppercase" autocomplete="off" onblur="buscarRfc()">
+    <div id="auto"></div>
     <label>Razón social / Nombre (sin régimen: sin "SA de CV")</label>
     <input id="nombre" placeholder="Como aparece en tu constancia" style="text-transform:uppercase" autocomplete="off">
     <div class="row2">
@@ -99,12 +102,14 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v5 · 1 oct 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v6 · 1 oct 2026</span></div>
 </div>
 
 <script>
   // ===== CONFIGURA AQUÍ (ya vienen tus datos de la nube) =====
   const FN  = "https://nkpzjnfazuqlbvctyqzg.supabase.co/functions/v1/factura-timbrar";
+  const SUPA  = "https://nkpzjnfazuqlbvctyqzg.supabase.co";
+  const FN_RE = SUPA + "/functions/v1/factura-reenviar";
   const KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   // ============================================================
   const $ = (id) => document.getElementById(id);
@@ -116,6 +121,110 @@
     return true;
   }
   function msg(caja,tipo,html){ $(caja).innerHTML = `<div class="msg ${tipo}">${html}</div>`; }
+
+  // ===== v6: autollenado por RFC (modulo 63) =====
+  //  Solo funciona si ese RFC ya facturo antes aqui. El SAT no publica los
+  //  datos fiscales de un RFC, asi que la primera vez hay que capturarlos.
+  //  Pide folio y total: solo quien trae el ticket puede consultarlos.
+  //  El CORREO no se autollena a proposito, para que la factura no se le vaya
+  //  al correo de alguien mas.
+  let _ultimoRfc = "";
+  async function buscarRfc(){
+    const rfc = ($("rfc").value||"").trim().toUpperCase();
+    const f   = ($("folio").value||"").trim();
+    const t   = parseFloat($("total").value);
+    if(!$("auto")) return;
+    if(rfc.length < 12 || !f || !t){ $("auto").innerHTML=""; return; }
+    if(rfc === _ultimoRfc) return;
+    _ultimoRfc = rfc;
+    $("auto").innerHTML = `<div class="msg ok" style="font-size:13px">Buscando tus datos…</div>`;
+    try{
+      const r = await fetch(`${SUPA}/rest/v1/rpc/datos_fiscales_rfc`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
+        body: JSON.stringify({ p_folio:f, p_total:t, p_rfc:rfc })
+      });
+      const d = await r.json();
+      const c = Array.isArray(d) ? d[0] : d;
+      if(c && c.encontrado){
+        if(c.razon_social)   $("nombre").value  = c.razon_social;
+        if(c.cp)             $("cp").value      = c.cp;
+        if(c.regimen_fiscal) $("regimen").value = c.regimen_fiscal;
+        if(c.uso_cfdi)       $("uso").value     = c.uso_cfdi;
+        $("auto").innerHTML = `<div class="msg ok" style="font-size:13px">✅ Te llenamos tus datos de la vez pasada. <b>Revísalos</b> por si algo cambió, y escribe tu correo.</div>`;
+      }else{
+        $("auto").innerHTML = `<div class="msg" style="font-size:13px;background:#fdf6e3;color:#8a6d1f;border:1px solid #efe0b0">Es tu primera factura con nosotros: captura tus datos tal como vienen en tu Constancia. La próxima vez ya se llenan solos.</div>`;
+      }
+    }catch(e){ $("auto").innerHTML=""; }
+  }
+
+  // ===== v6: "ya facturé, quiero mi factura otra vez" =====
+  let _rec = null;
+  async function recuperar(){
+    if(!validaTicket("msg1")) return;
+    const f = $("folio").value.trim(), t = parseFloat($("total").value);
+    $("msg1").innerHTML = "";
+    $("rec").innerHTML = `<div class="msg ok">Buscando tu factura…</div>`;
+    try{
+      const r = await fetch(FN_RE, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
+        body: JSON.stringify({ folio:f, total:t, solo_archivos:true })
+      });
+      const d = await r.json();
+      if(!d.ok){ $("rec").innerHTML = `<div class="msg err">${d.motivo||"No encontramos la factura de ese ticket."}</div>`; return; }
+      _rec = d;
+      const canc = d.cancelada ? `<div class="msg err" style="margin-top:8px">Esta factura fue <b>CANCELADA</b> ante el SAT. No te sirve para deducir; pregunta en el restaurante.</div>` : "";
+      $("rec").innerHTML =
+        `<div class="msg ok"><b>Aquí está tu factura</b><br>${d.receptor||""}<br>Total: <b>$${d.total}</b><br>
+         <span style="font-size:11px;word-break:break-all;opacity:.8">${d.uuid}</span></div>
+         ${canc}
+         <button class="btn d" style="margin-top:8px" onclick="recBajar('xml')">⬇ Descargar XML</button>
+         <button class="btn o" style="margin-top:8px" onclick="recBajar('pdf')">⬇ Descargar PDF</button>
+         <label style="margin-top:10px">¿Te la mandamos por correo?</label>
+         <input id="recMail" type="email" placeholder="tucorreo@ejemplo.com" autocomplete="off">
+         <button class="btn g" style="margin-top:8px" onclick="recCorreo()">📧 Enviármela por correo</button>
+         <div id="recMsg"></div>`;
+      $("rec").scrollIntoView({behavior:"smooth"});
+    }catch(e){
+      $("rec").innerHTML = `<div class="msg err">Falló la conexión. Revisa tu internet e intenta de nuevo.</div>`;
+    }
+  }
+  function recBajar(que){
+    if(!_rec) return;
+    let blob, nom;
+    if(que === "xml"){
+      if(!_rec.xml){ $("recMsg").innerHTML = `<div class="msg err">Esta factura no tiene XML guardado. Pídela en el restaurante.</div>`; return; }
+      blob = new Blob([_rec.xml], {type:"application/xml"}); nom = "Factura_"+_rec.uuid+".xml";
+    }else{
+      if(!_rec.pdf_base64){ $("recMsg").innerHTML = `<div class="msg err">No se pudo armar el PDF. Usa el XML, que es el válido ante el SAT.</div>`; return; }
+      const bin = atob(_rec.pdf_base64); const arr = new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+      blob = new Blob([arr], {type:"application/pdf"}); nom = "Factura_"+_rec.uuid+".pdf";
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = nom;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 4000);
+  }
+  async function recCorreo(){
+    if(!_rec) return;
+    const to = (($("recMail")&&$("recMail").value)||"").trim();
+    if(!to || !/@/.test(to)){ $("recMsg").innerHTML = `<div class="msg err">Escribe un correo válido.</div>`; return; }
+    $("recMsg").innerHTML = `<div class="msg ok">Enviando…</div>`;
+    try{
+      const r = await fetch(FN_RE, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "apikey":KEY, "Authorization":"Bearer "+KEY },
+        body: JSON.stringify({ uuid:_rec.uuid, correo:to })
+      });
+      const d = await r.json();
+      $("recMsg").innerHTML = d.ok
+        ? `<div class="msg ok">📧 Listo, te la mandamos a <b>${to}</b> con el XML y el PDF. (Revisa spam por si acaso.)</div>`
+        : `<div class="msg err">${d.motivo||d.resultado||"No se pudo enviar."}</div>`;
+    }catch(e){ $("recMsg").innerHTML = `<div class="msg err">Falló el envío. Usa los botones de descargar.</div>`; }
+  }
 
   async function facturar(general){
     const caja = general ? "msg1" : "msg2";
