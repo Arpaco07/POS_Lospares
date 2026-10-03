@@ -1473,22 +1473,41 @@ async function pintarCuentas(){
     let anul=[];
     try{ const ra=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,abierta_en,cerrada_en")
           .eq("estado","CANCELADA").gte("abierta_en",iso(r.ini)).lt("abierta_en",iso(r.fin)); anul=ra.data||[]; }catch(e){}
-    const cts=[...(cerr||[]),...anul];
+    /* 3 oct: las ABIERTAS también se listan, para poder ver lo que lleva
+       consumido una mesa que todavía está comiendo. No suman a la venta. */
+    let abier=[];
+    try{ const rb=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,mesero_id,total,propina,estado,abierta_en,cerrada_en")
+          .eq("estado","ABIERTA").gte("abierta_en",iso(r.ini)).lt("abierta_en",iso(r.fin)); abier=rb.data||[]; }catch(e){}
+    const cts=[...(cerr||[]),...anul,...abier];
     /* Folios del día: rango y huecos reales (folios que no existen en ninguna cuenta) */
     let folioInfo='';
     try{
       const nums=cts.map(c=>String(c.folio||'')).filter(f=>/^[A-Z]-\d+$/.test(f));
       if(nums.length){
-        const pref=nums[0].slice(0,2); const ns=nums.map(f=>parseInt(f.slice(2),10));
-        const a=Math.min(...ns), b=Math.max(...ns); const pad=n=>pref+String(n).padStart(6,'0');
-        const {data:todos}=await sb.from("cuenta").select("folio,estado").gte("folio",pad(a)).lte("folio",pad(b));
-        const existe={}; (todos||[]).forEach(x=>existe[x.folio]=x.estado);
-        const faltan=[], abiertas=[];
-        for(let n=a;n<=b;n++){ const f=pad(n); if(!(f in existe)) faltan.push(f); else if(existe[f]==='ABIERTA') abiertas.push(f); }
-        folioInfo=`<p class="tenue" style="margin:-4px 0 10px">Folios del día: <b>${pad(a)}</b> a <b>${pad(b)}</b>`
-          +(anul.length?` · ${anul.length} anulada(s)`:'')
-          +(abiertas.length?` · aún abiertas: ${abiertas.join(', ')}`:'')
-          +(faltan.length?` · <span style="color:#e9d9a6">sin cuenta (borradas o de antes del arreglo): ${faltan.join(', ')}</span>`:' · <span style="color:#7bd88f">sin huecos</span>')+'</p>';
+        const pref=nums[0].slice(0,2);
+        const ns=nums.map(f=>parseInt(f.slice(2),10)).sort((x,y)=>x-y);
+        const a=ns[0], b=ns[ns.length-1]; const pad=n=>pref+String(n).padStart(6,'0');
+        const extra=(anul.length?` · ${anul.length} anulada(s)`:'')+(abier.length?` · ${abier.length} abierta(s)`:'');
+        /* 3 oct — ARREGLO: antes se recorría del folio MAS CHICO al MAS GRANDE
+           del día. Si entre las cuentas del día se colaba una de la serie
+           vieja (L-000001), el rango se volvía de 1 a 5742 y la pantalla
+           escupía miles de folios. Ahora: si el rango no es razonable para la
+           cantidad de cuentas, no se buscan huecos; y la lista se corta. */
+        const razonable = (b - a + 1) <= (ns.length * 5 + 60);
+        if(!razonable){
+          folioInfo=`<p class="tenue" style="margin:-4px 0 10px">Folios del día: <b>${ns.length}</b> cuentas, de <b>${pad(a)}</b> a <b>${pad(b)}</b>${extra}`
+            +` · <span style="color:#e9d9a6">hay folios de series distintas, no se revisan huecos</span></p>`;
+        }else{
+          const {data:todos}=await sb.from("cuenta").select("folio,estado").gte("folio",pad(a)).lte("folio",pad(b));
+          const existe={}; (todos||[]).forEach(x=>existe[x.folio]=x.estado);
+          const faltan=[];
+          for(let n=a;n<=b;n++){ const f=pad(n); if(!(f in existe)) faltan.push(f); }
+          const MAX=12;
+          const listaFaltan = faltan.length<=MAX ? faltan.join(', ')
+                            : faltan.slice(0,MAX).join(', ')+` … y ${faltan.length-MAX} más`;
+          folioInfo=`<p class="tenue" style="margin:-4px 0 10px">Folios del día: <b>${pad(a)}</b> a <b>${pad(b)}</b>${extra}`
+            +(faltan.length?` · <span style="color:#e9d9a6">sin cuenta (borradas o de antes del arreglo): ${listaFaltan}</span>`:' · <span style="color:#7bd88f">sin huecos</span>')+'</p>';
+        }
       }
     }catch(e){}
     const ids=(cts||[]).map(c=>c.id); let pagos=[];
@@ -1497,18 +1516,27 @@ async function pintarCuentas(){
     let tV=0,tP=0; const pf={};
     (cts||[]).forEach(c=>{ if(c.estado==='CERRADA') tV+=Number(c.total); });
     pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';pf[t]=(pf[t]||0)+Number(p.importe);tP+=Number(p.propina||0);});
+    const BTN_VER=(id)=>`<td class="n"><button onclick="event.stopPropagation();verCuentaPanel(${id})" style="padding:6px 11px;border-radius:8px;border:1px solid var(--oro2);background:var(--negro);color:var(--oro);font-weight:800;font-size:12px;white-space:nowrap">🧾 Ver consumo</button></td>`;
     const filas=(cts||[]).map(c=>{
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
+      if(c.estado==='ABIERTA'){
+        const hb=c.abierta_en?new Date(c.abierta_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
+        return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer;background:rgba(212,175,55,.07)"><td>${hb}</td>`
+          +`<td>${esc(c.folio||('#'+c.id))} <span style="color:var(--oro);font-weight:800;font-size:11px">ABIERTA</span></td>`
+          +`<td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td class="tenue">sin cobrar</td>`
+          +`<td class="n" style="color:var(--oro)">${M(c.total)}</td><td class="n">—</td>`
+          + `${BTN_VER(c.id)}</tr>`;
+      }
       if(c.estado==='CANCELADA'){
         const ha=c.abierta_en?new Date(c.abierta_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
-        return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer;opacity:.55"><td>${ha}</td><td>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-weight:800;font-size:11px">ANULADA</span></td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>—</td><td class="n" style="text-decoration:line-through">${M(c.total)}</td><td class="n">—</td></tr>`;
+        return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer;opacity:.55"><td>${ha}</td><td>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-weight:800;font-size:11px">ANULADA</span></td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>—</td><td class="n" style="text-decoration:line-through">${M(c.total)}</td><td class="n">—</td><td class="n"><button onclick="event.stopPropagation();verCuentaPanel(${c.id})" style="padding:6px 11px;border-radius:8px;border:1px solid var(--oro2);background:var(--negro);color:var(--oro);font-weight:800;font-size:12px;white-space:nowrap">🧾 Ver consumo</button></td></tr>`;
       }
       const hora=c.cerrada_en?new Date(c.cerrada_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'';
       const _pc=pagos.filter(p=>p.cuenta_id===c.id);
       const fps=_pc.map(p=>cache.formas[p.forma_pago_id]?.nombre||'—').join(', ')||'—';
       const _pagado=_pc.reduce((a,p)=>a+Number(p.importe||0),0);
       const _sobre=_pc.length>1 && _pagado > Number(c.total||0)+Number(c.propina||0)+0.01;
-      return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer${_sobre?';background:rgba(192,57,43,.12)':''}"><td>${hora}</td><td>${_sobre?'<span title="Cobrado de más: posible pago duplicado" style="color:#e74c3c;font-weight:800">⚠ </span>':''}${esc(c.folio||('#'+c.id))}</td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>${esc(fps)}</td><td class="n">${M(c.total)}</td><td class="n">${M(c.propina)}</td></tr>`;
+      return `<tr onclick="verCuentaPanel(${c.id})" style="cursor:pointer${_sobre?';background:rgba(192,57,43,.12)':''}"><td>${hora}</td><td>${_sobre?'<span title="Cobrado de más: posible pago duplicado" style="color:#e74c3c;font-weight:800">⚠ </span>':''}${esc(c.folio||('#'+c.id))}</td><td>${esc(c.tipo_venta)}</td><td>${esc(mesero)}</td><td>${esc(fps)}</td><td class="n">${M(c.total)}</td><td class="n">${M(c.propina)}</td><td class="n"><button onclick="event.stopPropagation();verCuentaPanel(${c.id})" style="padding:6px 11px;border-radius:8px;border:1px solid var(--oro2);background:var(--negro);color:var(--oro);font-weight:800;font-size:12px;white-space:nowrap">🧾 Ver consumo</button></td></tr>`;
     }).join("");
     $("main").innerHTML=`<div class="pad">
       <h2>Cuentas del día <span class="tenue" style="font-size:14px">· ${esc(r.label)}</span></h2>
@@ -1526,7 +1554,7 @@ async function pintarCuentas(){
         <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(pf.TRANSFERENCIA||0)}</div></div>
         <div class="kpi"><div class="l">Propinas</div><div class="v">${M(tP)}</div></div>
       </div>
-      <table><thead><tr><th>Hora</th><th>Folio</th><th>Tipo</th><th>Mesero</th><th>Pago</th><th class="n">Total</th><th class="n">Propina</th></tr></thead>
+      <table><thead><tr><th>Hora</th><th>Folio</th><th>Tipo</th><th>Mesero</th><th>Pago</th><th class="n">Total</th><th class="n">Propina</th><th></th></tr></thead>
       <tbody>${filas||'<tr><td colspan="7" class="tenue">Sin cuentas cobradas en el periodo.</td></tr>'}</tbody></table>
       <p class="tenue" style="margin-top:10px">Toca una cuenta para ver el detalle${state.soloLectura?'':' y corregir'}.</p>
     </div>`;
@@ -1540,6 +1568,20 @@ window.verCuentaPanel=(id)=>{
   const _pagado=ps.reduce((a,p)=>a+Number(p.importe||0),0);
   const _exceso=_pagado-Number(c.total||0)-Number(c.propina||0);
   const _sobre=ps.length>1 && _exceso>0.01;
+  /* 3 oct: cuenta que todavia esta comiendo. Se puede ver lo consumido
+     hasta el momento, desde la nube o desde la cajita. Sin acciones de
+     admin: la mesa esta viva y no se toca desde aqui. */
+  if(c.estado==='ABIERTA'){
+    const _ab=c.abierta_en?new Date(c.abierta_en):null;
+    const _llev=_ab?Math.max(0,Math.round((Date.now()-_ab.getTime())/60000)):0;
+    const _txt=_llev>=60?`${Math.floor(_llev/60)} h ${_llev%60} min`:`${_llev} min`;
+    $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))} <span style="color:var(--oro);font-size:14px">ABIERTA</span></h3>
+      <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Abrió ${_ab?_ab.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—'} · lleva ${_txt}</p>
+      <div class="kpi" style="margin:8px 0"><div class="l">Consumo hasta ahorita (sin cobrar)</div><div class="v" style="color:var(--oro)">${M(c.total)}</div></div>
+      <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
+      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+    $("mbg").classList.add("on"); _pintarProdsCuenta(id); return;
+  }
   if(c.estado==='CANCELADA'){
     $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-size:14px">ANULADA</span></h3>
       <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} (no cuenta en la venta)</p>
