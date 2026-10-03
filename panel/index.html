@@ -273,23 +273,40 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
   }catch(e){err("No se pudo entrar.",e);}
 };
 
-/* ---- Rango de fechas ---- */
+/* ---- Rango de fechas / JORNADA (3 oct 2026) ----
+   EL DIA DE TRABAJO NO VA DE MEDIANOCHE A MEDIANOCHE.
+   El restaurante cierra despues de las 12, asi que una mesa cobrada a la 1:06
+   am del sabado es venta del VIERNES. Antes esas cuentas caian en el dia
+   siguiente: le inflaban la venta al sabado y se la quitaban al viernes.
+   Ahora la jornada corre de HORA_CORTE a HORA_CORTE del dia siguiente.
+   El Corte X/Z SIEMPRE estuvo bien: ese va por TURNO, no por fecha. Esto solo
+   alinea las pantallas por fecha (Ventas, Cuentas del dia, Reportes, Para
+   llevar) con lo que el corte ya decia.
+   SI ALGUN DIA CIERRAN MAS TARDE que esta hora, sube el numero y listo. */
+const HORA_CORTE = 6;   // 6 de la mañana
 function d0(dt){return new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());}
+/* A que jornada pertenece este instante (devuelve la medianoche que la etiqueta) */
+function jornadaDe(dt){const x=new Date(dt); if(x.getHours()<HORA_CORTE) x.setDate(x.getDate()-1); return d0(x);}
+/* La jornada en curso ahorita (a la 1 am todavia es la del dia anterior) */
+function hoyJornada(){return jornadaDe(new Date());}
+/* Hora real en que empieza la jornada etiquetada con esa fecha */
+function iniJornada(h){return new Date(h.getFullYear(),h.getMonth(),h.getDate(),HORA_CORTE,0,0,0);}
 function iso(dt){return dt.toISOString();}
 function fechaBonita(dt){return dt.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});}
 function esMismoDia(a,b){return d0(a).getTime()===d0(b).getTime();}
-function rangoDia(dt){const h=d0(dt);const hoy=esMismoDia(dt,new Date());return {tipo:'DIA',ancla:h,ini:h,fin:new Date(h.getFullYear(),h.getMonth(),h.getDate()+1),label:hoy?'Hoy':fechaBonita(h),unDia:true};}
-function rangoHoy(){return rangoDia(new Date());}
-function rangoSemana(){const h=d0(new Date());return {tipo:'SEMANA',ini:new Date(h.getFullYear(),h.getMonth(),h.getDate()-6),fin:new Date(h.getFullYear(),h.getMonth(),h.getDate()+1),label:'Últimos 7 días'};}
-function rangoMes(){const n=new Date();return {tipo:'MES',ini:new Date(n.getFullYear(),n.getMonth(),1),fin:new Date(n.getFullYear(),n.getMonth()+1,1),label:'Este mes'};}
-function rangoCustom(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');return {tipo:'RANGO',ini:A,fin:new Date(B.getFullYear(),B.getMonth(),B.getDate()+1),label:`${a} a ${b}`};}
+function rangoDia(dt){const h=d0(dt);const hoy=esMismoDia(h,hoyJornada());
+  return {tipo:'DIA',ancla:h,ini:iniJornada(h),fin:iniJornada(new Date(h.getFullYear(),h.getMonth(),h.getDate()+1)),label:hoy?'Hoy':fechaBonita(h),unDia:true};}
+function rangoHoy(){return rangoDia(hoyJornada());}
+function rangoSemana(){const h=hoyJornada();return {tipo:'SEMANA',ini:iniJornada(new Date(h.getFullYear(),h.getMonth(),h.getDate()-6)),fin:iniJornada(new Date(h.getFullYear(),h.getMonth(),h.getDate()+1)),label:'Últimos 7 días'};}
+function rangoMes(){const n=hoyJornada();return {tipo:'MES',ini:iniJornada(new Date(n.getFullYear(),n.getMonth(),1)),fin:iniJornada(new Date(n.getFullYear(),n.getMonth()+1,1)),label:'Este mes'};}
+function rangoCustom(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');return {tipo:'RANGO',ini:iniJornada(A),fin:iniJornada(new Date(B.getFullYear(),B.getMonth(),B.getDate()+1)),label:`${a} a ${b}`};}
 window.setRango=(t)=>{state.rango=t==='HOY'?rangoHoy():t==='SEMANA'?rangoSemana():rangoMes();render();};
 window.setCustom=()=>{const a=$("f1").value,b=$("f2").value;if(!a||!b){alert("Elige las dos fechas");return;}state.rango=rangoCustom(a,b);render();};
-window.navDia=(delta)=>{const base=state.rango.tipo==='DIA'?state.rango.ancla:new Date();const nd=new Date(base.getFullYear(),base.getMonth(),base.getDate()+delta);if(nd>d0(new Date()))return;state.rango=rangoDia(nd);render();};
-window.irCuentasDia=(v)=>{ if(!v)return; const [y,m,d]=v.split('-').map(Number); const nd=new Date(y,m-1,d); if(nd>d0(new Date()))return; state.rango=rangoDia(nd); pintarCuentas(); };
+window.navDia=(delta)=>{const base=state.rango.tipo==='DIA'?state.rango.ancla:new Date();const nd=new Date(base.getFullYear(),base.getMonth(),base.getDate()+delta);if(nd>hoyJornada())return;state.rango=rangoDia(nd);render();};
+window.irCuentasDia=(v)=>{ if(!v)return; const [y,m,d]=v.split('-').map(Number); const nd=new Date(y,m-1,d); if(nd>hoyJornada())return; state.rango=rangoDia(nd); pintarCuentas(); };
 function barraRango(){
   const r=state.rango;const esDia=r.tipo==='DIA';
-  const finDeHoy=esDia&&esMismoDia(r.ancla,new Date());
+  const finDeHoy=esDia&&esMismoDia(r.ancla,hoyJornada());
   return `<div class="rango" style="justify-content:space-between">
       <button onclick="navDia(-1)">‹ Día anterior</button>
       <div style="font-weight:800;font-size:16px;text-transform:capitalize;text-align:center;flex:1">${esDia?r.label:r.label}</div>
@@ -1546,7 +1563,7 @@ async function pintarCuentas(){
       <div class="rango" style="justify-content:space-between;align-items:center;margin:0 0 12px">
         <button onclick="navDia(-1)">‹ Día anterior</button>
         <input type="date" value="${r.ini.getFullYear()}-${String(r.ini.getMonth()+1).padStart(2,'0')}-${String(r.ini.getDate()).padStart(2,'0')}" onchange="irCuentasDia(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
-        <button onclick="navDia(1)" ${esMismoDia(r.ini,new Date())?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
+        <button onclick="navDia(1)" ${esMismoDia(r.ancla,hoyJornada())?'disabled style="opacity:.35"':''}>Día siguiente ›</button>
       </div>
       ${state.soloLectura?`<div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);color:#e9d9a6;border-radius:10px;padding:10px 12px;margin-bottom:12px">Solo lectura. Las correcciones las hace un administrador (Carla).</div>`:''}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
@@ -2336,7 +2353,7 @@ function _pllCrono(seg,estado){const m=(seg||0)/60;const lim=estado==='listo'?[5
 async function pintarLlevar(){
   window._noAuto=false;
   if(!state.pllDia) state.pllDia=new Date();
-  const hoy = esMismoDia(state.pllDia, new Date());
+  const hoy = esMismoDia(state.pllDia, hoyJornada());
   let data;
   try{
     if(hoy){
