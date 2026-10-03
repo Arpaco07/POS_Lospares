@@ -140,6 +140,14 @@
   .setup{background:var(--blanco)}
   .aviso.ok{background:rgba(46,125,70,.16);color:#8fd6a5;border-color:rgba(46,125,70,.45)}
   .aviso.err{background:rgba(192,57,43,.16);color:#ff9c90;border-color:rgba(192,57,43,.45)}
+  /* ===== Campos de captura (clientes en la mesa) ===== */
+  .inp{width:100%;padding:13px;font-size:16px;border:1px solid var(--gris2);border-radius:10px;background:#26221c;color:var(--texto);margin-top:8px;box-sizing:border-box;font-family:inherit}
+  .inp::placeholder{color:var(--tenue)}
+  .inp:focus{outline:none;border-color:var(--oro)}
+  select.inp{appearance:none;-webkit-appearance:none}
+  .fila2{display:flex;gap:8px}
+  .fila2 .inp{flex:1}
+  .aviso.cumple{background:rgba(212,175,55,.18);color:var(--oro);border-color:rgba(212,175,55,.5);font-weight:700}
 </style>
 <link rel="manifest" href="manifest_comandero.json">
 <link rel="apple-touch-icon" href="icono-180.png">
@@ -224,7 +232,9 @@ function badgeModo(){return modo==="LOCAL"
   ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">● LOCAL</span>'
   :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">☁ NUBE</span>';}
 const SECCIONES=[{clave:"DESAYUNO",nombre:"Desayuno"},{clave:"COMIDA",nombre:"Comida"},{clave:"BEBIDAS",nombre:"Bebidas"},{clave:"BOUTIQUE",nombre:"Boutique"}];
+const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:null,mesaTipo:null,cuentaId:null,
+             comensalNom:null,
              seccionSel:null,grupoSel:null,filtro:"",cobro:null,propina:0,pagos:[]};
 const cache={mesas:[],productos:[],prodById:{},areaById:{},modsPorProd:{},ordenGrupo:{},formas:[]};
 
@@ -275,7 +285,7 @@ async function recargarMesas(){ const {data}=await sb.from("mesa").select("id,nu
 
 /* ---- PIN ---- */
 function renderLogin(){
-  Object.assign(state,{mesero:null,pin:"",cuentaId:null,mesaId:null,vista:"login"});
+  Object.assign(state,{mesero:null,pin:"",cuentaId:null,mesaId:null,comensalNom:null,vista:"login"});
   $("footer").style.display="none";$("btnVolver").style.display="none";$("btnRefrescar").style.display="none";$("ctx").innerHTML="";
   const t=[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="pinT('${n}')">${n}</button>`).join("");
   $("main").innerHTML=`<div class="login">
@@ -296,7 +306,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
 
 /* ---- Mesas ---- */
 async function renderInicio(){
-  Object.assign(state,{vista:"inicio",cuentaId:null,mesaId:null,tipoVenta:null});
+  Object.assign(state,{vista:"inicio",cuentaId:null,mesaId:null,tipoVenta:null,comensalNom:null});
   $("footer").style.display="none";$("btnVolver").style.display="inline-block";$("btnRefrescar").style.display="inline-block";$("ctx").innerHTML=state.mesero.nombre;
   await recargarMesas();
   const mando=(state.mesero.rol==='ADMIN'||state.mesero.rol==='CAJERO'||state.mesero.es_admin);
@@ -372,14 +382,107 @@ window.quitarMesa=async(id)=>{ if(!confirm("¿Quitar esta mesa con nombre?")) re
 window.abrirMesa=async(id,nom,tipo,cta)=>{
   // si la mesa ya tiene cuenta abierta, entrar directo
   if(cta){state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;state.cuentaId=cta;return renderComanda();}
-  // preguntar personas ANTES de crear nada
-  const raw=prompt("¿Cuántas personas en la mesa?","1");
-  if(raw===null) return;                         // Canceló -> NO abre la mesa
-  const n=parseInt(raw,10);
-  if(isNaN(n)||n<1){ alert("Escribe cuántas personas (mínimo 1) para abrir la mesa."); return; }  // inválido -> NO abre
-  // solo aquí se crea la cuenta y se activa la mesa
-  state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;
-  await crearCuenta("MESA",id,nom,tipo,n);
+  // ventana de apertura: personas + datos del cliente (opcionales)
+  modalAbrirMesa(id,nom,tipo);
+};
+
+/* ====== VENTANA DE APERTURA DE MESA (personas + cliente) ======
+   Antes era un prompt de "¿cuántas personas?". Ahora en la misma pantalla se
+   capturan las personas y, si el cliente quiere dar sus datos, nombre /
+   celular / cumpleaños / correo. TODO el bloque del cliente es OPCIONAL: si
+   se deja vacío la mesa abre igual que siempre.
+   Al teclear 10 dígitos del celular se busca en la base: si ya vino antes,
+   autocompleta el nombre y avisa cuántas visitas trae (y si hoy cumple años). */
+window._nueva=null;
+function modalAbrirMesa(id,nom,tipo){
+  window._nueva={id,nom,tipo,personas:1};
+  const opcMes=MESES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join("");
+  $("modal").innerHTML=`<h3>Abrir ${nom}</h3>
+    <div class="grupo-mod"><div class="t">¿Cuántas personas?</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:20px">
+        <button class="opt" style="width:58px;font-size:26px" onclick="cambiarPersonas(-1)">−</button>
+        <span id="persTxt" style="font-size:28px;font-weight:800;min-width:52px;text-align:center">1</span>
+        <button class="opt" style="width:58px;font-size:26px" onclick="cambiarPersonas(1)">＋</button>
+      </div></div>
+    <div class="grupo-mod">
+      <div class="t">Cliente <span class="tenue" style="font-weight:400;font-size:12px">— opcional, se puede dejar vacío</span></div>
+      <input class="inp" id="cliCel" type="tel" inputmode="numeric" maxlength="14" placeholder="Celular (10 dígitos)" autocomplete="off">
+      <div id="cliAviso"></div>
+      <input class="inp" id="cliNom" type="text" placeholder="Nombre del cliente" autocomplete="off">
+      <div class="fila2" style="margin-top:0">
+        <input class="inp" id="cliDia" type="number" min="1" max="31" inputmode="numeric" placeholder="Día cumple">
+        <select class="inp" id="cliMes"><option value="">Mes cumple</option>${opcMes}</select>
+      </div>
+      <input class="inp" id="cliCorreo" type="email" placeholder="Correo (opcional)" autocomplete="off">
+    </div>
+    <div class="acciones">
+      <button class="cancelar" onclick="cancelarAbrirMesa()">Cancelar</button>
+      <button class="ok" id="okAbrir">Abrir mesa</button>
+    </div>`;
+  $("okAbrir").onclick=confirmarAbrirMesa;
+  $("cliCel").oninput=buscarClientePorCel;
+  $("modalBg").classList.add("on");
+  setTimeout(()=>{ const p=$("persTxt"); if(p) p.textContent="1"; },0);
+}
+window.cancelarAbrirMesa=()=>{ window._nueva=null; cerrarModal(); };
+window.cambiarPersonas=(d)=>{
+  if(!window._nueva) return;
+  window._nueva.personas=Math.max(1,Math.min(60,(window._nueva.personas||1)+d));
+  const t=$("persTxt"); if(t) t.textContent=window._nueva.personas;
+};
+window._cliTimer=null;
+window.buscarClientePorCel=()=>{
+  const inp=$("cliCel"); const av=$("cliAviso"); if(!inp||!av) return;
+  const dig=(inp.value||'').replace(/\D/g,'').slice(-10);
+  if(dig.length<10){ av.innerHTML=''; return; }
+  clearTimeout(window._cliTimer);
+  window._cliTimer=setTimeout(async()=>{
+    try{
+      const{data,error}=await sb.rpc("comensal_por_cel",{p_celular:dig});
+      if(error) throw error;
+      if(data && data.length){
+        const c=data[0];
+        const nIn=$("cliNom"), coIn=$("cliCorreo"), dIn=$("cliDia"), mIn=$("cliMes");
+        if(nIn && !nIn.value.trim()) nIn.value=c.nombre||'';
+        if(coIn && !coIn.value.trim() && c.correo) coIn.value=c.correo;
+        if(dIn && !dIn.value && c.cumple_dia) dIn.value=c.cumple_dia;
+        if(mIn && !mIn.value && c.cumple_mes) mIn.value=c.cumple_mes;
+        const vis=Number(c.visitas||0);
+        const ult=c.ultima_visita?new Date(c.ultima_visita).toLocaleDateString('es-MX',{day:'numeric',month:'short'}):null;
+        let t=`<b>${c.nombre||''}</b>`;
+        if(vis>0){ t+=` · ${vis} visita${vis>1?'s':''}`; if(ult) t+=` · última ${ult}`; }
+        else { t+=` · primera visita registrada`; }
+        if(Number(c.total_gastado||0)>0) t+=`<br><span style="font-size:12px">Ha consumido $${Number(c.total_gastado).toFixed(2)}</span>`;
+        av.innerHTML=`<div class="aviso ok" style="margin:8px 0 0">👤 ${t}</div>`;
+        if(c.es_cumple_hoy) av.innerHTML+=`<div class="aviso cumple" style="margin:6px 0 0">🎂 ¡Hoy es su cumpleaños! Avísale a la cocina.</div>`;
+      }else{
+        av.innerHTML=`<div class="tenue" style="font-size:12px;margin:8px 0 0">Cliente nuevo — se va a registrar con este celular.</div>`;
+      }
+    }catch(e){ av.innerHTML=''; }   // si la base no tiene el módulo de clientes, no estorba
+  },400);
+};
+window._abriendo=false;
+window.confirmarAbrirMesa=async()=>{
+  const n=window._nueva; if(!n) return;
+  if(window._abriendo) return;                 // candado anti doble-toque
+  const cel=($("cliCel")?.value||'').replace(/\D/g,'').slice(-10);
+  if(cel && cel.length<10){ alert("El celular debe tener 10 dígitos, o déjalo vacío."); return; }
+  const nomCli=($("cliNom")?.value||'').trim();
+  const correo=($("cliCorreo")?.value||'').trim();
+  const dia=parseInt($("cliDia")?.value,10);
+  const mes=parseInt($("cliMes")?.value,10);
+  if(!isNaN(dia) && (dia<1||dia>31)){ alert("El día de cumpleaños no es válido."); return; }
+  const personas=n.personas||1;
+  window._abriendo=true;
+  const btn=$("okAbrir"); if(btn){btn.disabled=true;btn.textContent="Abriendo…";}
+  const cli={ nombre:nomCli||null, cel:cel||null, correo:correo||null,
+              dia:isNaN(dia)?null:dia, mes:isNaN(mes)?null:mes };
+  window._nueva=null;
+  cerrarModal();
+  state.tipoVenta="MESA";state.mesaId=n.id;state.mesaNom=n.nom;state.mesaTipo=n.tipo;
+  state.comensalNom = cli.nombre || (cli.cel?('Cliente '+cli.cel):null);
+  try{ await crearCuenta("MESA",n.id,n.nom,n.tipo,personas,cli); }
+  finally{ window._abriendo=false; }
 };
 window.avisoSeparada=(nom)=>{
   const m=cache.mesas.find(x=>x.nombre===nom);
@@ -415,19 +518,54 @@ window.volverALlevar=(cid,tipo,nom)=>{
   state.seccionSel=(tipo==="MOSTRADOR")?"BOUTIQUE":"COMIDA"; state.grupoSel=null; state.filtro="";
   renderComanda();
 };
-window.abrirRapida=async(t)=>{ state.tipoVenta=t;state.mesaId=null;state.mesaTipo=null;state.mesaNom=t==="PARA_LLEVAR"?"Para llevar":"Boutique"; await crearCuenta(t,null,state.mesaNom,null); };
-async function crearCuenta(t,id,nom,tipo,comensales){
-  try{const{data,error}=await sb.rpc("abrir_cuenta",{p_tipo_venta:t,p_mesa_id:id,p_mesero_clave:state.mesero.clave});if(error)throw error;
+window.abrirRapida=async(t)=>{ state.tipoVenta=t;state.mesaId=null;state.mesaTipo=null;state.comensalNom=null;state.mesaNom=t==="PARA_LLEVAR"?"Para llevar":"Boutique"; await crearCuenta(t,null,state.mesaNom,null); };
+async function crearCuenta(t,id,nom,tipo,comensales,cli){
+  try{
+    let data=null,error=null;
+    const base={p_tipo_venta:t,p_mesa_id:id,p_mesero_clave:state.mesero.clave};
+    if(cli && (cli.nombre || cli.cel)){
+      // con datos del cliente (requiere el módulo 58 en la base)
+      const r=await sb.rpc("abrir_cuenta",{...base,
+        p_comensal_nombre:cli.nombre, p_comensal_cel:cli.cel, p_comensal_correo:cli.correo,
+        p_cumple_dia:cli.dia, p_cumple_mes:cli.mes});
+      data=r.data; error=r.error;
+      if(error){
+        // La base todavía no tiene el módulo de clientes: la mesa SE ABRE IGUAL.
+        // Regla de oro: la operación nunca se detiene por algo opcional.
+        const r2=await sb.rpc("abrir_cuenta",base);
+        data=r2.data; error=r2.error;
+        if(!error){ state.comensalNom=null; flash("Mesa abierta (los datos del cliente no se guardaron)"); }
+      }
+    }else{
+      const r=await sb.rpc("abrir_cuenta",base);
+      data=r.data; error=r.error;
+    }
+    if(error)throw error;
     if(comensales && comensales>1){ try{ await sb.from("cuenta").update({num_comensales:comensales}).eq("id",data); }catch(e){} }
     state.cuentaId=data;state.mesaNom=nom;state.mesaTipo=tipo;state.seccionSel=(t==="MOSTRADOR")?"BOUTIQUE":"COMIDA";state.grupoSel=null;state.filtro="";renderComanda();
   }catch(e){err("No se pudo abrir la cuenta.",e);}
+}
+/* Lee el cliente ligado a la cuenta (al volver a entrar a una mesa abierta) */
+async function cargarComensalDeCuenta(){
+  if(!state.cuentaId) return;
+  try{
+    const{data,error}=await sb.from("cuenta").select("comensal:comensal_id(nombre)").eq("id",state.cuentaId).single();
+    if(error) return;
+    const c=data&&(Array.isArray(data.comensal)?data.comensal[0]:data.comensal);
+    state.comensalNom=(c&&c.nombre)?c.nombre:null;
+    if(state.vista==="comanda") pintarCtxComanda();
+  }catch(e){ /* base sin el módulo de clientes: se ignora */ }
+}
+function pintarCtxComanda(){
+  const extra=state.comensalNom?` · 👤 ${state.comensalNom}`:'';
+  $("ctx").innerHTML=`${state.mesaNom}<small>${state.mesero.nombre}${extra}</small>`;
 }
 
 /* ---- Comanda ---- */
 function gruposDeSeccion(secc){const set=new Map();for(const p of cache.productos)if(p.seccion_menu===secc&&!set.has(p.grupo_menu))set.set(p.grupo_menu,cache.ordenGrupo[secc+"|"+p.grupo_menu]??90);return[...set.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]);}
 function renderComanda(){
   state.vista="comanda";$("footer").style.display="flex";$("btnVolver").style.display="inline-block";
-  $("ctx").innerHTML=`${state.mesaNom}<small>${state.mesero.nombre}</small>`;
+  pintarCtxComanda();
   const seccs=SECCIONES.filter(s=>cache.productos.some(p=>p.seccion_menu===s.clave));
   if(!state.seccionSel||!seccs.some(s=>s.clave===state.seccionSel))state.seccionSel=seccs[0]?.clave;
   const grupos=gruposDeSeccion(state.seccionSel);
@@ -438,6 +576,7 @@ function renderComanda(){
     <div class="buscarwrap"><input class="buscar" id="buscar" placeholder="Buscar en todo el menú…" value="${esc(state.filtro)}"></div>
     <div class="grupobar" id="grupobar">${ch}</div></div><div class="pad"><div class="prods" id="prods"></div></div>`;
   $("buscar").oninput=(e)=>{state.filtro=e.target.value;pintarProductos();}; pintarProductos(); refrescarTotal();
+  if(state.comensalNom===null) cargarComensalDeCuenta();
 }
 window.selSeccion=(c)=>{state.seccionSel=c;state.grupoSel=null;state.filtro="";renderComanda();};
 window.selGrupo=(g)=>{state.grupoSel=g;state.filtro="";renderComanda();};
@@ -728,8 +867,9 @@ async function pintarCobro(){
   const pOnLibre=state.propina>0&&!pOn10&&!pOn15;
   const ph=state.pagos.map((p,i)=>`<div class="pago"><span>${p.nombre}: $${p.importe.toFixed(2)}</span><button class="x" onclick="quitarPago(${i})">✕</button></div>`).join("");
   const fp=cache.formas.map(f=>`<button onclick="agregarPago('${f.clave}','${esc(f.nombre)}')">${f.nombre}</button>`).join("");
-  $("ctx").innerHTML=`Cobrar<small>${state.mesaNom}</small>`;
+  $("ctx").innerHTML=`Cobrar<small>${state.mesaNom}${state.comensalNom?' · 👤 '+state.comensalNom:''}</small>`;
   $("main").innerHTML=`<div class="pad"><h2>Cobrar — ${state.mesaNom}</h2>
+    ${state.comensalNom?`<p class="tenue" style="margin:-6px 0 10px">👤 ${state.comensalNom}</p>`:''}
     <div class="cuenta" style="border:1px solid var(--gris2);border-radius:14px;overflow:hidden">${filas||'<div class="lin">Sin productos</div>'}</div>
     <div class="acbar"><button onclick="verCuenta()">🧾 Ver ticket</button><button onclick="accionCortesia()">Cortesía</button><button onclick="accionDescuento()">Descuento</button><button onclick="accionDividir()">✂ Dividir cuenta</button><button onclick="accionJuntar()">➕ Juntar cuenta</button></div>
     <div class="tot">
@@ -1437,7 +1577,7 @@ async function volver(){
   if(state.vista==="cobro"){return renderComanda();}
   if(state.vista==="corte"){return renderInicio();}
   if(state.vista==="resumen"){return renderInicio();}
-  if(state.cuentaId){const cid=state.cuentaId;state.cuentaId=null;await limpiarSiVacia(cid);return renderInicio();}
+  if(state.cuentaId){const cid=state.cuentaId;state.cuentaId=null;state.comensalNom=null;await limpiarSiVacia(cid);return renderInicio();}
   if(state.mesero){return renderLogin();}
 }
 function esc(s){return String(s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
