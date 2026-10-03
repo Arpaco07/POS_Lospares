@@ -153,6 +153,7 @@
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
   <button data-v="ventas" class="on" onclick="irA('ventas')">Ventas</button>
   <button data-v="cuentas" onclick="irA('cuentas')">Cuentas del día</button>
+  <button data-v="clientes" onclick="irA('clientes')">👥 Clientes</button>
 
   <button data-v="caja" onclick="irA('caja')">Caja / Turno</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
@@ -267,7 +268,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
     if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
     state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
     $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
-    const _permCajero=['cuentas','caja','llevar']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
+    const _permCajero=['cuentas','caja','llevar','clientes']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
     state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
@@ -693,6 +694,7 @@ async function render(){
   if(state.vista==='empleados'){return pintarEmpleados();}
   if(state.vista==='factura'){return pintarFactura();}
   if(state.vista==='auditoria'){return pintarAuditoria(window._audISO||null);}
+  if(state.vista==='clientes'){return pintarClientes();}
 
   if(state.vista==='cuentas'){return pintarCuentas();}
 
@@ -2515,6 +2517,217 @@ window.pllQuitarConfianza=async(id)=>{
 };
 window.pllSonido=()=>{try{_pllCtx=new (window.AudioContext||window.webkitAudioContext)();_pllSon=true;_pllBeep();pintarLlevar();}catch(e){alert('Este dispositivo no dejó activar el sonido.');}};
 function _pllBeep(){if(!_pllSon||!_pllCtx)return;try{[0,180].forEach((d,i)=>{const o=_pllCtx.createOscillator(),g=_pllCtx.createGain();o.type='sine';o.frequency.value=i?1046:784;o.connect(g);g.connect(_pllCtx.destination);const t=_pllCtx.currentTime+d/1000;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);o.start(t);o.stop(t+0.4);});}catch(e){}}
+
+/* ============================================================================
+   👥 CLIENTES (modulo 58: tabla comensal — el cliente que se sienta en la mesa)
+   Pestana dentro del Panel. Lista con filtros para promociones, ficha con
+   historial de visitas, corregir datos (solo admin), cumpleaneros, exportar a
+   Excel (CSV), copiar celulares y % de captura por mesero.
+   NO es la tabla fiscal (cliente/CFDI): esa sigue viviendo en Facturacion.
+   ========================================================================== */
+const _CL_MESES=["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const _CL_MESES_L=["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+state.cl={q:'',promos:false,sinVenir:null,cumpleMes:null,minGasto:null};
+window._clData=[]; window._clCaptura=[];
+function _clTel(t){const d=String(t||'').replace(/\D/g,'').slice(-10);return d.length===10?`${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6)}`:(t||'—');}
+function _clFecha(v){return v?new Date(v).toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'2-digit'}):'—';}
+function _clCumple(d,m){return (d&&m)?`${d} ${_CL_MESES[m]||''}`:'—';}
+async function pintarClientes(){
+  window._noAuto=false;
+  const f=state.cl;
+  $("main").innerHTML=`<div class="pad"><h2>👥 Clientes</h2><div class="cargando">Cargando clientes…</div></div>`;
+  let data=[];
+  try{
+    const r=await sb.rpc("comensales_resumen",{p_busqueda:f.q||null,p_solo_promos:!!f.promos,p_sin_venir_dias:f.sinVenir,p_cumple_mes:f.cumpleMes,p_min_gasto:f.minGasto});
+    if(r.error) throw r.error;
+    data=r.data||[];
+  }catch(e){
+    const msg=(e&&(e.message||e.hint))||String(e);
+    const faltaMod=/comensal/i.test(msg)&&/(exist|found|schema|cache)/i.test(msg);
+    $("main").innerHTML=`<div class="pad"><h2>👥 Clientes</h2>
+      <div class="aviso err">${faltaMod?'La base todavía no tiene el módulo 58 (clientes). Córrelo en LOCAL y en NUBE y vuelve a entrar.':'No se pudo cargar: '+esc(msg)}</div></div>`;
+    return;
+  }
+  window._clData=data;
+  let captura=[];
+  try{ const rc=await sb.rpc("comensales_captura_del_dia",{p_fecha:null}); if(!rc.error) captura=rc.data||[]; }catch(e){}
+  window._clCaptura=captura;
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const tot=data.length;
+  const conCel=data.filter(x=>x.celular).length;
+  const conPromo=data.filter(x=>x.acepta_promos&&x.promos_estado!=='BAJA').length;
+  const gastoTot=data.reduce((a,x)=>a+Number(x.total_gastado||0),0);
+  const hoyD=new Date(); const hoyMes=hoyD.getMonth()+1, hoyDia=hoyD.getDate();
+  const cumpleHoy=data.filter(x=>Number(x.cumple_mes)===hoyMes&&Number(x.cumple_dia)===hoyDia);
+  const capTot=captura.reduce((a,x)=>a+Number(x.cuentas||0),0), capCon=captura.reduce((a,x)=>a+Number(x.con_cliente||0),0);
+  const capPct=capTot?Math.round(100*capCon/capTot):0;
+  const colorPct=p=>p>=50?'#8fd6a5':(p>=25?'#ffd77a':'#ff9c90');
+  const chip=(on,txt,fn)=>`<button style="padding:9px 13px;border-radius:999px;border:1px solid ${on?'var(--oro)':'var(--gris2)'};background:${on?'var(--oro)':'var(--blanco)'};color:${on?'#1c1c1c':'var(--texto)'};font-weight:700;font-size:13px" onclick="${fn}">${txt}</button>`;
+  const mesOpts=_CL_MESES_L.map((m,i)=>i?`<option value="${i}" ${f.cumpleMes===i?'selected':''}>${m}</option>`:'').join('');
+  const hayFiltro=!!(f.promos||f.sinVenir||f.cumpleMes||f.minGasto||f.q);
+  const filas=data.map(x=>{
+    const promo=x.promos_estado==='BAJA'?'<span style="color:#ff9c90;font-weight:800;font-size:11px">BAJA</span>':(x.acepta_promos?'<span style="color:#8fd6a5;font-weight:800;font-size:11px">Sí</span>':'<span class="tenue" style="font-size:11px">—</span>');
+    const dias=x.dias_sin_venir==null?'<span class="tenue">nunca</span>':(Number(x.dias_sin_venir)>=30?`<span style="color:#ffd77a">${x.dias_sin_venir} d</span>`:`${x.dias_sin_venir} d`);
+    const esCumpleHoy=(Number(x.cumple_mes)===hoyMes&&Number(x.cumple_dia)===hoyDia);
+    return `<tr onclick="verCliente(${x.id})" style="cursor:pointer${esCumpleHoy?';background:rgba(212,175,55,.10)':''}">
+      <td><b>${esc(x.nombre)}</b>${esCumpleHoy?' 🎂':''}</td>
+      <td>${x.celular?`<a href="https://wa.me/52${esc(x.celular)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#7ab6ff;text-decoration:none">${_clTel(x.celular)}</a>`:'<span class="tenue">—</span>'}</td>
+      <td class="n">${Number(x.visitas||0)}</td>
+      <td>${_clFecha(x.ultima_visita)}</td>
+      <td class="n">${dias}</td>
+      <td class="n">${M(x.total_gastado)}</td>
+      <td class="n">${M(x.ticket_promedio)}</td>
+      <td>${_clCumple(x.cumple_dia,x.cumple_mes)}</td>
+      <td>${promo}</td>
+    </tr>`;
+  }).join('');
+  const capHtml=captura.length?captura.map(c=>`<tr><td>${esc(c.mesero)}</td><td class="n">${c.cuentas}</td><td class="n">${c.con_cliente}</td><td class="n"><b style="color:${colorPct(Number(c.porcentaje||0))}">${Number(c.porcentaje||0)}%</b></td></tr>`).join(''):'<tr><td colspan="4" class="tenue">Sin cuentas hoy.</td></tr>';
+  $("main").innerHTML=`<div class="pad">
+    <h2>👥 Clientes <span class="tenue" style="font-size:13px;font-weight:400">· los que se sientan en la mesa</span></h2>
+    ${cumpleHoy.length?`<div class="aviso" style="background:rgba(212,175,55,.14);border:1px solid rgba(212,175,55,.5);color:#ffe6a3;border-radius:10px;padding:10px 12px;margin:0 0 12px">🎂 <b>Hoy cumple años:</b> ${cumpleHoy.map(x=>esc(x.nombre)).join(', ')}</div>`:''}
+    <div class="kpis">
+      <div class="kpi big"><div class="l">Clientes registrados</div><div class="v">${tot}</div></div>
+      <div class="kpi"><div class="l">Con celular</div><div class="v">${conCel}</div></div>
+      <div class="kpi"><div class="l">Aceptan promos</div><div class="v">${conPromo}</div></div>
+      <div class="kpi"><div class="l">Consumo acumulado</div><div class="v">${M(gastoTot)}</div></div>
+      <div class="kpi"><div class="l">Captura de hoy</div><div class="v" style="color:${colorPct(capPct)}">${capPct}%</div></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 8px">
+      <input class="buscar" id="clQ" placeholder="Buscar por nombre o celular…" value="${esc(f.q)}" style="max-width:300px;margin:0" onkeydown="if(event.key==='Enter')clBuscar()">
+      <button class="nuevo" style="width:auto;margin:0;padding:10px 14px" onclick="clBuscar()">Buscar</button>
+      ${state.soloLectura?'':`<button class="nuevo" style="width:auto;margin:0;padding:10px 14px;background:#2f6fb0" onclick="nuevoClienteP()">＋ Agregar cliente</button>`}
+      <button class="nuevo" style="width:auto;margin:0;padding:10px 14px;background:#5a4a9c" onclick="clExportar()">⬇ Exportar a Excel (${tot})</button>
+      <button class="nuevo" style="width:auto;margin:0;padding:10px 14px;background:#128C7E" onclick="clCopiarTelefonos()">📋 Copiar celulares</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
+      <span class="tenue" style="font-size:12px">Filtros:</span>
+      ${chip(f.promos,'Aceptan promos',"clFiltro('promos')")}
+      ${chip(f.sinVenir===30,'No vienen 30+ días',"clFiltro('sin30')")}
+      ${chip(f.sinVenir===60,'No vienen 60+ días',"clFiltro('sin60')")}
+      ${chip(f.minGasto===1500,'Gastan $1,500+',"clFiltro('gasto')")}
+      <select onchange="clMes(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:999px;background:var(--blanco);color:var(--texto);font-size:13px;font-weight:700"><option value="">Cumpleaños: cualquier mes</option>${mesOpts}</select>
+      ${hayFiltro?`<button onclick="clLimpiar()" style="color:#ff9c90;font-weight:700;font-size:13px">✕ Quitar filtros</button>`:''}
+    </div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Celular</th><th class="n">Visitas</th><th>Última</th><th class="n">Hace</th><th class="n">Consumo</th><th class="n">Ticket prom.</th><th>Cumple</th><th>Promos</th></tr></thead>
+    <tbody>${filas||'<tr><td colspan="9" class="tenue">Sin clientes'+(hayFiltro?' con esos filtros':' todavía. Se registran al abrir mesa en el comandero')+'.</td></tr>'}</tbody></table></div>
+    <p class="tenue" style="margin-top:8px">Toca un cliente para ver su historial${state.soloLectura?'':' y corregir sus datos'}. Promos por WhatsApp: el que responda BAJA se marca solo y ya no recibe.</p>
+    <div class="sec-t" style="margin-top:18px">Captura de hoy por mesero <span class="tenue" style="font-weight:400;font-size:12px">· cuántas mesas abrieron con datos del cliente</span></div>
+    <table style="max-width:560px"><thead><tr><th>Mesero</th><th class="n">Cuentas</th><th class="n">Con cliente</th><th class="n">%</th></tr></thead><tbody>${capHtml}</tbody></table>
+  </div>`;
+}
+window.clBuscar=()=>{ state.cl.q=(($("clQ")&&$("clQ").value)||'').trim(); pintarClientes(); };
+window.clFiltro=(k)=>{ const f=state.cl;
+  if(k==='promos') f.promos=!f.promos;
+  else if(k==='sin30') f.sinVenir=(f.sinVenir===30?null:30);
+  else if(k==='sin60') f.sinVenir=(f.sinVenir===60?null:60);
+  else if(k==='gasto') f.minGasto=(f.minGasto===1500?null:1500);
+  pintarClientes(); };
+window.clMes=(v)=>{ state.cl.cumpleMes=v?parseInt(v,10):null; pintarClientes(); };
+window.clLimpiar=()=>{ state.cl={q:'',promos:false,sinVenir:null,cumpleMes:null,minGasto:null}; pintarClientes(); };
+window.clExportar=()=>{
+  const d=window._clData||[]; if(!d.length){alert('No hay clientes que exportar.');return;}
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const cab=['Nombre','Celular','Correo','Visitas','Ultima visita','Dias sin venir','Consumo total','Ticket promedio','Cumple dia','Cumple mes','Acepta promos','Estado promos','Notas'];
+  const filas=d.map(x=>[x.nombre,x.celular||'',x.correo||'',x.visitas||0,x.ultima_visita?new Date(x.ultima_visita).toLocaleDateString('es-MX'):'',x.dias_sin_venir==null?'':x.dias_sin_venir,Number(x.total_gastado||0).toFixed(2),Number(x.ticket_promedio||0).toFixed(2),x.cumple_dia||'',x.cumple_mes||'',x.acepta_promos?'SI':'NO',x.promos_estado||'',x.notas||''].map(q).join(','));
+  const csv='﻿'+cab.map(q).join(',')+'\n'+filas.join('\n');
+  const b=new Blob([csv],{type:'text/csv;charset=utf-8'}); const u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download='clientes_lospares_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},3000);
+  okmsg('Exportado: '+d.length+' clientes (se abre en Excel)');
+};
+window.clCopiarTelefonos=async()=>{
+  const d=(window._clData||[]).filter(x=>x.celular&&x.promos_estado!=='BAJA');
+  if(!d.length){alert('No hay celulares en la lista actual (o todos pidieron BAJA).');return;}
+  const txt=d.map(x=>'52'+x.celular).join('\n');
+  try{ await navigator.clipboard.writeText(txt); okmsg('Copiados '+d.length+' celulares (sin los que pidieron BAJA)'); }
+  catch(e){ prompt('Copia los celulares:',txt.replace(/\n/g,', ')); }
+};
+window.verCliente=async(id)=>{
+  const x=(window._clData||[]).find(c=>c.id===id); if(!x)return;
+  window._noAuto=true; window._clVerId=id;
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const admin=!state.soloLectura;
+  $("modal").innerHTML=`<h3>👤 ${esc(x.nombre)}</h3>
+    <p class="tenue" style="margin:-4px 0 10px">
+      ${x.celular?`📞 <a href="https://wa.me/52${esc(x.celular)}" target="_blank" rel="noopener" style="color:#7ab6ff;text-decoration:none">${_clTel(x.celular)}</a>`:'📞 sin celular'}
+      ${x.correo?` · ✉ ${esc(x.correo)}`:''}
+      ${(x.cumple_dia&&x.cumple_mes)?` · 🎂 ${x.cumple_dia} de ${_CL_MESES_L[x.cumple_mes]||''}`:''}</p>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Visitas</div><div class="v">${Number(x.visitas||0)}</div></div>
+      <div class="kpi"><div class="l">Consumo total</div><div class="v">${M(x.total_gastado)}</div></div>
+      <div class="kpi"><div class="l">Ticket promedio</div><div class="v">${M(x.ticket_promedio)}</div></div>
+    </div>
+    <p class="tenue" style="font-size:13px">Promociones: <b>${x.promos_estado==='BAJA'?'<span style="color:#ff9c90">pidió BAJA</span>':(x.acepta_promos?'<span style="color:#8fd6a5">acepta</span>':'no preguntado')}</b>${x.notas?`<br>📝 ${esc(x.notas)}`:''}</p>
+    <div class="sec-t">Sus visitas</div><div id="clHist" class="tenue">Cargando…</div>
+    <div class="acc" style="margin-top:14px">
+      <button class="cancelar" onclick="clCerrar()">Cerrar</button>
+      ${admin?`<button class="ok" style="background:#2f6fb0" onclick="editarClienteP(${id})">✏ Corregir</button>`:''}
+    </div>`;
+  $("mbg").classList.add("on");
+  try{
+    const r=await sb.rpc("comensal_historial",{p_comensal:id});
+    if(r.error) throw r.error;
+    const h=r.data||[];
+    const cont=$("clHist"); if(!cont) return;
+    cont.innerHTML=h.length?`<div style="overflow:auto;max-height:260px"><table style="font-size:13px"><thead><tr><th>Fecha</th><th>Mesa</th><th>Mesero</th><th class="n">Total</th><th class="n">Propina</th></tr></thead><tbody>${
+      h.map(v=>`<tr${v.estado!=='CERRADA'?' style="opacity:.55"':''}><td>${new Date(v.fecha).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td><td>${esc(v.mesa)}${v.estado==='ABIERTA'?' <span style="color:var(--oro);font-size:11px">abierta</span>':(v.estado==='CANCELADA'?' <span style="color:#ff9c90;font-size:11px">anulada</span>':'')}</td><td>${esc(v.mesero||'')}</td><td class="n">${M(v.total)}</td><td class="n">${M(v.propina)}</td></tr>`).join('')}</tbody></table></div>`
+      :'<div class="tenue">Todavía no tiene cuentas cerradas.</div>';
+  }catch(e){ const cont=$("clHist"); if(cont) cont.innerHTML='<div class="tenue">No se pudo cargar el historial.</div>'; }
+};
+window.clCerrar=()=>{ window._noAuto=false; cerrarModal(); };
+function _formCliente(x){
+  x=x||{};
+  const mesOpts=_CL_MESES_L.map((m,i)=>i?`<option value="${i}" ${Number(x.cumple_mes)===i?'selected':''}>${m}</option>`:'<option value="">Mes</option>').join('');
+  return `<label>Nombre</label><input id="clfNom" value="${esc(x.nombre||'')}" placeholder="Nombre del cliente">
+    <label>Celular (10 dígitos)</label><input id="clfCel" inputmode="numeric" maxlength="14" value="${esc(x.celular||'')}" placeholder="2871234567">
+    <label>Correo</label><input id="clfCor" type="email" value="${esc(x.correo||'')}" placeholder="opcional">
+    <label>Cumpleaños</label>
+    <div style="display:flex;gap:8px"><input id="clfDia" type="number" min="1" max="31" inputmode="numeric" value="${x.cumple_dia||''}" placeholder="Día" style="flex:1"><select id="clfMes" style="flex:2">${mesOpts}</select></div>
+    <label>Notas</label><input id="clfNot" value="${esc(x.notas||'')}" placeholder="Ej. le gusta la mesa 7, alérgico a mariscos…">
+    <label class="chk"><input type="checkbox" id="clfPro" ${(x.acepta_promos&&x.promos_estado!=='BAJA')?'checked':''}> Acepta promociones por WhatsApp</label>`;
+}
+window.nuevoClienteP=()=>{
+  if(state.soloLectura){ alert('Solo un administrador puede agregar clientes desde el Panel.'); return; }
+  window._noAuto=true;
+  $("modal").innerHTML=`<h3>＋ Agregar cliente</h3>${_formCliente({})}
+    <div class="acc"><button class="cancelar" onclick="clCerrar()">Cancelar</button><button class="ok" onclick="guardarClienteNuevoP()">Guardar</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.guardarClienteNuevoP=async()=>{
+  const nom=($("clfNom").value||'').trim(); const cel=($("clfCel").value||'').replace(/\D/g,'').slice(-10);
+  if(!nom&&!cel){ alert('Pon al menos el nombre o el celular.'); return; }
+  if(cel&&cel.length<10){ alert('El celular debe tener 10 dígitos.'); return; }
+  const dia=parseInt($("clfDia").value,10), mes=parseInt($("clfMes").value,10);
+  try{
+    const r=await sb.rpc("guardar_comensal",{p_nombre:nom||null,p_celular:cel||null,p_correo:($("clfCor").value||'').trim()||null,p_cumple_dia:isNaN(dia)?null:dia,p_cumple_mes:isNaN(mes)?null:mes});
+    if(r.error) throw r.error;
+    const idNuevo=r.data;
+    const extra={};
+    if($("clfPro").checked) extra.p_acepta_promos=true;
+    const notas=($("clfNot").value||'').trim(); if(notas) extra.p_notas=notas;
+    if(idNuevo&&Object.keys(extra).length){ await sb.rpc("actualizar_comensal",{p_id:idNuevo,p_admin_clave:state.admin.clave,...extra}); }
+    clCerrar(); okmsg('Cliente guardado ✓'); pintarClientes();
+  }catch(e){ err('No se pudo guardar el cliente.',e); }
+};
+window.editarClienteP=(id)=>{
+  const x=(window._clData||[]).find(c=>c.id===id); if(!x)return;
+  $("modal").innerHTML=`<h3>✏ Corregir cliente</h3>${_formCliente(x)}
+    <label class="chk"><input type="checkbox" id="clfAct" checked> Activo (desmarca para ocultarlo de la lista)</label>
+    <div class="acc"><button class="cancelar" onclick="verCliente(${id})">‹ Volver</button><button class="ok" onclick="guardarClienteP(${id})">Guardar</button></div>`;
+};
+window.guardarClienteP=async(id)=>{
+  const nom=($("clfNom").value||'').trim(); const cel=($("clfCel").value||'').replace(/\D/g,'').slice(-10);
+  if(cel&&cel.length<10){ alert('El celular debe tener 10 dígitos, o déjalo vacío.'); return; }
+  const dia=parseInt($("clfDia").value,10), mes=parseInt($("clfMes").value,10);
+  try{
+    const r=await sb.rpc("actualizar_comensal",{p_id:id,p_admin_clave:state.admin.clave,
+      p_nombre:nom||null,p_celular:cel||null,p_correo:($("clfCor").value||'').trim()||null,
+      p_cumple_dia:isNaN(dia)?null:dia,p_cumple_mes:isNaN(mes)?null:mes,
+      p_acepta_promos:$("clfPro").checked,p_notas:($("clfNot").value||'').trim()||null,p_activo:$("clfAct").checked});
+    if(r.error) throw r.error;
+    clCerrar(); okmsg('Cliente actualizado ✓'); pintarClientes();
+  }catch(e){ err('No se pudo guardar.',e); }
+};
 </script>
 </body>
 </html>
