@@ -1598,14 +1598,14 @@ window.verCuentaPanel=(id)=>{
       <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Abrió ${_ab?_ab.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—'} · lleva ${_txt}</p>
       <div class="kpi" style="margin:8px 0"><div class="l">Consumo hasta ahorita (sin cobrar)</div><div class="v" style="color:var(--oro)">${M(c.total)}</div></div>
       <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
-      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="verTicketP(${id})">👁 Ver ticket</button></div>`;
     $("mbg").classList.add("on"); _pintarProdsCuenta(id); return;
   }
   if(c.estado==='CANCELADA'){
     $("modal").innerHTML=`<h3>${esc(c.folio||('#'+c.id))} <span style="color:#e74c3c;font-size:14px">ANULADA</span></h3>
       <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Total ${M(c.total)} (no cuenta en la venta)</p>
       <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
-      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button></div>`;
+      <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="verTicketP(${id})">👁 Ver ticket</button></div>`;
     $("mbg").classList.add("on"); _pintarProdsCuenta(id); return;
   }
   const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
@@ -1626,7 +1626,7 @@ window.verCuentaPanel=(id)=>{
         <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
         <button class="ok" style="background:#c0392b" onclick="anularCuentaP(${id})">✕ Anular cuenta</button>
       </div>`:''}
-    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="reimprimirTicketP(${id})">🖨 Reimprimir ticket</button></div>`;
+    <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="verTicketP(${id})">👁 Ver ticket</button><button class="ok" style="background:var(--negro)" onclick="reimprimirTicketP(${id})">🖨 Reimprimir</button></div>`;
   $("mbg").classList.add("on");
   _pintarProdsCuenta(id);
 };
@@ -1690,51 +1690,77 @@ window.anularCuentaP=async(id)=>{
   }catch(e){err("No se pudo anular.",e);}
 };
 
-/* ==== REIMPRIMIR TICKET (mismo metodo que el comandero: /print/ticket a CAJA) ====
-   Solo imprime en la impresora de CAJA cuando estas en LOCAL (el asistente esta
-   en la HP). Si estas en NUBE o el asistente esta apagado, cae a impresion del
-   navegador (80mm). No cobra ni cambia nada: solo vuelve a imprimir. */
-// Siempre intenta la impresora de CAJA (térmica 80mm) vía el asistente en la HP.
-// Si no responde (estás fuera del restaurante o el asistente apagado), cae al navegador.
+/* ==== VER / REIMPRIMIR EL TICKET ========================================
+   VER: abre el ticket en una ventana, tal cual sale en papel. No imprime,
+        no reabre la cuenta, no cambia nada. Funciona igual desde la nube.
+   REIMPRIMIR: lo manda a la impresora de CAJA por el asistente de la HP
+        (/print/ticket, el mismo camino del comandero). Si el asistente no
+        contesta (estas fuera del restaurante o esta apagado), cae a la
+        impresion del navegador en 80mm. */
 function _printUrlCaja(){ return "https://pos.lospares.com/print"; }
-window.reimprimirTicketP=async(id)=>{
+/* 3 oct: un solo lugar que arma el ticket. Lo usan dos botones:
+   - verTicketP()        -> solo lo muestra en pantalla (no imprime, no toca nada)
+   - reimprimirTicketP() -> lo manda a la impresora de CAJA
+   Sirve para cuentas cerradas, anuladas y mesas que todavia estan comiendo. */
+async function _datosTicketP(id){
   const {cts}=window._ctasCache||{cts:[]}; const c=(cts||[]).find(x=>x.id===id);
+  const {data:lineas,error}=await sb.from('cuenta_producto')
+    .select('id,cantidad,peso_kg,importe,es_cortesia,nota_libre,estado,producto:producto_id(nombre)')
+    .eq('cuenta_id',id);
+  if(error) throw error;
+  const vivas=(lineas||[]).filter(x=>(x.estado||'')!=='CANCELADO');
+  const ids=vivas.map(l=>l.id);
+  const modsByLine={};
+  if(ids.length){
+    const {data:mods}=await sb.from('cuenta_producto_modificador').select('cuenta_producto_id,nombre').in('cuenta_producto_id',ids);
+    (mods||[]).forEach(m=>{ (modsByLine[m.cuenta_producto_id]=modsByLine[m.cuenta_producto_id]||[]).push(m.nombre); });
+  }
+  // agrupar renglones iguales
+  const grupos={};
+  vivas.forEach(x=>{
+    const nom=(x.producto&&x.producto.nombre)||'Producto';
+    const md=(modsByLine[x.id]||[]).join(', ');
+    const extra=[md, x.nota_libre].filter(Boolean).join(' · ');
+    const clave=[nom,x.peso_kg||'',extra,x.es_cortesia?'C':'',Number(x.importe).toFixed(2)].join('|');
+    if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,extra,cort:x.es_cortesia,cant:0,suma:0};
+    grupos[clave].cant+=(Number(x.cantidad)||1); grupos[clave].suma+=Number(x.importe);
+  });
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const items=Object.values(grupos).map(g=>({
+    etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.extra?' · '+g.extra:''),
+    imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2) }));
+  const abierta=(c&&c.estado==='ABIERTA');
+  const fecha=(c&&c.cerrada_en)? new Date(c.cerrada_en).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
+  const mesero=(c&&cache.empleados[c.mesero_id]&&cache.empleados[c.mesero_id].nombre)||'';
+  const subN=(c&&c.subtotal!=null)?c.subtotal:(c?c.total:0);
+  const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
+  return { area:'CAJA',
+    estado:(c&&c.estado)||'',
+    abierta,
+    encabezado:{ mesa:(c&&c.tipo_venta)||'', folio:(c&&c.folio)||('#'+id), fecha, mesero,
+                 apertura:_hm(c&&c.abierta_en), cierre:_hm(c&&c.cerrada_en),
+                 cierre_etq: abierta?'En curso':'Cerrada' },
+    items,
+    subtotal:M(subN),
+    descuento:(c&&Number(c.descuento_total)>0)?M(c.descuento_total):'',
+    total:M(c?c.total:0) };
+}
+
+/* VER el ticket, nada mas. No imprime, no reabre la cuenta, no cambia nada.
+   Si la mesa esta abierta muestra lo consumido hasta ese momento. */
+window.verTicketP=async(id)=>{
   try{
-    const {data:lineas,error}=await sb.from('cuenta_producto')
-      .select('id,cantidad,peso_kg,importe,es_cortesia,nota_libre,producto:producto_id(nombre)')
-      .eq('cuenta_id',id);
-    if(error) throw error;
-    const ids=(lineas||[]).map(l=>l.id);
-    const modsByLine={};
-    if(ids.length){
-      const {data:mods}=await sb.from('cuenta_producto_modificador').select('cuenta_producto_id,nombre').in('cuenta_producto_id',ids);
-      (mods||[]).forEach(m=>{ (modsByLine[m.cuenta_producto_id]=modsByLine[m.cuenta_producto_id]||[]).push(m.nombre); });
-    }
-    // agrupar renglones iguales
-    const grupos={};
-    (lineas||[]).forEach(x=>{
-      const nom=(x.producto&&x.producto.nombre)||'Producto';
-      const md=(modsByLine[x.id]||[]).join(', ');
-      const extra=[md, x.nota_libre].filter(Boolean).join(' · ');
-      const clave=[nom,x.peso_kg||'',extra,x.es_cortesia?'C':'',Number(x.importe).toFixed(2)].join('|');
-      if(!grupos[clave]) grupos[clave]={nom,peso:x.peso_kg,extra,cort:x.es_cortesia,cant:0,suma:0};
-      grupos[clave].cant+=(Number(x.cantidad)||1); grupos[clave].suma+=Number(x.importe);
-    });
-    const M=v=>'$'+Number(v||0).toFixed(2);
-    const items=Object.values(grupos).map(g=>({
-      etq:(g.cant>1?g.cant+'x ':'')+g.nom+(g.peso?` (${g.peso}kg)`:'')+(g.extra?' · '+g.extra:''),
-      imp:g.cort?'CORTESIA':'$'+g.suma.toFixed(2) }));
-    const fecha=(c&&c.cerrada_en)? new Date(c.cerrada_en).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
-    const mesero=(c&&cache.empleados[c.mesero_id]&&cache.empleados[c.mesero_id].nombre)||'';
-    const subN=(c&&c.subtotal!=null)?c.subtotal:(c?c.total:0);
-    const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
-    const data={ area:'CAJA',
-      encabezado:{ mesa:(c&&c.tipo_venta)||'', folio:(c&&c.folio)||('#'+id), fecha, mesero,
-                   apertura:_hm(c&&c.abierta_en), cierre:_hm(c&&c.cerrada_en), cierre_etq:'Cerrada' },
-      items,
-      subtotal:M(subN),
-      descuento:(c&&Number(c.descuento_total)>0)?M(c.descuento_total):'',
-      total:M(c?c.total:0) };
+    const data=await _datosTicketP(id);
+    if(!data.items.length){ err("Esa cuenta no tiene productos cargados todavía."); return; }
+    _reimprimirNavegador(data,true);
+  }catch(e){ err("No se pudo abrir el ticket.",e); }
+};
+
+/* Reimprimir en la impresora de CAJA. Si el asistente no contesta, cae al
+   navegador. No cobra ni cambia nada: solo vuelve a imprimir. */
+window.reimprimirTicketP=async(id)=>{
+  try{
+    const data=await _datosTicketP(id);
     const url=_printUrlCaja();
     if(url){
       try{
@@ -1747,32 +1773,48 @@ window.reimprimirTicketP=async(id)=>{
     _reimprimirNavegador(data);
   }catch(e){ err("No se pudo reimprimir el ticket.",e); }
 };
-function _reimprimirNavegador(d){
+
+/* d = lo que arma _datosTicketP.  soloVer = true -> solo se ve, NO se imprime
+   solo. Trae su propio boton de Imprimir, que no sale en el papel. */
+function _reimprimirNavegador(d,soloVer){
   const filas=d.items.map(it=>`<div class="r"><span>${esc(it.etq)}</span><span>${esc(it.imp)}</span></div>`).join('');
-  const w=window.open('','_blank','width=360,height=640');
-  if(!w){ err("El navegador bloqueó la ventana de impresión"); return; }
+  const w=window.open('',soloVer?('tk'+String(d.encabezado.folio||'').replace(/[^A-Za-z0-9]/g,'')):'_blank','width=380,height=720,scrollbars=yes');
+  if(!w){ err(soloVer?"El navegador bloqueó la ventana. Permite las ventanas emergentes de este sitio.":"El navegador bloqueó la ventana de impresión"); return; }
+  const sello = soloVer
+      ? (d.abierta ? '(CUENTA ABIERTA · LO CONSUMIDO HASTA AHORITA)' : '(COPIA EN PANTALLA · NO ES COMPROBANTE DE PAGO)')
+      : '(REIMPRESIÓN)';
+  const barra = soloVer
+      ? `<div class="barra"><button onclick="window.print()">🖨 Imprimir</button><button onclick="window.close()">Cerrar</button></div>`
+      : '';
   w.document.write(`<html><head><title>Ticket ${esc(d.encabezado.folio||'')}</title><meta charset="UTF-8">
     <style>@page{size:80mm auto;margin:0}
-    body{font-family:'Courier New',monospace;font-size:12px;box-sizing:border-box;width:80mm;margin:0 auto;padding:4mm 3mm;color:#000}
+    body{font-family:'Courier New',monospace;font-size:12px;box-sizing:border-box;width:80mm;margin:0 auto;padding:4mm 3mm;color:#000;background:#fff}
     .c{text-align:center}.b{font-weight:800}.r{display:flex;justify-content:space-between;gap:6px}
-    .r span:last-child{white-space:nowrap}hr{border:none;border-top:1px dashed #000;margin:6px 0}</style></head>
+    .r span:last-child{white-space:nowrap}hr{border:none;border-top:1px dashed #000;margin:6px 0}
+    .barra{display:flex;gap:8px;justify-content:center;margin:0 0 10px}
+    .barra button{padding:9px 14px;border-radius:9px;border:1px solid #111;background:#111;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:system-ui,sans-serif}
+    .barra button+button{background:#fff;color:#111}
+    @media print{.barra{display:none}}</style></head>
     <body>
+    ${barra}
     <div class="c b" style="letter-spacing:1px">LOS PARES 84x88</div>
     <div class="c" style="font-size:11px">Restaurante de carnes · Cortes premium</div>
     <div class="c" style="font-size:11px">Tuxtepec, Oaxaca · WhatsApp 287 881 8488</div>
     <hr>
     <div class="r" style="font-size:11px"><span>${esc(d.encabezado.mesa||'')}</span><span>Folio ${esc(d.encabezado.folio||'')}</span></div>
     <div style="font-size:11px">${esc(d.encabezado.fecha||'')}${d.encabezado.mesero?' · Le atendió: '+esc(d.encabezado.mesero):''}</div>
-    ${d.encabezado.apertura?`<div style="font-size:11px">Abierta ${esc(d.encabezado.apertura)} · Cerrada ${esc(d.encabezado.cierre||'--:--')}</div>`:''}
-    <div class="c" style="font-size:11px">(REIMPRESIÓN)</div>
+    ${d.encabezado.apertura?`<div style="font-size:11px">Abierta ${esc(d.encabezado.apertura)} · ${esc(d.encabezado.cierre_etq||'Cerrada')} ${esc(d.encabezado.cierre||'--:--')}</div>`:''}
+    <div class="c" style="font-size:11px">${esc(sello)}</div>
+    ${d.estado==='CANCELADA'?'<div class="c b" style="font-size:11px">*** CUENTA ANULADA ***</div>':''}
     <hr>${filas}<hr>
     <div class="r"><span>Subtotal</span><span>${esc(d.subtotal)}</span></div>
     ${d.descuento?`<div class="r"><span>Descuentos</span><span>- ${esc(d.descuento)}</span></div>`:''}
-    <div class="r b" style="font-size:16px;margin-top:6px"><span>TOTAL</span><span>${esc(d.total)}</span></div>
+    <div class="r b" style="font-size:16px;margin-top:6px"><span>${d.abierta?'CONSUMO':'TOTAL'}</span><span>${esc(d.total)}</span></div>
     <div class="c" style="margin-top:12px;font-size:11px">¡Gracias por su visita!<br>WhatsApp 287 881 8488 · @lospares8488</div>
-    <script>window.onload=function(){window.print();setTimeout(function(){window.close();},300);}<\/script>
+    ${soloVer?'':'<script>window.onload=function(){window.print();setTimeout(function(){window.close();},300);}<\/script>'}
     </body></html>`);
   w.document.close();
+  if(soloVer){ try{ w.focus(); }catch(e){} }
 }
 /* ==== CAJA / TURNO — abrir turno, corte X/Z, dep/ret, WhatsApp (cajero+admin) ==== */
 const _WA={CARLA:"522871074899",ARTURO:"522871070222",PARES:"522878818488"};
