@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Los Pares 84×88 · Sistemas</title>
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="/POS_Lospares/icon-192.png">
-<link rel="icon" href="/POS_Lospares/icon-192.png">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="icon" href="../icon-192.png">
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -41,7 +41,7 @@
 </head>
 <body>
   <div class="logo">
-    <img src="/POS_Lospares/icon-512.png" alt="Los Pares 84×88" onerror="this.onerror=null;this.src='/POS_Lospares/icon-192.png'">
+    <img src="../icon-512.png" alt="Los Pares 84×88" onerror="this.onerror=null;this.src='../icon-192.png'">
     <div class="sub">84 × 88</div>
   </div>
 
@@ -68,11 +68,26 @@
   /* ==========================================================================
      ARRANCADOR (HUB) — Los Pares 84x88        COPIA DE GITHUB
      Va en el repo, en:  inicio/index.html
-     Se abre en:         https://arpaco07.github.io/POS_Lospares/inicio/
+     Se abre en:         https://app.lospares.com/inicio/
 
      ESTA COPIA ES LA QUE SIRVE CUANDO ANDAS FUERA DEL RESTAURANTE.
      (La copia que vive en la cajita, pos.lospares.com/inicio/, es mas rapida
      y no necesita internet, pero SOLO abre estando dentro de la red.)
+
+     QUE SE CORRIGIO EL 7 DE OCTUBRE 2026:
+       1) TELCEL CUELGA github.io. Desde datos moviles, las direcciones
+          arpaco07.github.io no daban error: se quedaban cargando para
+          siempre (pantalla en blanco). Se descubrio con el iPhone de Carla.
+          Es el MISMO problema del firewall del 3 de octubre con factura.
+          ARREGLO: el sitio de la nube ahora vive en app.lospares.com,
+          detras del proxy NARANJA de Cloudflare, igual que factura.
+          Aqui se cambio NUBE de arpaco07.github.io/POS_Lospares/
+          a https://app.lospares.com/.
+       2) El logo salia como cuadrito roto en el dominio nuevo: las imagenes
+          se pedian en /POS_Lospares/icon-512.png, y bajo app.lospares.com
+          el repo es la RAIZ, asi que esa carpeta ya no existe. Ahora las
+          rutas son relativas (../icon-512.png), que funcionan en los TRES
+          lados: la cajita, app.lospares.com y arpaco07.github.io.
 
      QUE SE CORRIGIO EL 6 DE OCTUBRE 2026:
        1) La prueba para ver si se alcanza la cajita esperaba 1.2 segundos y
@@ -95,7 +110,7 @@
      ========================================================================== */
 
   var LOCAL = "https://pos.lospares.com/";
-  var NUBE  = "https://arpaco07.github.io/POS_Lospares/";
+  var NUBE  = "https://app.lospares.com/";
 
   var RUTAS_LOCAL = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"facturaCancelar/" };
   var RUTAS_NUBE  = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"factura/cancelar.html" };
