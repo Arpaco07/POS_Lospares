@@ -1822,17 +1822,45 @@ function tipoForma(id){return (cache.formas[id]&&cache.formas[id].tipo)||'OTRO';
 async function tallyCaja(turnoId){
   const {data:cerr}=await sb.from("cuenta").select("id,total").eq("turno_id",turnoId).eq("estado","CERRADA");
   const {data:abi}=await sb.from("cuenta").select("id",{count:'exact',head:true}).eq("turno_id",turnoId).eq("estado","ABIERTA");
-  const ids=(cerr||[]).map(c=>c.id); let ef=0,tar=0,tra=0,prop=0,cort=0;
+  const ids=(cerr||[]).map(c=>c.id);
+  /* 7 oct — ARREGLO DEL CORTE.
+     Convencion de la base: pago.importe INCLUYE la propina (el comandero cobra
+     total + propina en un solo pago). Antes el corte metia esos importes
+     BRUTOS en la columna VENTAS y los comparaba contra la venta NETA
+     (suma de cuenta.total): nunca cuadraban, y por eso "Tarjeta" salia
+     distinto a lo que uno suma a mano.
+     Ahora se separan las dos cosas:
+       ef/tar/tra      = lo que ENTRO de verdad por cada forma (bruto, con propina).
+                         Sirve para el efectivo del cajon y para cuadrar la terminal.
+       efN/tarN/traN   = la VENTA por forma (neto, ya sin propina).
+                         Esto es lo que debe sumar la VENTA DEL TURNO.
+       propEf          = propina que entro EN BILLETES a la caja.
+       propBanco       = propina que entro por tarjeta/transferencia: ese dinero
+                         NO esta en el cajon, esta en el banco. */
+  let ef=0,tar=0,tra=0,otr=0,prop=0,cort=0;
+  let efN=0,tarN=0,traN=0,otrN=0,propEf=0,propBanco=0;
   if(ids.length){
     const {data:pg}=await sb.from("pago").select("importe,propina,forma_pago_id").in("cuenta_id",ids);
-    (pg||[]).forEach(p=>{const t=tipoForma(p.forma_pago_id);const v=Number(p.importe);if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;prop+=Number(p.propina||0);});
+    (pg||[]).forEach(p=>{
+      const t=tipoForma(p.forma_pago_id);
+      const v=Number(p.importe||0), pr=Number(p.propina||0), neto=v-pr;
+      if(t==='EFECTIVO'){ ef+=v; efN+=neto; propEf+=pr; }
+      else if(t==='TARJETA'){ tar+=v; tarN+=neto; propBanco+=pr; }
+      else if(t==='TRANSFERENCIA'){ tra+=v; traN+=neto; propBanco+=pr; }
+      else { otr+=v; otrN+=neto; propBanco+=pr; }
+      prop+=pr;
+    });
     const {data:co}=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids);
     cort=(co||[]).reduce((a,x)=>a+Number(x.importe),0);
   }
   let ret=0,dep=0;
   try{const {data:mc}=await sb.from("movimiento_caja").select("tipo,monto").eq("turno_id",turnoId);
     (mc||[]).forEach(m=>{if(m.tipo==='RETIRO')ret+=Number(m.monto);else if(m.tipo==='DEPOSITO')dep+=Number(m.monto);});}catch(e){}
-  return {ef,tar,tra,prop,cort,ret,dep,ventas:(cerr||[]).reduce((a,c)=>a+Number(c.total),0),n:(cerr||[]).length,abiertas:(abi&&abi.count)||0};
+  const ventas=(cerr||[]).reduce((a,c)=>a+Number(c.total),0);
+  return {ef,tar,tra,otr,efN,tarN,traN,otrN,propEf,propBanco,prop,cort,ret,dep,
+          ventas,n:(cerr||[]).length,abiertas:(abi&&abi.count)||0,
+          /* si esto no es 0, falta (o sobra) dinero de verdad en alguna cuenta */
+          descuadre:(efN+tarN+traN+otrN)-ventas};
 }
 async function pintarCaja(){
   const M=v=>'$'+Number(v||0).toFixed(2); const bb='width:auto;margin:0;padding:10px 14px';
@@ -1857,32 +1885,75 @@ async function pintarCaja(){
       const _r2=await sb.rpc("bote_cocina",{p_turno:turno.id}); if(!_r2.error)boteC=Number(_r2.data)||0;
       const _r3=await sb.rpc("total_propinas_pagadas",{p_turno:turno.id}); if(!_r3.error)propPag=Number(_r3.data)||0;
     }catch(e){}
-    const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret-propPag;   // lo que debe haber en el cajón
-    const efRest=efEsper-boteC;                                          // lo realmente del restaurante (sin el bote 30%)
-    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,efRest,ppm,efEsper,tar:t.tar,tra:t.tra,ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
+    /* 7 oct — EL EFECTIVO ESPERADO SON BILLETES, NADA MAS.
+       Entra el consumo cobrado en efectivo + la propina que dieron en efectivo
+       (ambos vienen juntos en t.ef, que es bruto) + depositos; sale lo retirado
+       y lo que se le pago a los meseros en efectivo. Punto.
+       EL BOTE YA NO SE RESTA AQUI. El bote es una DEUDA con cocina, no una
+       salida de billetes: si la propina se cobro con tarjeta, ese dinero esta
+       en el banco y el cajon nunca lo tuvo. Restarlo era lo que hacia salir el
+       corte en negativo (-$117.10 el 6 de octubre). */
+    const efEsper=Number(turno.fondo_inicial)+t.ef+t.dep-t.ret-propPag;   // billetes que deben estar en el cajón
+    /* ¿El bote que le debemos a cocina esta respaldado con billetes? */
+    const boteFalta=Math.max(0,boteC-efEsper);          // lo que falta en el cajon para cubrirlo
+    const efRest=efEsper-boteC;                         // informativo (puede ser negativo: lo avisamos, ya no lo presentamos como "el efectivo")
+    /* Propina de tarjeta que se pago en efectivo del cajon: explica por que la
+       caja se queda corta aunque la venta haya estado bien. */
+    const adelantoBanco=Math.min(propPag,t.propBanco*0.70);
+    window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),
+      ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,boteFalta,efRest,adelantoBanco,ppm,efEsper,
+      tar:t.tar,tra:t.tra,
+      efN:t.efN,tarN:t.tarN,traN:t.traN,otrN:t.otrN,
+      propEf:t.propEf,propBanco:t.propBanco,descuadre:t.descuadre,
+      ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
       <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
       ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s). Ciérralas (cóbralas) antes del Corte Z.</div>`:''}
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:280px">
-          <div class="sec-t">Efectivo en caja</div>
+          <div class="sec-t">Efectivo en caja (billetes)</div>
           <table><tbody>
-            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Efectivo cobrado',t.ef)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}${row('− Bote cocina (30%)',boteC)}${row('= Efectivo del restaurante',efRest,true)}
+            ${row('Fondo inicial',Number(turno.fondo_inicial))}${row('Consumo cobrado en efectivo',t.efN)}${row('Propinas cobradas en efectivo',t.propEf)}${row('+ Depósitos',t.dep)}${row('− Retiros',t.ret)}${row('− Propinas pagadas a meseros',propPag)}${row('= EFECTIVO ESPERADO EN EL CAJÓN',efEsper,true)}
           </tbody></table>
-          <p class="tenue" style="margin:6px 0 0;font-size:12px">El bote de cocina (30%) queda en la caja y se reparte al día siguiente. El "Efectivo del restaurante" es lo que realmente le queda al negocio.</p>
+          <p class="tenue" style="margin:6px 0 0;font-size:12px">Esto es lo que la cajera debe contar. <b>El bote de cocina ya no se resta aquí</b>: el bote es dinero que se le debe a cocina, no un billete que salió del cajón.</p>
+          <div class="sec-t" style="margin-top:14px">Bote de cocina (lo que se le debe)</div>
+          <table><tbody>
+            ${row('Bote del turno (30% de propinas)',boteC)}
+            ${boteFalta>0.009
+              ? `<tr><td style="color:#ff9c90">⚠ No alcanza en el cajón</td><td class="n" style="color:#ff9c90">faltan ${M(boteFalta)}</td></tr>`
+              : `<tr><td style="color:#8fd6a5">✓ Respaldado con el efectivo del cajón</td><td class="n" style="color:#8fd6a5">—</td></tr>`}
+          </tbody></table>
+          ${boteFalta>0.009
+            ? `<div class="aviso" style="background:rgba(224,165,44,.14);border:1px solid rgba(224,165,44,.45);color:#ffd77a;border-radius:10px;padding:10px 12px;margin-top:8px;font-size:13px">
+                 <b>El bote está en el banco, no en la caja.</b> Hoy hubo mucha propina de tarjeta (${M(t.propBanco)}), y el 70% se le pagó a los meseros <b>en efectivo del cajón</b>. Ese dinero te llega después por la terminal.<br>
+                 Para que el bote quedara apartado hoy habría que retirar ${M(boteFalta)} menos.</div>`
+            : ''}
           <div style="display:flex;gap:8px;margin-top:10px">
             <button class="nuevo" style="${bb};background:#2f6fb0" onclick="movCajaP('DEPOSITO')">＋ Depósito</button>
             <button class="nuevo" style="${bb};background:#8a6d1f" onclick="movCajaP('RETIRO')">− Retiro</button>
           </div>
+          ${(efEsper-boteC-t.ret)<0 && t.ret>0 ? `<p class="tenue" style="margin:8px 0 0;font-size:12px">Antes de retirar, aparta <b>${M(boteC)}</b> del bote y lo que falte de propinas por pagar.</p>`:''}
         </div>
         <div style="flex:1;min-width:280px">
-          <div class="sec-t">Resumen del turno</div>
+          <div class="sec-t">Ventas del turno (sin propina)</div>
           <table><tbody>
-            ${row('Efectivo',t.ef)}${row('Tarjeta',t.tar)}${row('Transferencia',t.tra)}${row('Propinas',t.prop)}
+            ${row('Efectivo',t.efN)}${row('Tarjeta',t.tarN)}${row('Transferencia',t.traN)}${t.otrN?row('Otros',t.otrN):''}
+            ${row('Cortesías',t.cort)}${row('Cuentas cerradas',String(t.n))}${row('VENTA DEL TURNO',t.ventas,true)}
+          </tbody></table>
+          ${Math.abs(t.descuadre)>0.5
+            ? `<div class="aviso err" style="margin-top:8px;font-size:13px"><b>⚠ Descuadre de ${M(Math.abs(t.descuadre))}</b> — las formas de pago ${t.descuadre<0?'suman MENOS':'suman MÁS'} que la venta. Revísalo con <b>🔎 Verificar corte</b>: hay una cuenta cobrada de ${t.descuadre<0?'menos':'más'}.</div>`
+            : `<p class="tenue" style="margin:6px 0 0;font-size:12px">✓ Las formas de pago cuadran exacto con la venta.</p>`}
+          <div class="sec-t" style="margin-top:14px">Lo que entró por cada forma (con propina)</div>
+          <table><tbody>
+            ${row('Efectivo (billetes)',t.ef)}${row('Tarjeta (va al banco)',t.tar)}${row('Transferencia (va al banco)',t.tra)}
+          </tbody></table>
+          <p class="tenue" style="margin:6px 0 0;font-size:12px">Esta tabla es la que debe cuadrar con el <b>lote de la terminal bancaria</b>, porque ahí la propina va incluida.</p>
+          <div class="sec-t" style="margin-top:14px">Propinas</div>
+          <table><tbody>
+            ${row('En efectivo (entró al cajón)',t.propEf)}${row('En tarjeta/transferencia (al banco)',t.propBanco)}${row('TOTAL PROPINAS',t.prop,true)}
             <tr class="tenue"><td>· Mesero 70%</td><td class="n">${M(t.prop*0.7)}</td></tr>
             <tr class="tenue"><td>· Bote cocina 30%</td><td class="n">${M(t.prop*0.3)}</td></tr>
-            ${row('Cortesías',t.cort)}${row('Cuentas cerradas',String(t.n))}${row('VENTA DEL TURNO',t.ventas,true)}
           </tbody></table>
         </div>
       </div>
@@ -1924,6 +1995,20 @@ window.deshacerPropP=async(mid)=>{ if(!confirm("¿Deshacer este pago de propina?
   try{const r=await sb.rpc("deshacer_pago_propina",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_turno:window._turnoActual});if(r.error)throw r.error;
     okmsg("Pago de propina deshecho ✓");pintarCaja();
   }catch(e){err("No se pudo deshacer.",e);}};
+/* ===== Ayudantes del corte (7 oct) =====
+   Sacan la venta NETA por forma de pago. Si el corte viene del cálculo nuevo
+   ya traen efN/tarN/traN; si es un corte reconstruido de antes del arreglo,
+   se reparte la propina a prorrata para no mostrar basura. */
+function _efN(d){ if(d.efN!=null) return Number(d.efN);
+  return Math.max(0,Number(d.ef||0)-Number(d.propEf!=null?d.propEf:0)); }
+function _tarN(d){ if(d.tarN!=null) return Number(d.tarN);
+  return Number(d.tar||0); }
+function _traN(d){ if(d.traN!=null) return Number(d.traN);
+  return Number(d.tra||0); }
+/* ¿Cuánto falta en el cajón para cubrir el bote que se le debe a cocina? */
+function _boteFalta(d){ if(d.boteFalta!=null) return Number(d.boteFalta);
+  return Math.max(0,Number(d.boteC||0)-Number(d.efEsper||0)); }
+
 /* ===== Corte como IMAGEN (PNG) para compartir por WhatsApp ===== */
 function _corteNodo(d,titulo){
   const M=v=>'$'+Number(v||0).toFixed(2);
@@ -1943,39 +2028,54 @@ function _corteNodo(d,titulo){
     <div style="text-align:center;font-size:14px;color:#333;margin:4px 0 16px;border-bottom:2px solid #000;padding-bottom:10px">${titulo} &nbsp;·&nbsp; ${d.fecha||''}</div>
     <div style="display:flex;gap:30px">
       <div style="flex:1">
-        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">EFECTIVO EN CAJA</div>
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">EFECTIVO EN CAJA (BILLETES)</div>
         <table style="width:100%;border-collapse:collapse">
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Fondo inicial</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.fondo)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo cobrado</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Consumo cobrado en efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_efN(d))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Propinas cobradas en efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propEf)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">+ Depósitos</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.dep)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Retiros</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ret)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Propinas pagadas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
-          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO ESPERADO</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.efEsper)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Bote cocina (30%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.boteC)}</td></tr>
-          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO DEL RESTAURANTE</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">− Propinas pagadas a meseros</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">= EFECTIVO ESPERADO EN EL CAJÓN</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.efEsper)}</td></tr>
         </table>
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px">BOTE DE COCINA (SE LE DEBE)</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Bote del turno (30%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.boteC)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold">${_boteFalta(d)>0.009?('NO alcanza en el cajón: faltan '+M(_boteFalta(d))):'Respaldado con el efectivo del cajón'}</td><td style="padding:4px 2px;text-align:right"></td></tr>
+        </table>
+        ${_boteFalta(d)>0.009?`<div style="font-size:11px;color:#333;margin-top:4px">La propina de tarjeta (${M(d.propBanco)}) se pagó en efectivo del cajón, pero ese dinero llega por el banco.</div>`:''}
       </div>
       <div style="flex:1">
-        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">VENTAS</div>
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">VENTAS (SIN PROPINA)</div>
         <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tar)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tra)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_efN(d))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_tarN(d))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_traN(d))}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cortesías</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.cort)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cuentas cerradas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${d.n}</td></tr>
           <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">VENTA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.ventas)}</td></tr>
         </table>
+        ${Math.abs(Number(d.descuadre||0))>0.5?`<div style="font-size:12px;color:#a5281b;font-weight:bold;margin-top:5px">⚠ Descuadre de ${M(Math.abs(d.descuadre))}: las formas de pago ${Number(d.descuadre)<0?'suman menos':'suman más'} que la venta.</div>`:''}
+        <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px">ENTRÓ POR CADA FORMA (CON PROPINA)</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo (billetes)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tar)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tra)}</td></tr>
+        </table>
+        <div style="font-size:11px;color:#666;margin-top:4px">Esta tabla es la que cuadra con el lote de la terminal bancaria.</div>
       </div>
     </div>
     <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px">PROPINAS</div>
     <div style="display:flex;gap:30px">
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
+          ${d.propEf!=null?`<tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">En efectivo (entró al cajón)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propEf)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">En tarjeta/transferencia (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propBanco)}</td></tr>`:''}
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Total propinas del turno</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.prop)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Pagado a meseros (70%)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.propPag)}</td></tr>
-          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Bote cocina (30%) — QUEDA EN CAJA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.boteC)}</td></tr>
+          <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">Bote cocina (30%) — SE LE DEBE A COCINA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.boteC)}</td></tr>
         </table>
-        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) no se saca hoy: se le reparte a cocina al día siguiente. Es una deuda, no un billete que salió del cajón.</div>
       </div>
       <div style="flex:1">
         <table style="width:100%;border-collapse:collapse">
@@ -2042,38 +2142,53 @@ window.imprimirCorte=(d,titulo)=>{
       <div class="sub">${titulo} &nbsp;·&nbsp; ${d.fecha||''}</div>
       <div class="cols">
         <div class="col">
-          <div class="sec">EFECTIVO EN CAJA</div>
+          <div class="sec">EFECTIVO EN CAJA (BILLETES)</div>
           <table>
             <tr><td>Fondo inicial</td><td class="r">${M(d.fondo)}</td></tr>
-            <tr><td>Efectivo cobrado</td><td class="r">${M(d.ef)}</td></tr>
+            <tr><td>Consumo cobrado en efectivo</td><td class="r">${M(_efN(d))}</td></tr>
+            <tr><td>Propinas cobradas en efectivo</td><td class="r">${M(d.propEf)}</td></tr>
             <tr><td>+ Depósitos</td><td class="r">${M(d.dep)}</td></tr>
             <tr><td>− Retiros</td><td class="r">${M(d.ret)}</td></tr>
-            <tr><td>− Propinas pagadas</td><td class="r">${M(d.propPag)}</td></tr>
-            <tr class="tot"><td>= EFECTIVO ESPERADO</td><td class="r">${M(d.efEsper)}</td></tr>
-            <tr><td>− Bote cocina (30%)</td><td class="r">${M(d.boteC)}</td></tr>
-            <tr class="tot"><td>= EFECTIVO DEL RESTAURANTE</td><td class="r">${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}</td></tr>
+            <tr><td>− Propinas pagadas a meseros</td><td class="r">${M(d.propPag)}</td></tr>
+            <tr class="tot"><td>= EFECTIVO ESPERADO EN EL CAJÓN</td><td class="r">${M(d.efEsper)}</td></tr>
           </table>
+          <div class="sec">BOTE DE COCINA (SE LE DEBE)</div>
+          <table>
+            <tr><td>Bote del turno (30%)</td><td class="r">${M(d.boteC)}</td></tr>
+            <tr class="tot"><td>${_boteFalta(d)>0.009?('NO alcanza en el cajón: faltan '+M(_boteFalta(d))):'Respaldado con el efectivo del cajón'}</td><td class="r"></td></tr>
+          </table>
+          ${_boteFalta(d)>0.009?`<div style="font-size:11px;color:#333;margin-top:4px">La propina de tarjeta (${M(d.propBanco)}) se pagó en efectivo del cajón; ese dinero llega por el banco.</div>`:''}
         </div>
         <div class="col">
-          <div class="sec">VENTAS</div>
+          <div class="sec">VENTAS (SIN PROPINA)</div>
           <table>
-            <tr><td>Efectivo</td><td class="r">${M(d.ef)}</td></tr>
-            <tr><td>Tarjeta</td><td class="r">${M(d.tar)}</td></tr>
-            <tr><td>Transferencia</td><td class="r">${M(d.tra)}</td></tr>
+            <tr><td>Efectivo</td><td class="r">${M(_efN(d))}</td></tr>
+            <tr><td>Tarjeta</td><td class="r">${M(_tarN(d))}</td></tr>
+            <tr><td>Transferencia</td><td class="r">${M(_traN(d))}</td></tr>
             <tr><td>Cortesías</td><td class="r">${M(d.cort)}</td></tr>
             <tr><td>Cuentas cerradas</td><td class="r">${d.n}</td></tr>
             <tr class="tot"><td>VENTA</td><td class="r">${M(d.ventas)}</td></tr>
           </table>
+          ${Math.abs(Number(d.descuadre||0))>0.5?`<div style="font-size:12px;color:#a5281b;font-weight:bold;margin-top:5px">⚠ Descuadre de ${M(Math.abs(d.descuadre))}: las formas de pago ${Number(d.descuadre)<0?'suman menos':'suman más'} que la venta.</div>`:''}
+          <div class="sec">ENTRÓ POR CADA FORMA (CON PROPINA)</div>
+          <table>
+            <tr><td>Efectivo (billetes)</td><td class="r">${M(d.ef)}</td></tr>
+            <tr><td>Tarjeta (al banco)</td><td class="r">${M(d.tar)}</td></tr>
+            <tr><td>Transferencia (al banco)</td><td class="r">${M(d.tra)}</td></tr>
+          </table>
+          <div style="font-size:11px;color:#666;margin-top:4px">Esta tabla cuadra con el lote de la terminal bancaria.</div>
         </div>
       </div>
       <div class="sec">PROPINAS</div>
       <div class="cols">
         <div class="col"><table>
+          ${d.propEf!=null?`<tr><td>En efectivo (entró al cajón)</td><td class="r">${M(d.propEf)}</td></tr>
+          <tr><td>En tarjeta/transferencia (al banco)</td><td class="r">${M(d.propBanco)}</td></tr>`:''}
           <tr><td>Total propinas del turno</td><td class="r">${M(d.prop)}</td></tr>
           <tr><td>Pagado a meseros (70%)</td><td class="r">${M(d.propPag)}</td></tr>
-          <tr class="tot"><td>Bote cocina (30%) — QUEDA EN CAJA</td><td class="r">${M(d.boteC)}</td></tr>
+          <tr class="tot"><td>Bote cocina (30%) — SE LE DEBE A COCINA</td><td class="r">${M(d.boteC)}</td></tr>
         </table>
-        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) NO se saca hoy: se queda en la caja y se reparte a cocina al día siguiente.</div></div>
+        <div style="font-size:11px;color:#666;margin-top:4px">El bote (30%) no se saca hoy: se le reparte a cocina al día siguiente. Es una deuda, no un billete que salió del cajón.</div></div>
         <div class="col"><table>
           <tr class="hd"><td>Mesero</td><td class="r">Propina</td><td class="r">70%</td><td class="r">Pagada</td></tr>
           ${filasP}
@@ -2104,20 +2219,21 @@ window.imprimirCorteGuardado=(i)=>{
     <h1>LOS PARES 84×88</h1>
     <div class="sub">${tit} &nbsp;·&nbsp; ${new Date(c.creado_en).toLocaleString('es-MX')} &nbsp;·&nbsp; ${(c.nombre||'').replace(/</g,'')}</div>
     ${c.leyenda?`<div style="text-align:center;font-size:13px;color:#333;margin:-8px 0 14px">${(c.leyenda||'').replace(/</g,'')}</div>`:''}
-    <div class="sec">VENTAS</div>
+    <div class="sec">COBRADO POR CADA FORMA (con propina incluida)</div>
     <table>
       <tr><td>Efectivo</td><td class="r">${M(c.total_efectivo)}</td></tr>
       <tr><td>Tarjeta</td><td class="r">${M(c.total_tarjeta)}</td></tr>
       <tr><td>Transferencia</td><td class="r">${M(c.total_transferencia)}</td></tr>
       <tr><td>Cortesías</td><td class="r">${M(c.total_cortesias)}</td></tr>
       <tr><td>Cuentas cerradas</td><td class="r">${c.num_cuentas}</td></tr>
-      <tr class="tot"><td>VENTA</td><td class="r">${M(c.total_ventas)}</td></tr>
+      <tr class="tot"><td>VENTA (sin propina)</td><td class="r">${M(c.total_ventas)}</td></tr>
     </table>
+    <div style="font-size:11px;color:#333;margin-top:4px">Ojo: en el corte guardado las formas de pago traen la <b>propina incluida</b>, así que suman más que la VENTA. La diferencia debe ser cercana a las propinas de abajo.</div>
     <div class="sec">PROPINAS</div>
     <table>
       <tr><td>Total propinas</td><td class="r">${M(prop)}</td></tr>
       <tr><td>Pagado a meseros (70%)</td><td class="r">${M(prop*0.7)}</td></tr>
-      <tr class="tot"><td>Bote cocina (30%) — QUEDA EN CAJA</td><td class="r">${M(prop*0.3)}</td></tr>
+      <tr class="tot"><td>Bote cocina (30%) — SE LE DEBE A COCINA</td><td class="r">${M(prop*0.3)}</td></tr>
     </table>
     <div class="pie">Corte guardado tal cual se registró en el momento · Los Pares 84×88 · Tuxtepec, Oaxaca</div>
   </div></body></html>`);
@@ -2125,9 +2241,12 @@ window.imprimirCorteGuardado=(i)=>{
 };
 function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toFixed(2);
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
-    `EFECTIVO EN CAJA\nFondo inicial: ${M(d.fondo)}\nEfectivo cobrado: ${M(d.ef)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas: ${M(d.propPag)}\nEFECTIVO ESPERADO: ${M(d.efEsper)}\n- Bote cocina (30%): ${M(d.boteC)}\n= EFECTIVO DEL RESTAURANTE: ${M((d.efRest!=null)?d.efRest:(Number(d.efEsper||0)-Number(d.boteC||0)))}\n\n`+
-    `VENTAS\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n\n`+
-    `PROPINAS\nTotal propinas del turno: ${M(d.prop)}\nPagado a meseros (70%): ${M(d.propPag)}\nBote cocina (30%) - QUEDA EN CAJA: ${M(d.boteC)}\n(El bote no se saca hoy: se reparte a cocina al dia siguiente)\n\n`+
+    `EFECTIVO EN CAJA (BILLETES)\nFondo inicial: ${M(d.fondo)}\nConsumo cobrado en efectivo: ${M(_efN(d))}\nPropinas cobradas en efectivo: ${M(d.propEf)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas a meseros: ${M(d.propPag)}\nEFECTIVO ESPERADO EN EL CAJON: ${M(d.efEsper)}\n\n`+
+    `BOTE DE COCINA (SE LE DEBE)\nBote del turno (30%): ${M(d.boteC)}\n${_boteFalta(d)>0.009?('NO alcanza en el cajon: faltan '+M(_boteFalta(d))+'\n(la propina de tarjeta se pago en efectivo; ese dinero llega por el banco)'):'Respaldado con el efectivo del cajon'}\n\n`+
+    `VENTAS (SIN PROPINA)\nEfectivo: ${M(_efN(d))}\nTarjeta: ${M(_tarN(d))}\nTransferencia: ${M(_traN(d))}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n`+
+    (Math.abs(Number(d.descuadre||0))>0.5?`*** DESCUADRE DE ${M(Math.abs(d.descuadre))}: las formas de pago suman ${Number(d.descuadre)<0?'MENOS':'MAS'} que la venta ***\n`:'')+
+    `\nENTRO POR CADA FORMA (con propina, cuadra con la terminal)\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\n\n`+
+    `PROPINAS\n${d.propEf!=null?`En efectivo: ${M(d.propEf)}\nEn tarjeta/transferencia: ${M(d.propBanco)}\n`:''}Total propinas del turno: ${M(d.prop)}\nPagado a meseros (70%): ${M(d.propPag)}\nBote cocina (30%) - SE LE DEBE A COCINA: ${M(d.boteC)}\n(El bote no se saca hoy: se le reparte a cocina al dia siguiente)\n\n`+
     `PAGADO A CADA MESERO (70%)\n`+
     ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'  (sin propinas)\n')+
     `\nCortesias: ${M(d.cort)}`;
@@ -2169,8 +2288,10 @@ window.corteZP=async(id)=>{
         if(!_r1.error) window._cajaData.ppm=_r1.data||[];
         if(!_r2.error) window._cajaData.boteC=Number(_r2.data)||0;
         if(!_r3.error) window._cajaData.propPag=Number(_r3.data)||0;
-        // recalcular efectivo esperado y del restaurante con las propinas ya pagadas
+        // recalcular el efectivo del cajón con las propinas ya pagadas (7 oct:
+        // el bote NO se resta del efectivo; solo se revisa si queda respaldado)
         window._cajaData.efEsper=Number(window._cajaData.fondo)+Number(window._cajaData.ef)+Number(window._cajaData.dep)-Number(window._cajaData.ret)-Number(window._cajaData.propPag);
+        window._cajaData.boteFalta=Math.max(0,Number(window._cajaData.boteC||0)-window._cajaData.efEsper);
         window._cajaData.efRest=window._cajaData.efEsper-Number(window._cajaData.boteC||0);
       }
     }catch(e){}
@@ -2200,7 +2321,18 @@ window.pintarCorteHist=async(iso)=>{
     if(cq.error) throw cq.error;
     const cuentas=cq.data||[]; const ids=cuentas.map(c=>c.id); const turnos=[...new Set(cuentas.map(c=>c.turno_id).filter(Boolean))];
     let pagos=[]; if(ids.length){ const pq=await sb.from("pago").select("cuenta_id,forma_pago_id,importe,propina").in("cuenta_id",ids); pagos=pq.data||[]; }
-    let ef=0,tar=0,tra=0,prop=0; pagos.forEach(p=>{const t=tipoForma(p.forma_pago_id),v=Number(p.importe||0); if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v; prop+=Number(p.propina||0);});
+    /* 7 oct — mismo arreglo que en tallyCaja: separar bruto (lo que entró) de
+       neto (la venta), y la propina según si entró en billetes o al banco. */
+    let ef=0,tar=0,tra=0,otr=0,prop=0;
+    let efN=0,tarN=0,traN=0,otrN=0,propEf=0,propBanco=0;
+    pagos.forEach(p=>{
+      const t=tipoForma(p.forma_pago_id),v=Number(p.importe||0),pr=Number(p.propina||0),neto=v-pr;
+      if(t==='EFECTIVO'){ ef+=v; efN+=neto; propEf+=pr; }
+      else if(t==='TARJETA'){ tar+=v; tarN+=neto; propBanco+=pr; }
+      else if(t==='TRANSFERENCIA'){ tra+=v; traN+=neto; propBanco+=pr; }
+      else { otr+=v; otrN+=neto; propBanco+=pr; }
+      prop+=pr;
+    });
     const ventas=cuentas.reduce((a,c)=>a+Number(c.total||0),0);
     let cort=0; if(ids.length){ try{ const co=await sb.from("cuenta_producto").select("importe").eq("es_cortesia",true).in("cuenta_id",ids); cort=(co.data||[]).reduce((a,x)=>a+Number(x.importe||0),0);}catch(e){} }
     let dep=0,ret=0; if(turnos.length){ try{ const mc=await sb.from("movimiento_caja").select("tipo,monto").in("turno_id",turnos); (mc.data||[]).forEach(mv=>{ if(mv.tipo==='DEPOSITO')dep+=Number(mv.monto||0); else if(mv.tipo==='RETIRO')ret+=Number(mv.monto||0);});}catch(e){} }
@@ -2215,7 +2347,10 @@ window.pintarCorteHist=async(iso)=>{
     let nombreMap={}; if(midList.length){ try{ const eq=await sb.from("empleado").select("id,nombre").in("id",midList); (eq.data||[]).forEach(e=>nombreMap[e.id]=e.nombre); }catch(e){} }
     let ppm=midList.filter(mid=>brutaMap[mid]>0).map(mid=>({mesero_id:mid, mesero:nombreMap[mid]||('#'+mid), propina_bruta:brutaMap[mid], pagar_70:Math.round(brutaMap[mid]*0.70*100)/100, ya_pagado:(pagMap[mid]||0)>0, pagado_monto:pagMap[mid]||0})).sort((a,b)=>(a.mesero||'').localeCompare(b.mesero||''));
     const efEsper=fondo+ef+dep-ret-propPag; const efRest=efEsper-boteC;
-    const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,efRest,ppm,efEsper,tar,tra,ventas,prop,cort,n:cuentas.length};
+    const boteFalta=Math.max(0,boteC-efEsper);
+    const descuadre=(efN+tarN+traN+otrN)-ventas;
+    const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,boteFalta,efRest,ppm,efEsper,
+             tar,tra,efN,tarN,traN,otrN,propEf,propBanco,descuadre,ventas,prop,cort,n:cuentas.length};
     window._corteHistData=d;
     // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
     const _CGSEL="id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en";
@@ -2258,18 +2393,37 @@ window.pintarCorteHist=async(iso)=>{
       </div>`:`
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:280px">
-          <div class="sec-t">Efectivo en caja</div>
+          <div class="sec-t">Efectivo en caja (billetes)</div>
           <table><tbody>
-            ${row('Fondo inicial',fondo)}${row('Efectivo cobrado',ef)}${row('+ Depósitos',dep)}${row('− Retiros',ret)}${row('− Propinas pagadas',propPag)}${row('= Efectivo esperado',efEsper,true)}${row('− Bote cocina (30%)',boteC)}${row('= Efectivo del restaurante',efRest,true)}
+            ${row('Fondo inicial',fondo)}${row('Consumo cobrado en efectivo',efN)}${row('Propinas cobradas en efectivo',propEf)}${row('+ Depósitos',dep)}${row('− Retiros',ret)}${row('− Propinas pagadas a meseros',propPag)}${row('= EFECTIVO ESPERADO EN EL CAJÓN',efEsper,true)}
           </tbody></table>
+          <div class="sec-t" style="margin-top:14px">Bote de cocina (lo que se le debe)</div>
+          <table><tbody>
+            ${row('Bote del día (30% de propinas)',boteC)}
+            ${boteFalta>0.009
+              ? `<tr><td style="color:#ff9c90">⚠ No alcanzaba en el cajón</td><td class="n" style="color:#ff9c90">faltaban ${M(boteFalta)}</td></tr>`
+              : `<tr><td style="color:#8fd6a5">✓ Respaldado con el efectivo del cajón</td><td class="n" style="color:#8fd6a5">—</td></tr>`}
+          </tbody></table>
+          ${boteFalta>0.009?`<p class="tenue" style="margin:6px 0 0;font-size:12px">Ese día la propina de tarjeta (${M(propBanco)}) se pagó en efectivo del cajón; el dinero llegó por el banco.</p>`:''}
         </div>
         <div style="flex:1;min-width:280px">
-          <div class="sec-t">Resumen del día</div>
+          <div class="sec-t">Ventas del día (sin propina)</div>
           <table><tbody>
-            ${row('Efectivo',ef)}${row('Tarjeta',tar)}${row('Transferencia',tra)}${row('Propinas',prop)}
+            ${row('Efectivo',efN)}${row('Tarjeta',tarN)}${row('Transferencia',traN)}${otrN?row('Otros',otrN):''}
+            ${row('Cortesías',cort)}${row('Cuentas cerradas',String(cuentas.length))}${row('VENTA DEL DÍA',ventas,true)}
+          </tbody></table>
+          ${Math.abs(descuadre)>0.5
+            ? `<div class="aviso err" style="margin-top:8px;font-size:13px"><b>⚠ Descuadre de ${M(Math.abs(descuadre))}</b> — las formas de pago ${descuadre<0?'suman MENOS':'suman MÁS'} que la venta de ese día.</div>`
+            : `<p class="tenue" style="margin:6px 0 0;font-size:12px">✓ Las formas de pago cuadran con la venta.</p>`}
+          <div class="sec-t" style="margin-top:14px">Lo que entró por cada forma (con propina)</div>
+          <table><tbody>
+            ${row('Efectivo (billetes)',ef)}${row('Tarjeta (al banco)',tar)}${row('Transferencia (al banco)',tra)}
+          </tbody></table>
+          <div class="sec-t" style="margin-top:14px">Propinas</div>
+          <table><tbody>
+            ${row('En efectivo',propEf)}${row('En tarjeta/transferencia',propBanco)}${row('TOTAL',prop,true)}
             <tr class="tenue"><td>· Mesero 70%</td><td class="n">${M(prop*0.7)}</td></tr>
             <tr class="tenue"><td>· Bote cocina 30%</td><td class="n">${M(prop*0.3)}</td></tr>
-            ${row('Cortesías',cort)}${row('Cuentas cerradas',String(cuentas.length))}${row('VENTA DEL DÍA',ventas,true)}
           </tbody></table>
         </div>
       </div>
