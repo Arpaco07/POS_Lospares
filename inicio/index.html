@@ -34,6 +34,9 @@
   .flecha{margin-left:auto;color:var(--oro);font-size:22px}
   .pie{margin-top:26px;font-size:12px;color:#777;text-align:center;line-height:1.7}
   .pie a{color:#999;text-decoration:underline;cursor:pointer}
+  .forzado{display:none;margin-top:14px;font-size:12px;font-weight:700;color:#111;
+    background:var(--oro);border-radius:999px;padding:7px 14px;cursor:pointer}
+  .forzado.on{display:inline-block}
 </style>
 </head>
 <body>
@@ -43,6 +46,7 @@
   </div>
 
   <div class="estado"><span class="dot" id="dot"></span><span id="txtEstado">Detectando dónde estás…</span></div>
+  <span class="forzado" id="avisoForzado"></span>
 
   <div class="botones">
     <a class="card" id="bComandero"><span class="emoji">🧾</span>
@@ -61,18 +65,45 @@
   </div>
 
 <script>
+  /* ==========================================================================
+     ARRANCADOR (HUB) — Los Pares 84x88        COPIA DE GITHUB
+     Va en el repo, en:  inicio/index.html
+     Se abre en:         https://arpaco07.github.io/POS_Lospares/inicio/
+
+     ESTA COPIA ES LA QUE SIRVE CUANDO ANDAS FUERA DEL RESTAURANTE.
+     (La copia que vive en la cajita, pos.lospares.com/inicio/, es mas rapida
+     y no necesita internet, pero SOLO abre estando dentro de la red.)
+
+     QUE SE CORRIGIO EL 6 DE OCTUBRE 2026:
+       1) La prueba para ver si se alcanza la cajita esperaba 1.2 segundos y
+          se rendia. En redes un poco lentas (o saltando entre WiFi) no
+          alcanzaba y se quedaba en NUBE aunque estuvieras en el restaurante:
+          eso le pasaba al celular de Arturo y no al de Carla. Ahora espera
+          3 segundos, y mientras tanto los botones ya sirven en NUBE.
+       2) "Forzar LOCAL" / "Forzar NUBE" no se veian por ningun lado. Un
+          ajuste puesto una vez parecia una decision automatica. Ahora sale
+          un aviso dorado que dice que esta forzado y se quita tocandolo.
+       3) En la cajita la pagina de cancelacion esta en "facturaCancelar/" y
+          en GitHub es "factura/cancelar.html". Ahora cada modo usa la suya.
+     ========================================================================== */
+
   var LOCAL = "https://pos.lospares.com/";
   var NUBE  = "https://arpaco07.github.io/POS_Lospares/";
-  var RUTAS = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"factura/cancelar.html" };
-  var modo = null;
 
-  function aplicar(m){
+  var RUTAS_LOCAL = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"facturaCancelar/" };
+  var RUTAS_NUBE  = { comandero:"", panel:"panel/", factura:"factura/", cancelar:"factura/cancelar.html" };
+
+  var modo = null;
+  var forzado = false;
+
+  function aplicar(m, esForzado){
     modo = m;
-    var base = (m==="local") ? LOCAL : NUBE;
-    document.getElementById("bComandero").href = base + RUTAS.comandero;
-    document.getElementById("bPanel").href     = base + RUTAS.panel;
-    document.getElementById("bFactura").href   = base + RUTAS.factura;
-    document.getElementById("bCancelar").href  = base + RUTAS.cancelar;
+    var base  = (m==="local") ? LOCAL : NUBE;
+    var rutas = (m==="local") ? RUTAS_LOCAL : RUTAS_NUBE;
+    document.getElementById("bComandero").href = base + rutas.comandero;
+    document.getElementById("bPanel").href     = base + rutas.panel;
+    document.getElementById("bFactura").href   = base + rutas.factura;
+    document.getElementById("bCancelar").href  = base + rutas.cancelar;
     var dot = document.getElementById("dot");
     dot.className = "dot " + m;
     document.getElementById("txtEstado").textContent =
@@ -80,38 +111,49 @@
     document.getElementById("pieModo").textContent =
       (m==="local") ? "Abriendo la cajita local (rápido, sin depender de internet)."
                     : "Abriendo desde la nube.";
+
+    forzado = !!esForzado;
+    var av = document.getElementById("avisoForzado");
+    if(forzado){
+      av.textContent = "⚠ Forzado a " + (m==="local"?"LOCAL":"NUBE") + " — toca aquí para quitarlo";
+      av.className = "forzado on";
+    }else{
+      av.className = "forzado";
+    }
   }
 
-  // ¿Dónde se ABRIÓ este arrancador?
+  /* ¿Donde se ABRIO este arrancador? */
   var _host = (location.hostname||"").toLowerCase();
   var _esLocal = (_host==="pos.lospares.com" || _host==="localhost" || _host==="127.0.0.1"
     || _host.indexOf("192.168.")===0 || _host.indexOf("10.")===0);
 
-  if(_esLocal){
-    // Se abrió DESDE la cajita local: estás en el restaurante.
-    aplicar("local");
-  }else{
-    // Se abrió desde la NUBE (github.io) / datos / cualquier internet:
-    // se muestra la nube AL INSTANTE (no se queda cargando con datos).
-    aplicar("nube");
-    // Además, sin estorbar, probamos rapidito si SÍ se alcanza la cajita local
-    // (por si estás en el restaurante conectado por WiFi): si responde, usamos LOCAL.
-    // Con datos móviles esto falla enseguida y todo se queda en NUBE.
-    (function detectar(){
-      try{
-        var ctrl = new AbortController();
-        var t = setTimeout(function(){ ctrl.abort(); }, 1200);
-        fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
-          .then(function(){ clearTimeout(t); aplicar("local"); })
-          .catch(function(){ clearTimeout(t); /* se queda en NUBE */ });
-      }catch(e){ /* se queda en NUBE */ }
-    })();
+  function arrancar(){
+    if(_esLocal){
+      aplicar("local", false);
+    }else{
+      /* Se abrio desde la nube: se muestra NUBE AL INSTANTE (nada se queda
+         cargando) y, sin estorbar, se prueba si tambien se alcanza la cajita.
+         Con datos moviles esto falla enseguida y todo se queda en NUBE. */
+      aplicar("nube", false);
+      (function detectar(){
+        try{
+          var ctrl = new AbortController();
+          var t = setTimeout(function(){ ctrl.abort(); }, 3000);
+          fetch(LOCAL, { mode:"no-cors", cache:"no-store", signal:ctrl.signal })
+            .then(function(){ clearTimeout(t); if(!forzado) aplicar("local", false); })
+            .catch(function(){ clearTimeout(t); /* se queda en NUBE */ });
+        }catch(e){ /* se queda en NUBE */ }
+      })();
+    }
   }
 
-  document.getElementById("forzarLocal").onclick = function(){ aplicar("local"); };
-  document.getElementById("forzarNube").onclick  = function(){ aplicar("nube"); };
+  arrancar();
 
-  // Registrar service worker (para que se pueda INSTALAR como app)
+  document.getElementById("forzarLocal").onclick  = function(){ aplicar("local", true); };
+  document.getElementById("forzarNube").onclick   = function(){ aplicar("nube",  true); };
+  document.getElementById("avisoForzado").onclick = function(){ arrancar(); };
+
+  /* Service worker (para poder INSTALARLO como app) */
   if("serviceWorker" in navigator){
     navigator.serviceWorker.register("sw.js").catch(function(){});
   }
