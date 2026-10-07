@@ -27,6 +27,7 @@
   .tot{font-size:22px;font-weight:800;color:var(--oro)}
   .pie{text-align:center;color:var(--tenue);font-size:12px;margin-top:24px}
   .cargando{color:var(--tenue);text-align:center;padding:10px}
+  .nota{font-size:12px;color:var(--tenue);margin:6px 0 0;line-height:1.45}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -42,12 +43,10 @@
   <div class="card" id="paso1">
     <label>Folio del ticket</label>
     <input id="folio" placeholder="Ej. L-000135" autocomplete="off">
+    <p class="nota">Si tu cuenta se dividió entre varias personas, usa el folio de <b>tu</b> ticket, el que termina en <b>-1</b>, <b>-2</b>, etc.</p>
     <label>Total del ticket ($)</label>
     <input id="total" type="number" step="0.01" placeholder="Ej. 530.00" inputmode="decimal">
-    <div class="row2">
-      <div><button class="btn d" onclick="facturar(true)">Factura general</button></div>
-      <div><button class="btn g" onclick="mostrarDatos()">Con mis datos</button></div>
-    </div>
+    <button class="btn o" onclick="mostrarDatos()">Continuar</button>
     <button class="btn g" style="margin-top:8px;font-size:14px" onclick="recuperar()">🔎 Ya facturé — quiero mi factura otra vez</button>
     <div id="msg1"></div>
     <div id="rec"></div>
@@ -97,12 +96,12 @@
 
     <label>Correo (para enviarte la factura)</label>
     <input id="correo" type="email" placeholder="tucorreo@ejemplo.com" autocomplete="off">
-    <button class="btn o" onclick="facturar(false)">Generar mi factura</button>
+    <button class="btn o" onclick="facturar()">Generar mi factura</button>
     <button class="btn g" onclick="ocultarDatos()" style="margin-top:8px">‹ Regresar</button>
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v6 · 1 oct 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v7 · 7 oct 2026</span></div>
 </div>
 
 <script>
@@ -112,6 +111,21 @@
   const FN_RE = SUPA + "/functions/v1/factura-reenviar";
   const KEY = "sb_publishable_GSAiqzwne2iMe1niBbSMkQ_6XUCGzjB";
   // ============================================================
+
+  // ===== v7 (7 oct 2026): SE QUITO "FACTURA GENERAL" =====
+  //  Ese boton timbraba de inmediato un CFDI a PUBLICO EN GENERAL, sin pedir
+  //  datos. Los clientes lo picaban por equivocacion y pasaban dos cosas malas:
+  //   1) se llevaban una factura que NO les sirve para deducir (va a nombre de
+  //      "Publico en general", no al suyo), y
+  //   2) el folio de su ticket quedaba marcado como facturado, asi que ya no
+  //      podian sacar la suya sin cancelar primero ante el SAT.
+  //  Las facturas globales de publico en general las hace la contadora
+  //  directamente en el portal del SAT, no van por aqui.
+  //  Ahora el portal tiene UN SOLO camino: capturar los datos fiscales.
+  //  La funcion facturar() ya no recibe el parametro 'general' y SIEMPRE
+  //  manda rfc/nombre/cp, asi que nunca puede timbrar en modo global.
+  // ========================================================
+
   const $ = (id) => document.getElementById(id);
   function mostrarDatos(){ if(!validaTicket("msg1")) return; $("paso2").classList.remove("hide"); $("paso2").scrollIntoView({behavior:"smooth"}); }
   function ocultarDatos(){ $("paso2").classList.add("hide"); $("msg2").innerHTML=""; }
@@ -226,21 +240,19 @@
     }catch(e){ $("recMsg").innerHTML = `<div class="msg err">Falló el envío. Usa los botones de descargar.</div>`; }
   }
 
-  async function facturar(general){
-    const caja = general ? "msg1" : "msg2";
+  // v7: SIEMPRE con datos del cliente. Ya no existe el camino "general".
+  async function facturar(){
+    const caja = "msg2";
     if(!validaTicket(caja)) return;
     const f=$("folio").value.trim(), t=parseFloat($("total").value);
     let url = `${FN}?apikey=${KEY}&folio=${encodeURIComponent(f)}&total=${t}`;
-    let correoCliente = "";
-    if(!general){
-      const rfc=$("rfc").value.trim().toUpperCase(), nom=$("nombre").value.trim(), cp=$("cp").value.trim(), reg=$("regimen").value, uso=$("uso").value, cor=$("correo").value.trim();
-      if(!rfc||!nom||!cp){ msg("msg2","err","Llena RFC, nombre y código postal."); return; }
-      correoCliente = cor;
-      url += `&rfc=${encodeURIComponent(rfc)}&nombre=${encodeURIComponent(nom)}&cp=${encodeURIComponent(cp)}&regimen=${reg}&uso=${uso}&correo=${encodeURIComponent(cor)}`;
-      // v4: forma de pago del SAT. Vacio = la que registro la caja.
-      const fp = $("forma") ? $("forma").value : "";
-      if(fp) url += `&forma=${fp}`;
-    }
+    const rfc=$("rfc").value.trim().toUpperCase(), nom=$("nombre").value.trim(), cp=$("cp").value.trim(), reg=$("regimen").value, uso=$("uso").value, cor=$("correo").value.trim();
+    if(!rfc||!nom||!cp){ msg(caja,"err","Llena RFC, nombre y código postal."); return; }
+    const correoCliente = cor;
+    url += `&rfc=${encodeURIComponent(rfc)}&nombre=${encodeURIComponent(nom)}&cp=${encodeURIComponent(cp)}&regimen=${reg}&uso=${uso}&correo=${encodeURIComponent(cor)}`;
+    // v4: forma de pago del SAT. Vacio = la que registro la caja.
+    const fp = $("forma") ? $("forma").value : "";
+    if(fp) url += `&forma=${fp}`;
     msg(caja,"ok","Generando tu factura… espera unos segundos ⏳");
     try{
       const r = await fetch(url);
@@ -295,7 +307,7 @@
   //      celular, aunque el navegador no deje bajar archivos .xml) ----
   function verXML(){
     const d = window._fac; if(!d||!d.xml_timbrado){ alert("No hay XML disponible."); return; }
-    const caja = $(window._caja || "msg1");
+    const caja = $(window._caja || "msg2");
     const prev = caja.innerHTML;
     caja.innerHTML = `<div class="msg ok"><b>XML de tu factura</b><br>
       <span style="font-size:13px">Toca "Copiar", pegalo en un bloc de notas y guardalo como <b>Factura.xml</b>. Tambien puedes bajarlo del portal del SAT.</span>
@@ -305,7 +317,7 @@
     $("xmltxt").value = d.xml_timbrado;
     window._prevCaja = prev;
   }
-  function volverCaja(){ const caja=$(window._caja||"msg1"); if(window._prevCaja) caja.innerHTML = window._prevCaja; }
+  function volverCaja(){ const caja=$(window._caja||"msg2"); if(window._prevCaja) caja.innerHTML = window._prevCaja; }
   function copiarXML(){
     const t = $("xmltxt"); if(!t) return;
     t.select(); t.setSelectionRange(0, 999999);
