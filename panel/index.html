@@ -205,6 +205,27 @@ function badgeModo(){return modo==="LOCAL"
 const state={admin:null,pin:"",vista:"ventas",rango:null,soloLectura:false};
 const cache={empleados:{},formas:{},areas:{}};
 
+/* ===== CATEGORIA DE LA FORMA DE PAGO (9 oct 2026, modulo 66) ==============
+   Antes el corte solo conocia EFECTIVO / TARJETA / TRANSFERENCIA y todo lo
+   demas caia en "OTRO", que NO se sumaba en ningun lado: asi se perdieron
+   la tarjeta de debito y los vales. Ahora son cinco cajones:
+     EFECTIVO · CREDITO · DEBITO · TRANSFERENCIA · VALES   (+ OTROS de red)
+   El DEBITO se reconoce por su clave del SAT (28) o por la clave TDEB, asi
+   que se ve bien aunque una base todavia no tenga corrido el modulo 66.
+   VALES = consumo de la casa y cortesias: NO es dinero que entre a la caja. */
+function catForma(id){
+  const f=cache.formas[id]||{};
+  const clave=String(f.clave||'').toUpperCase();
+  const sat=String(f.sat_forma_pago||'');
+  const tipo=f.tipo||'OTRO';
+  if(clave==='VALES') return 'VALES';
+  if(sat==='28'||clave==='TDEB') return 'DEBITO';
+  if(tipo==='EFECTIVO') return 'EFECTIVO';
+  if(tipo==='TARJETA') return 'CREDITO';
+  if(tipo==='TRANSFERENCIA') return 'TRANSFERENCIA';
+  return 'OTROS';
+}
+
 /* ===== LATIDO DEL ESPEJO (modulo 49 + sincronizador v2.7) =====
    En NUBE: ¿hace cuanto la cajita subio datos? Si pasan >10 min, aviso ROJO
    (asi nadie confunde "no hubo ventas" con "el espejo esta atrasado").
@@ -238,7 +259,7 @@ async function init(){
     pintarLatido(); setInterval(pintarLatido, 30000);   // latido del espejo cada 30 s
     const e=await sb.from("empleado").select("id,clave,nombre,es_admin");
     (e.data||[]).forEach(x=>cache.empleados[x.id]=x);
-    const f=await sb.from("forma_pago").select("id,tipo,nombre");
+    const f=await sb.from("forma_pago").select("id,tipo,nombre,clave,sat_forma_pago");
     (f.data||[]).forEach(x=>cache.formas[x.id]=x);
     const a=await sb.from("area_impresion").select("id,clave");
     (a.data||[]).forEach(x=>cache.areas[x.clave]=x.id);
@@ -379,8 +400,10 @@ async function cargarMonitor(){
     const {data:abi}=await sb.from("cuenta").select("id,folio,mesa_id,mesero_id,total,abierta_en").eq("estado","ABIERTA").eq("turno_id",turno.id);
     const ab=abi||[];
     let pagos=[]; if(ids.length){ const {data:pg}=await sb.from("pago").select("cuenta_id,forma_pago_id,importe,propina").in("cuenta_id",ids); pagos=pg||[]; }
-    let ef=0,tar=0,tra=0,otr=0,prop=0;
-    pagos.forEach(p=>{const t=(cache.formas[p.forma_pago_id]&&cache.formas[p.forma_pago_id].tipo)||'OTRO';const v=Number(p.importe||0); if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; prop+=Number(p.propina||0);});
+    let ef=0,tar=0,tra=0,otr=0,prop=0,cre=0,deb=0,val=0;
+    pagos.forEach(p=>{const c=catForma(p.forma_pago_id);const t=tipoForma(p.forma_pago_id);const v=Number(p.importe||0);
+      if(c==='CREDITO')cre+=v;else if(c==='DEBITO')deb+=v;else if(c==='VALES')val+=v;
+      if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; prop+=Number(p.propina||0);});
     const ventaDia=cer.reduce((a,c)=>a+Number(c.total||0),0);
     const comensales=cer.reduce((a,c)=>a+Number(c.num_comensales||0),0);
     const nCer=cer.length;
@@ -399,7 +422,7 @@ async function cargarMonitor(){
     let mmap={};
     if(ab.length){ const mids=[...new Set(ab.map(a=>a.mesa_id).filter(Boolean))]; if(mids.length){ const {data:ms}=await sb.from("mesa").select("id,nombre,numero").in("id",mids); (ms||[]).forEach(m=>mmap[m.id]=m.nombre||('Mesa '+m.numero)); } }
     const abiertasArr=ab.map(a=>({ nombre:mmap[a.mesa_id]||a.folio||('#'+a.id), folio:a.folio, mesero:(cache.empleados[a.mesero_id]||{}).nombre||'', desde:a.abierta_en, total:a.total }));
-    d={ venta_dia:ventaDia, cuentas_cerradas:nCer, comensales, ticket_promedio:(nCer?ventaDia/nCer:0), num_abiertas:ab.length, total_abierto:totalAbierto, propinas:prop, efectivo:ef, tarjeta:tar, transferencia:tra, otros:otr, top_productos:top, abiertas:abiertasArr, turno_abierto:(turno.estado==='ABIERTO'), turno_desde:turno.abierto_en, actualizado:new Date().toISOString() };
+    d={ venta_dia:ventaDia, cuentas_cerradas:nCer, comensales, ticket_promedio:(nCer?ventaDia/nCer:0), num_abiertas:ab.length, total_abierto:totalAbierto, propinas:prop, efectivo:ef, tarjeta:tar, transferencia:tra, otros:otr, credito:cre, debito:deb, vales:val, top_productos:top, abiertas:abiertasArr, turno_abierto:(turno.estado==='ABIERTO'), turno_desde:turno.abierto_en, actualizado:new Date().toISOString() };
   }
   catch(e){ $("main").innerHTML=`<div class="pad"><h2>Monitor</h2><div class="aviso err">No se pudo cargar: ${(e&&e.message)||e}</div></div>`; return; }
   const M=v=>'$'+Number(v||0).toFixed(2);
@@ -427,9 +450,10 @@ async function cargarMonitor(){
     <div class="sec-t">¿Cómo va entrando el dinero? (cobrado)</div>
     <div class="tot">
       <div class="row"><span>Efectivo</span><span>${M(d.efectivo)}</span></div>
-      <div class="row"><span>Tarjeta</span><span>${M(d.tarjeta)}</span></div>
+      <div class="row"><span>Tarjeta crédito</span><span>${M(d.credito)}</span></div>
+      <div class="row"><span>Tarjeta débito</span><span>${M(d.debito)}</span></div>
       <div class="row"><span>Transferencia</span><span>${M(d.transferencia)}</span></div>
-      <div class="row"><span>Vales / Otros</span><span>${M(d.otros)}</span></div>
+      <div class="row"><span>Vales de casa <span class="tenue" style="font-size:11px">(no es dinero)</span></span><span>${M(d.vales)}</span></div>
       <div class="row" style="font-weight:800;border-top:1px solid var(--gris2);margin-top:4px;padding-top:6px"><span>Total cobrado</span><span>${M(Number(d.efectivo)+Number(d.tarjeta)+Number(d.transferencia)+Number(d.otros))}</span></div>
     </div>
     <div class="sec-t">🔎 Buscar producto vendido (inventario)</div>
@@ -742,8 +766,9 @@ if(!window._autoTimer){ window._autoTimer=setInterval(_tickAuto,15000); }
 
 /* ---- VENTAS ---- */
 async function pintarVentas({cerr,pagos,cort}){
-  let ef=0,tar=0,tra=0,otr=0,prop=0;
-  pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';const v=Number(p.importe);
+  let ef=0,tar=0,tra=0,otr=0,prop=0,cre=0,deb=0,val=0;
+  pagos.forEach(p=>{const c=catForma(p.forma_pago_id);const t=tipoForma(p.forma_pago_id);const v=Number(p.importe);
+    if(c==='CREDITO')cre+=v;else if(c==='DEBITO')deb+=v;else if(c==='VALES')val+=v;
     if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v;prop+=Number(p.propina||0);});
   const cortT=cort.reduce((a,x)=>a+Number(x.importe),0);
   const ventas=cerr.reduce((a,c)=>a+Number(c.total),0);
@@ -777,9 +802,10 @@ async function pintarVentas({cerr,pagos,cort}){
     <div class="sec-t">¿Cómo pagaron?</div>
     <div class="kpis">
       <div class="kpi"><div class="l">Efectivo</div><div class="v">$${ef.toFixed(2)}</div></div>
-      <div class="kpi"><div class="l">Tarjeta</div><div class="v">$${tar.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Tarjeta crédito</div><div class="v">$${cre.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Tarjeta débito</div><div class="v">$${deb.toFixed(2)}</div></div>
       <div class="kpi"><div class="l">Transferencia</div><div class="v">$${tra.toFixed(2)}</div></div>
-      <div class="kpi"><div class="l">Otro</div><div class="v">$${otr.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Vales de casa</div><div class="v">$${val.toFixed(2)}</div></div>
     </div>
     <div class="sec-t">${state.rango.unDia?'Venta por hora (picos y horas muertas)':'Venta por día'}</div>
     ${grafica}</div>`;
@@ -1534,7 +1560,7 @@ async function pintarCuentas(){
     window._ctasCache={cts:cts||[],pagos};
     let tV=0,tP=0; const pf={};
     (cts||[]).forEach(c=>{ if(c.estado==='CERRADA') tV+=Number(c.total); });
-    pagos.forEach(p=>{const t=cache.formas[p.forma_pago_id]?.tipo||'OTRO';pf[t]=(pf[t]||0)+Number(p.importe);tP+=Number(p.propina||0);});
+    pagos.forEach(p=>{const t=catForma(p.forma_pago_id);pf[t]=(pf[t]||0)+Number(p.importe);tP+=Number(p.propina||0);});
     const BTN_VER=(id)=>`<td class="n"><button onclick="event.stopPropagation();verCuentaPanel(${id})" style="padding:6px 11px;border-radius:8px;border:1px solid var(--oro2);background:var(--negro);color:var(--oro);font-weight:800;font-size:12px;white-space:nowrap">🧾 Ver consumo</button></td>`;
     const filas=(cts||[]).map(c=>{
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
@@ -1569,8 +1595,10 @@ async function pintarCuentas(){
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <div class="kpi"><div class="l">Venta cobrada</div><div class="v">${M(tV)}</div></div>
         <div class="kpi"><div class="l">Efectivo</div><div class="v">${M(pf.EFECTIVO||0)}</div></div>
-        <div class="kpi"><div class="l">Tarjeta</div><div class="v">${M(pf.TARJETA||0)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta crédito</div><div class="v">${M(pf.CREDITO||0)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta débito</div><div class="v">${M(pf.DEBITO||0)}</div></div>
         <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(pf.TRANSFERENCIA||0)}</div></div>
+        ${(pf.VALES||0)>0.009?`<div class="kpi"><div class="l">Vales de casa</div><div class="v">${M(pf.VALES)}</div></div>`:''}
         <div class="kpi"><div class="l">Propinas</div><div class="v">${M(tP)}</div></div>
       </div>
       <table><thead><tr><th>Hora</th><th>Folio</th><th>Tipo</th><th>Mesero</th><th>Pago</th><th class="n">Total</th><th class="n">Propina</th><th></th></tr></thead>
@@ -1818,7 +1846,12 @@ function _reimprimirNavegador(d,soloVer){
 }
 /* ==== CAJA / TURNO — abrir turno, corte X/Z, dep/ret, WhatsApp (cajero+admin) ==== */
 const _WA={CARLA:"522871074899",ARTURO:"522871070222",PARES:"522878818488"};
-function tipoForma(id){return (cache.formas[id]&&cache.formas[id].tipo)||'OTRO';}
+function tipoForma(id){
+  const c=catForma(id);
+  if(c==='CREDITO'||c==='DEBITO') return 'TARJETA';
+  if(c==='EFECTIVO'||c==='TRANSFERENCIA') return c;
+  return 'OTRO';   /* VALES y cualquier forma rara */
+}
 async function tallyCaja(turnoId){
   const {data:cerr}=await sb.from("cuenta").select("id,total").eq("turno_id",turnoId).eq("estado","CERRADA");
   const {data:abi}=await sb.from("cuenta").select("id",{count:'exact',head:true}).eq("turno_id",turnoId).eq("estado","ABIERTA");
@@ -1839,11 +1872,18 @@ async function tallyCaja(turnoId){
                          NO esta en el cajon, esta en el banco. */
   let ef=0,tar=0,tra=0,otr=0,prop=0,cort=0;
   let efN=0,tarN=0,traN=0,otrN=0,propEf=0,propBanco=0;
+  /* 9 oct — desglose fino: credito, debito, vales y "otros" de seguridad */
+  let cre=0,deb=0,val=0,otx=0, creN=0,debN=0,valN=0,otxN=0, propVal=0;
   if(ids.length){
     const {data:pg}=await sb.from("pago").select("importe,propina,forma_pago_id").in("cuenta_id",ids);
     (pg||[]).forEach(p=>{
+      const c=catForma(p.forma_pago_id);
       const t=tipoForma(p.forma_pago_id);
       const v=Number(p.importe||0), pr=Number(p.propina||0), neto=v-pr;
+      if(c==='CREDITO'){ cre+=v; creN+=neto; }
+      else if(c==='DEBITO'){ deb+=v; debN+=neto; }
+      else if(c==='VALES'){ val+=v; valN+=neto; propVal+=pr; }
+      else if(c==='OTROS'){ otx+=v; otxN+=neto; }
       if(t==='EFECTIVO'){ ef+=v; efN+=neto; propEf+=pr; }
       else if(t==='TARJETA'){ tar+=v; tarN+=neto; propBanco+=pr; }
       else if(t==='TRANSFERENCIA'){ tra+=v; traN+=neto; propBanco+=pr; }
@@ -1858,6 +1898,7 @@ async function tallyCaja(turnoId){
     (mc||[]).forEach(m=>{if(m.tipo==='RETIRO')ret+=Number(m.monto);else if(m.tipo==='DEPOSITO')dep+=Number(m.monto);});}catch(e){}
   const ventas=(cerr||[]).reduce((a,c)=>a+Number(c.total),0);
   return {ef,tar,tra,otr,efN,tarN,traN,otrN,propEf,propBanco,prop,cort,ret,dep,
+          cre,deb,val,otx,creN,debN,valN,otxN,propVal,
           ventas,n:(cerr||[]).length,abiertas:(abi&&abi.count)||0,
           /* si esto no es 0, falta (o sobra) dinero de verdad en alguna cuenta */
           descuadre:(efN+tarN+traN+otrN)-ventas};
@@ -1903,6 +1944,8 @@ async function pintarCaja(){
     window._cajaData={fecha:new Date().toLocaleString('es-MX'),fondo:Number(turno.fondo_inicial),
       ef:t.ef,dep:t.dep,ret:t.ret,propPag,boteC,boteFalta,efRest,adelantoBanco,ppm,efEsper,
       tar:t.tar,tra:t.tra,
+      cre:t.cre,deb:t.deb,val:t.val,otx:t.otx,
+      creN:t.creN,debN:t.debN,valN:t.valN,otxN:t.otxN,propVal:t.propVal,
       efN:t.efN,tarN:t.tarN,traN:t.traN,otrN:t.otrN,
       propEf:t.propEf,propBanco:t.propBanco,descuadre:t.descuadre,
       ventas:t.ventas,prop:t.prop,cort:t.cort,n:t.n};
@@ -1938,17 +1981,18 @@ async function pintarCaja(){
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Ventas del turno (sin propina)</div>
           <table><tbody>
-            ${row('Efectivo',t.efN)}${row('Tarjeta',t.tarN)}${row('Transferencia',t.traN)}${t.otrN?row('Otros',t.otrN):''}
+            ${row('Efectivo',t.efN)}${row('Tarjeta crédito',t.creN)}${row('Tarjeta débito',t.debN)}${row('Transferencia',t.traN)}${t.valN>0.009?row('Vales de casa (no es dinero)',t.valN):''}${t.otxN>0.009?row('Otros',t.otxN):''}
             ${row('Cortesías',t.cort)}${row('Cuentas cerradas',String(t.n))}${row('VENTA DEL TURNO',t.ventas,true)}
+            ${t.valN>0.009?row('VENTA REAL COBRADA (sin vales)',t.ventas-t.valN,true):''}
           </tbody></table>
           ${Math.abs(t.descuadre)>0.5
             ? `<div class="aviso err" style="margin-top:8px;font-size:13px"><b>⚠ Descuadre de ${M(Math.abs(t.descuadre))}</b> — las formas de pago ${t.descuadre<0?'suman MENOS':'suman MÁS'} que la venta. Revísalo con <b>🔎 Verificar corte</b>: hay una cuenta cobrada de ${t.descuadre<0?'menos':'más'}.</div>`
             : `<p class="tenue" style="margin:6px 0 0;font-size:12px">✓ Las formas de pago cuadran exacto con la venta.</p>`}
           <div class="sec-t" style="margin-top:14px">Lo que entró por cada forma (con propina)</div>
           <table><tbody>
-            ${row('Efectivo (billetes)',t.ef)}${row('Tarjeta (va al banco)',t.tar)}${row('Transferencia (va al banco)',t.tra)}
+            ${row('Efectivo (billetes)',t.ef)}${row('Tarjeta crédito (al banco)',t.cre)}${row('Tarjeta débito (al banco)',t.deb)}${row('TARJETA — TOTAL TERMINAL',t.tar,true)}${row('Transferencia (al banco)',t.tra)}${t.val>0.009?row('Vales de casa (NO entró dinero)',t.val):''}${t.otx>0.009?row('Otros',t.otx):''}
           </tbody></table>
-          <p class="tenue" style="margin:6px 0 0;font-size:12px">Esta tabla es la que debe cuadrar con el <b>lote de la terminal bancaria</b>, porque ahí la propina va incluida.</p>
+          <p class="tenue" style="margin:6px 0 0;font-size:12px">El renglón <b>TARJETA — TOTAL TERMINAL</b> es el que debe cuadrar con el <b>lote de la terminal bancaria</b> (ahí la propina va incluida). Los <b>vales</b> no entran al lote: no hubo cobro.</p>
           <div class="sec-t" style="margin-top:14px">Propinas</div>
           <table><tbody>
             ${row('En efectivo (entró al cajón)',t.propEf)}${row('En tarjeta/transferencia (al banco)',t.propBanco)}${row('TOTAL PROPINAS',t.prop,true)}
@@ -2005,6 +2049,12 @@ function _tarN(d){ if(d.tarN!=null) return Number(d.tarN);
   return Number(d.tar||0); }
 function _traN(d){ if(d.traN!=null) return Number(d.traN);
   return Number(d.tra||0); }
+/* 9 oct — desglose de tarjeta y vales. En cortes viejos (sin desglose) se
+   muestra todo como credito y el debito/vales salen en cero: antes del 9 de
+   octubre esa informacion no se guardaba. */
+function _creN(d){ if(d.creN!=null) return Number(d.creN); return Number(d.tarN!=null?d.tarN:(d.tar||0)); }
+function _debN(d){ return Number(d.debN||0); }
+function _valN(d){ return Number(d.valN||0); }
 /* ¿Cuánto falta en el cajón para cubrir el bote que se le debe a cocina? */
 function _boteFalta(d){ if(d.boteFalta!=null) return Number(d.boteFalta);
   return Math.max(0,Number(d.boteC||0)-Number(d.efEsper||0)); }
@@ -2049,17 +2099,22 @@ function _corteNodo(d,titulo){
         <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:8px 0 4px;padding-bottom:4px">VENTAS (SIN PROPINA)</div>
         <table style="width:100%;border-collapse:collapse">
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_efN(d))}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_tarN(d))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta crédito</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_creN(d))}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta débito</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_debN(d))}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_traN(d))}</td></tr>
+          ${_valN(d)>0.009?`<tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Vales de casa (no es dinero)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(_valN(d))}</td></tr>`:''}
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cortesías</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.cort)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Cuentas cerradas</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${d.n}</td></tr>
           <tr><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000">VENTA</td><td style="padding:4px 2px;font-weight:bold;border-top:2px solid #000;text-align:right">${M(d.ventas)}</td></tr>
+          ${_valN(d)>0.009?`<tr><td style="padding:4px 2px;font-weight:bold">VENTA REAL COBRADA (sin vales)</td><td style="padding:4px 2px;font-weight:bold;text-align:right">${M(Number(d.ventas||0)-_valN(d))}</td></tr>`:''}
         </table>
         ${Math.abs(Number(d.descuadre||0))>0.5?`<div style="font-size:12px;color:#a5281b;font-weight:bold;margin-top:5px">⚠ Descuadre de ${M(Math.abs(d.descuadre))}: las formas de pago ${Number(d.descuadre)<0?'suman menos':'suman más'} que la venta.</div>`:''}
         <div style="font-weight:bold;font-size:15px;border-bottom:1.5px solid #000;margin:14px 0 4px;padding-bottom:4px">ENTRÓ POR CADA FORMA (CON PROPINA)</div>
         <table style="width:100%;border-collapse:collapse">
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Efectivo (billetes)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.ef)}</td></tr>
-          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tar)}</td></tr>
+          ${d.cre!=null?`<tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta crédito (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.cre)}</td></tr>
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Tarjeta débito (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.deb)}</td></tr>`:''}
+          <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;font-weight:bold">Tarjeta — total terminal</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right;font-weight:bold">${M(d.tar)}</td></tr>
           <tr><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc">Transferencia (al banco)</td><td style="padding:4px 2px;border-bottom:1px solid #dcdcdc;text-align:right">${M(d.tra)}</td></tr>
         </table>
         <div style="font-size:11px;color:#666;margin-top:4px">Esta tabla es la que cuadra con el lote de la terminal bancaria.</div>
@@ -2163,17 +2218,22 @@ window.imprimirCorte=(d,titulo)=>{
           <div class="sec">VENTAS (SIN PROPINA)</div>
           <table>
             <tr><td>Efectivo</td><td class="r">${M(_efN(d))}</td></tr>
-            <tr><td>Tarjeta</td><td class="r">${M(_tarN(d))}</td></tr>
+            <tr><td>Tarjeta crédito</td><td class="r">${M(_creN(d))}</td></tr>
+            <tr><td>Tarjeta débito</td><td class="r">${M(_debN(d))}</td></tr>
             <tr><td>Transferencia</td><td class="r">${M(_traN(d))}</td></tr>
+            ${_valN(d)>0.009?`<tr><td>Vales de casa (no es dinero)</td><td class="r">${M(_valN(d))}</td></tr>`:''}
             <tr><td>Cortesías</td><td class="r">${M(d.cort)}</td></tr>
             <tr><td>Cuentas cerradas</td><td class="r">${d.n}</td></tr>
             <tr class="tot"><td>VENTA</td><td class="r">${M(d.ventas)}</td></tr>
+            ${_valN(d)>0.009?`<tr class="tot"><td>VENTA REAL COBRADA (sin vales)</td><td class="r">${M(Number(d.ventas||0)-_valN(d))}</td></tr>`:''}
           </table>
           ${Math.abs(Number(d.descuadre||0))>0.5?`<div style="font-size:12px;color:#a5281b;font-weight:bold;margin-top:5px">⚠ Descuadre de ${M(Math.abs(d.descuadre))}: las formas de pago ${Number(d.descuadre)<0?'suman menos':'suman más'} que la venta.</div>`:''}
           <div class="sec">ENTRÓ POR CADA FORMA (CON PROPINA)</div>
           <table>
             <tr><td>Efectivo (billetes)</td><td class="r">${M(d.ef)}</td></tr>
-            <tr><td>Tarjeta (al banco)</td><td class="r">${M(d.tar)}</td></tr>
+            ${d.cre!=null?`<tr><td>Tarjeta crédito (al banco)</td><td class="r">${M(d.cre)}</td></tr>
+            <tr><td>Tarjeta débito (al banco)</td><td class="r">${M(d.deb)}</td></tr>`:''}
+            <tr><td><b>Tarjeta — total terminal</b></td><td class="r"><b>${M(d.tar)}</b></td></tr>
             <tr><td>Transferencia (al banco)</td><td class="r">${M(d.tra)}</td></tr>
           </table>
           <div style="font-size:11px;color:#666;margin-top:4px">Esta tabla cuadra con el lote de la terminal bancaria.</div>
@@ -2222,8 +2282,12 @@ window.imprimirCorteGuardado=(i)=>{
     <div class="sec">COBRADO POR CADA FORMA (con propina incluida)</div>
     <table>
       <tr><td>Efectivo</td><td class="r">${M(c.total_efectivo)}</td></tr>
-      <tr><td>Tarjeta</td><td class="r">${M(c.total_tarjeta)}</td></tr>
+      <tr><td>Tarjeta (total terminal)</td><td class="r">${M(c.total_tarjeta)}</td></tr>
+      ${c.total_tarjeta_credito!=null?`<tr><td>&nbsp;&nbsp;· Tarjeta crédito</td><td class="r">${M(c.total_tarjeta_credito)}</td></tr>
+      <tr><td>&nbsp;&nbsp;· Tarjeta débito</td><td class="r">${M(c.total_tarjeta_debito)}</td></tr>`:''}
       <tr><td>Transferencia</td><td class="r">${M(c.total_transferencia)}</td></tr>
+      ${Number(c.total_vales||0)>0.009?`<tr><td>Vales de casa (no es dinero)</td><td class="r">${M(c.total_vales)}</td></tr>`:''}
+      ${Number(c.total_otros||0)>0.009?`<tr><td>Otros</td><td class="r">${M(c.total_otros)}</td></tr>`:''}
       <tr><td>Cortesías</td><td class="r">${M(c.total_cortesias)}</td></tr>
       <tr><td>Cuentas cerradas</td><td class="r">${c.num_cuentas}</td></tr>
       <tr class="tot"><td>VENTA (sin propina)</td><td class="r">${M(c.total_ventas)}</td></tr>
@@ -2243,9 +2307,9 @@ function _corteTextoDe(d,tipo){ if(!d)return ''; const M=v=>'$'+Number(v||0).toF
   return `CORTE ${tipo} - Los Pares 84x88\n${d.fecha}\n\n`+
     `EFECTIVO EN CAJA (BILLETES)\nFondo inicial: ${M(d.fondo)}\nConsumo cobrado en efectivo: ${M(_efN(d))}\nPropinas cobradas en efectivo: ${M(d.propEf)}\nDepositos: ${M(d.dep)}\nRetiros: ${M(d.ret)}\nPropinas pagadas a meseros: ${M(d.propPag)}\nEFECTIVO ESPERADO EN EL CAJON: ${M(d.efEsper)}\n\n`+
     `BOTE DE COCINA (SE LE DEBE)\nBote del turno (30%): ${M(d.boteC)}\n${_boteFalta(d)>0.009?('NO alcanza en el cajon: faltan '+M(_boteFalta(d))+'\n(la propina de tarjeta se pago en efectivo; ese dinero llega por el banco)'):'Respaldado con el efectivo del cajon'}\n\n`+
-    `VENTAS (SIN PROPINA)\nEfectivo: ${M(_efN(d))}\nTarjeta: ${M(_tarN(d))}\nTransferencia: ${M(_traN(d))}\nVENTA: ${M(d.ventas)}\nCuentas cerradas: ${d.n}\n`+
+    `VENTAS (SIN PROPINA)\nEfectivo: ${M(_efN(d))}\nTarjeta credito: ${M(_creN(d))}\nTarjeta debito: ${M(_debN(d))}\nTransferencia: ${M(_traN(d))}\n${_valN(d)>0.009?('Vales de casa (no es dinero): '+M(_valN(d))+'\n'):''}VENTA: ${M(d.ventas)}\n${_valN(d)>0.009?('VENTA REAL COBRADA (sin vales): '+M(Number(d.ventas||0)-_valN(d))+'\n'):''}Cuentas cerradas: ${d.n}\n`+
     (Math.abs(Number(d.descuadre||0))>0.5?`*** DESCUADRE DE ${M(Math.abs(d.descuadre))}: las formas de pago suman ${Number(d.descuadre)<0?'MENOS':'MAS'} que la venta ***\n`:'')+
-    `\nENTRO POR CADA FORMA (con propina, cuadra con la terminal)\nEfectivo: ${M(d.ef)}\nTarjeta: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\n\n`+
+    `\nENTRO POR CADA FORMA (con propina, cuadra con la terminal)\nEfectivo: ${M(d.ef)}\n${d.cre!=null?('Tarjeta credito: '+M(d.cre)+'\nTarjeta debito: '+M(d.deb)+'\n'):''}Tarjeta - TOTAL TERMINAL: ${M(d.tar)}\nTransferencia: ${M(d.tra)}\n${Number(d.val||0)>0.009?('Vales de casa (NO entro dinero): '+M(d.val)+'\n'):''}\n`+
     `PROPINAS\n${d.propEf!=null?`En efectivo: ${M(d.propEf)}\nEn tarjeta/transferencia: ${M(d.propBanco)}\n`:''}Total propinas del turno: ${M(d.prop)}\nPagado a meseros (70%): ${M(d.propPag)}\nBote cocina (30%) - SE LE DEBE A COCINA: ${M(d.boteC)}\n(El bote no se saca hoy: se le reparte a cocina al dia siguiente)\n\n`+
     `PAGADO A CADA MESERO (70%)\n`+
     ((d.ppm&&d.ppm.length)?d.ppm.map(m=>`  ${m.mesero}: ${m.ya_pagado?('PAGADO '+M(m.pagado_monto)):('pendiente '+M(m.pagar_70))}`).join('\n')+'\n':'  (sin propinas)\n')+
@@ -2325,8 +2389,14 @@ window.pintarCorteHist=async(iso)=>{
        neto (la venta), y la propina según si entró en billetes o al banco. */
     let ef=0,tar=0,tra=0,otr=0,prop=0;
     let efN=0,tarN=0,traN=0,otrN=0,propEf=0,propBanco=0;
+    let cre=0,deb=0,val=0,otx=0, creN=0,debN=0,valN=0,otxN=0;
     pagos.forEach(p=>{
+      const c=catForma(p.forma_pago_id);
       const t=tipoForma(p.forma_pago_id),v=Number(p.importe||0),pr=Number(p.propina||0),neto=v-pr;
+      if(c==='CREDITO'){ cre+=v; creN+=neto; }
+      else if(c==='DEBITO'){ deb+=v; debN+=neto; }
+      else if(c==='VALES'){ val+=v; valN+=neto; }
+      else if(c==='OTROS'){ otx+=v; otxN+=neto; }
       if(t==='EFECTIVO'){ ef+=v; efN+=neto; propEf+=pr; }
       else if(t==='TARJETA'){ tar+=v; tarN+=neto; propBanco+=pr; }
       else if(t==='TRANSFERENCIA'){ tra+=v; traN+=neto; propBanco+=pr; }
@@ -2350,10 +2420,13 @@ window.pintarCorteHist=async(iso)=>{
     const boteFalta=Math.max(0,boteC-efEsper);
     const descuadre=(efN+tarN+traN+otrN)-ventas;
     const d={fecha:iso, fechaCorta:iso, fondo,ef,dep,ret,propPag,boteC,boteFalta,efRest,ppm,efEsper,
-             tar,tra,efN,tarN,traN,otrN,propEf,propBanco,descuadre,ventas,prop,cort,n:cuentas.length};
+             tar,tra,efN,tarN,traN,otrN,propEf,propBanco,descuadre,ventas,prop,cort,n:cuentas.length,
+             cre,deb,val,otx,creN,debN,valN,otxN};
     window._corteHistData=d;
     // Cortes de cierre (Z) realmente GUARDADOS ese día (tabla corte) — para verlos tal cual se hicieron
-    const _CGSEL="id,tipo,turno_id,empleado_id,fecha,total_efectivo,total_tarjeta,total_transferencia,total_propinas,total_cortesias,total_ventas,num_cuentas,creado_en";
+    /* 9 oct: "*" para que traiga tambien las columnas nuevas del modulo 66
+       (credito/debito/vales) SIN tronar en una base que aun no las tenga. */
+    const _CGSEL="*";
     let cortesGuard=[];
     try{
       let _arr=[];
@@ -2372,8 +2445,8 @@ window.pintarCorteHist=async(iso)=>{
     window._cortesGuard=cortesGuard.map(c=>({...c, nombre:cgNom[c.empleado_id]||'—', leyenda:_leyenda(c)}));
     const cortesGuardHtml = cortesGuard.length
       ? `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div>
-         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo / día real del turno</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
-         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
+         <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo / día real del turno</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Crédito</th><th class="n">Débito</th><th class="n">Vales</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
+         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${c.total_tarjeta_credito!=null?M(c.total_tarjeta_credito):'—'}</td><td class="n">${c.total_tarjeta_debito!=null?M(c.total_tarjeta_debito):'—'}</td><td class="n">${c.total_vales!=null?M(c.total_vales):'—'}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
          <p class="tenue" style="margin-top:6px">Cada renglón es un Corte completo por sí solo — <b>no se suman entre ellos</b>. Si un turno se fue a la madrugada, la leyenda dice el día real (cuándo abrió y cuándo cerró). Toca 🖨 para abrir/imprimir cada uno.</p>`
       : `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte X ni Z (no se usó el botón 🧾 Corte X ni 🔒 Corte Z, o el turno cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
@@ -2409,15 +2482,16 @@ window.pintarCorteHist=async(iso)=>{
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Ventas del día (sin propina)</div>
           <table><tbody>
-            ${row('Efectivo',efN)}${row('Tarjeta',tarN)}${row('Transferencia',traN)}${otrN?row('Otros',otrN):''}
+            ${row('Efectivo',efN)}${row('Tarjeta crédito',creN)}${row('Tarjeta débito',debN)}${row('Transferencia',traN)}${valN>0.009?row('Vales de casa (no es dinero)',valN):''}${otxN>0.009?row('Otros',otxN):''}
             ${row('Cortesías',cort)}${row('Cuentas cerradas',String(cuentas.length))}${row('VENTA DEL DÍA',ventas,true)}
+            ${valN>0.009?row('VENTA REAL COBRADA (sin vales)',ventas-valN,true):''}
           </tbody></table>
           ${Math.abs(descuadre)>0.5
             ? `<div class="aviso err" style="margin-top:8px;font-size:13px"><b>⚠ Descuadre de ${M(Math.abs(descuadre))}</b> — las formas de pago ${descuadre<0?'suman MENOS':'suman MÁS'} que la venta de ese día.</div>`
             : `<p class="tenue" style="margin:6px 0 0;font-size:12px">✓ Las formas de pago cuadran con la venta.</p>`}
           <div class="sec-t" style="margin-top:14px">Lo que entró por cada forma (con propina)</div>
           <table><tbody>
-            ${row('Efectivo (billetes)',ef)}${row('Tarjeta (al banco)',tar)}${row('Transferencia (al banco)',tra)}
+            ${row('Efectivo (billetes)',ef)}${row('Tarjeta crédito (al banco)',cre)}${row('Tarjeta débito (al banco)',deb)}${row('TARJETA — TOTAL TERMINAL',tar,true)}${row('Transferencia (al banco)',tra)}${val>0.009?row('Vales de casa (NO entró dinero)',val):''}
           </tbody></table>
           <div class="sec-t" style="margin-top:14px">Propinas</div>
           <table><tbody>
@@ -2468,9 +2542,11 @@ window.pintarVerificar=async(turnoId)=>{
     let propPag=0; try{ const {data:pp}=await sb.from("propina_pago").select("monto").eq("turno_id",turno.id); (pp||[]).forEach(r=>propPag+=Number(r.monto||0)); }catch(e){}
     let cortes=[]; try{ const {data:zz}=await sb.from("corte").select("*").eq("turno_id",turno.id); cortes=zz||[]; }catch(e){}
     const fondo=Number(turno.fondo_inicial||0);
-    const tipo=id=>(cache.formas[id]&&cache.formas[id].tipo)||'OTRO';
-    let ef=0,tar=0,tra=0,otr=0,propinas=0; const porC={}, porP={};
-    pagos.forEach(p=>{const t=tipo(p.forma_pago_id),v=Number(p.importe||0),pr=Number(p.propina||0); if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; propinas+=pr; porC[p.cuenta_id]=(porC[p.cuenta_id]||0)+v; porP[p.cuenta_id]=(porP[p.cuenta_id]||0)+pr;});
+    /* 9 oct: misma regla que el corte (catForma/tipoForma): el debito cuenta como tarjeta */
+    let ef=0,tar=0,tra=0,otr=0,propinas=0,cre=0,deb=0,val=0; const porC={}, porP={};
+    pagos.forEach(p=>{const c=catForma(p.forma_pago_id),t=tipoForma(p.forma_pago_id),v=Number(p.importe||0),pr=Number(p.propina||0);
+      if(c==='CREDITO')cre+=v;else if(c==='DEBITO')deb+=v;else if(c==='VALES')val+=v;
+      if(t==='EFECTIVO')ef+=v;else if(t==='TARJETA')tar+=v;else if(t==='TRANSFERENCIA')tra+=v;else otr+=v; propinas+=pr; porC[p.cuenta_id]=(porC[p.cuenta_id]||0)+v; porP[p.cuenta_id]=(porP[p.cuenta_id]||0)+pr;});
     const ventas=cuentas.reduce((a,c)=>a+Number(c.total||0),0); const cobrado=ef+tar+tra+otr;
     let dep=0,ret=0; movs.forEach(mv=>{ if(mv.tipo==='DEPOSITO')dep+=Number(mv.monto||0); else if(mv.tipo==='RETIRO')ret+=Number(mv.monto||0);});
     const efEsper=fondo+ef+dep-ret-propPag;
@@ -2480,8 +2556,14 @@ window.pintarVerificar=async(turnoId)=>{
     chk.push({ok:desc.length===0, txt: desc.length===0?'Cada cuenta: sus pagos cuadran con su total':`${desc.length} cuenta(s) con pagos que NO cuadran`});
     let corteBloque='';
     if(cortes.length){
-      const cz=cortes.reduce((a,c)=>({ef:a.ef+Number(c.total_efectivo||0),tar:a.tar+Number(c.total_tarjeta||0),tra:a.tra+Number(c.total_transferencia||0),prop:a.prop+Number(c.total_propinas||0),ven:a.ven+Number(c.total_ventas||0),n:a.n+Number(c.num_cuentas||0)}),{ef:0,tar:0,tra:0,prop:0,ven:0,n:0});
-      const fil=[['Efectivo',cz.ef,ef],['Tarjeta',cz.tar,tar],['Transferencia',cz.tra,tra],['Propinas',cz.prop,propinas],['Venta',cz.ven,ventas],['Cuentas',cz.n,cuentas.length]].map(([l,g,r])=>{const ok=cerca(g,r,1.0);return `<tr><td>${l}</td><td class="n">${l==='Cuentas'?g:M(g)}</td><td class="n">${l==='Cuentas'?r:M(r)}</td><td class="n">${ok?'✓':'<b style="color:#e79a9a">✗</b>'}</td></tr>`;}).join('');
+      const cz=cortes.reduce((a,c)=>({ef:a.ef+Number(c.total_efectivo||0),tar:a.tar+Number(c.total_tarjeta||0),tra:a.tra+Number(c.total_transferencia||0),prop:a.prop+Number(c.total_propinas||0),ven:a.ven+Number(c.total_ventas||0),n:a.n+Number(c.num_cuentas||0),
+        cre:a.cre+Number(c.total_tarjeta_credito||0),deb:a.deb+Number(c.total_tarjeta_debito||0),val:a.val+Number(c.total_vales||0)}),{ef:0,tar:0,tra:0,prop:0,ven:0,n:0,cre:0,deb:0,val:0});
+      /* El desglose solo existe en cortes hechos con el modulo 66 (desde el 9 oct) */
+      const conDesglose=cortes.some(c=>c.total_tarjeta_credito!=null);
+      const filas0=[['Efectivo',cz.ef,ef],['Tarjeta',cz.tar,tar]];
+      if(conDesglose) filas0.push(['· Tarjeta crédito',cz.cre,cre],['· Tarjeta débito',cz.deb,deb],['Vales de casa',cz.val,val]);
+      filas0.push(['Transferencia',cz.tra,tra],['Propinas',cz.prop,propinas],['Venta',cz.ven,ventas],['Cuentas',cz.n,cuentas.length]);
+      const fil=filas0.map(([l,g,r])=>{const ok=cerca(g,r,1.0);return `<tr><td>${l}</td><td class="n">${l==='Cuentas'?g:M(g)}</td><td class="n">${l==='Cuentas'?r:M(r)}</td><td class="n">${ok?'✓':'<b style="color:#e79a9a">✗</b>'}</td></tr>`;}).join('');
       corteBloque=`<div class="sec-t" style="margin-top:16px">Comparación contra el Corte Z guardado</div><table><thead><tr><th>Concepto</th><th class="n">Corte guardado</th><th class="n">Recalculado</th><th class="n">OK</th></tr></thead><tbody>${fil}</tbody></table>`;
       chk.push({ok:cerca(cz.ef,ef)&&cerca(cz.tar,tar)&&cerca(cz.tra,tra)&&cerca(cz.prop,propinas)&&cerca(cz.ven,ventas), txt:'El Corte Z guardado coincide con lo recalculado'});
     } else { corteBloque='<p class="tenue" style="margin-top:10px">Este turno aún no tiene Corte Z (sigue abierto). Se verifican las cuentas cobradas hasta ahorita — no hace falta cerrar para revisar.</p>'; }
@@ -2512,8 +2594,10 @@ window.pintarVerificar=async(turnoId)=>{
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="kpi"><div class="l">Venta</div><div class="v">${M(ventas)}</div></div>
         <div class="kpi"><div class="l">Efectivo</div><div class="v">${M(ef)}</div></div>
-        <div class="kpi"><div class="l">Tarjeta</div><div class="v">${M(tar)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta crédito</div><div class="v">${M(cre)}</div></div>
+        <div class="kpi"><div class="l">Tarjeta débito</div><div class="v">${M(deb)}</div></div>
         <div class="kpi"><div class="l">Transferencia</div><div class="v">${M(tra)}</div></div>
+        ${val>0.009?`<div class="kpi"><div class="l">Vales de casa</div><div class="v">${M(val)}</div></div>`:''}
         <div class="kpi"><div class="l">Propinas</div><div class="v">${M(propinas)}</div></div>
       </div>
       ${descHtml}
