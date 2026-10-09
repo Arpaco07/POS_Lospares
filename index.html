@@ -372,7 +372,20 @@ function tileMesa(m,oc,mando){
 window.mesaAjena=(nom)=>{ alert("Esta mesa es de "+nom+".\n\nSolo ese mesero (o un admin/cajero) puede abrirla o cobrarla, para que la propina se le acredite a quien de verdad atendió."); };
 window.nuevaMesaNombre=async()=>{
   const nom=prompt("Nombre de la mesa (ej. Inge, Lic Carla, Arturo papá):"); if(!nom||!nom.trim()) return;
-  try{ const {error}=await sb.from("mesa").insert({nombre:nom.trim(),tipo:"TEMPORAL",activa:true}); if(error) throw error;
+  const limpio=nom.trim();
+  try{
+    // REUTILIZAR: si ya existió una mesa con ese nombre (aunque esté apagada),
+    // se vuelve a encender en vez de crear otra. La base tiene un candado:
+    // el nombre de la mesa solo puede existir UNA vez (uuid por nombre).
+    const{data:ya,error:e0}=await sb.from("mesa").select("id,activa").eq("nombre",limpio).limit(1);
+    if(e0) throw e0;
+    if(ya&&ya.length){
+      const{data:ab}=await sb.from("cuenta").select("id").eq("mesa_id",ya[0].id).eq("estado","ABIERTA").limit(1);
+      if(ab&&ab.length){ alert("Ya hay una mesa abierta con ese nombre."); await recargarMesas(); return renderInicio(); }
+      const r=await sb.from("mesa").update({activa:true,tipo:"TEMPORAL"}).eq("id",ya[0].id); if(r.error) throw r.error;
+    }else{
+      const {error}=await sb.from("mesa").insert({nombre:limpio,tipo:"TEMPORAL",activa:true}); if(error) throw error;
+    }
     await recargarMesas(); renderInicio();
   }catch(e){ err("No se pudo crear la mesa.",e); }
 };
@@ -498,6 +511,13 @@ window.irACuentaSep=async(id,nom)=>{
   try{const{data}=await sb.from("cuenta").select("id").eq("mesa_id",id).eq("estado","ABIERTA").limit(1);if(data&&data.length)cta=data[0].id;}catch(e){}
   abrirMesa(id,nom,"TEMPORAL",cta);
 };
+/* ====== CUENTAS SEPARADAS DESDE EL INICIO (5A, 5B, 5C...) ==================
+   ARREGLO 8 oct 2026: antes SIEMPRE insertaba mesas nuevas y tronaba con
+   "duplicate key ... ux_mesa_uuid" cuando esa letra ya se había usado alguna
+   vez (la base le pone a cada mesa un uuid calculado con su NOMBRE, así que
+   un nombre de mesa solo puede existir UNA vez). Ahora REUTILIZA: busca las
+   que ya existen, las vuelve a encender, y solo crea las que de verdad
+   faltan. Nunca vuelve a chocar.                                            */
 window.separarMesa=async(mesaId,nom)=>{
   const n=parseInt(prompt("Cuentas separadas para "+nom+"\n¿Cuántas?  (Cancelar si fue sin querer)","2"),10);
   if(isNaN(n)||n<2){ if(!isNaN(n)) alert("Deben ser al menos 2."); return; }
@@ -505,12 +525,35 @@ window.separarMesa=async(mesaId,nom)=>{
   const num=nom.match(/\d+/);
   const base=num?num[0]:(nom+" ");
   const letras="ABCDEFGHIJKL";
+  const nombres=[]; for(let i=0;i<n;i++) nombres.push(base+letras[i]);
   try{
-    const nuevas=[];
-    for(let i=0;i<n;i++) nuevas.push({nombre:base+letras[i],tipo:"TEMPORAL",activa:true});
-    const{error}=await sb.from("mesa").insert(nuevas); if(error)throw error;
+    // 1) ¿cuáles de esos nombres ya existen en la base? (activas o apagadas)
+    const{data:exist,error:e1}=await sb.from("mesa").select("id,nombre,activa").in("nombre",nombres);
+    if(e1) throw e1;
+    const yaHay=exist||[];
+    // 2) si alguna de esas ya tiene cuenta ABIERTA, la mesa ya está separada
+    if(yaHay.length){
+      const{data:ab}=await sb.from("cuenta").select("id,mesa_id").eq("estado","ABIERTA").in("mesa_id",yaHay.map(m=>m.id));
+      if(ab&&ab.length){
+        alert("La mesa "+nom+" ya está separada y tiene cuentas abiertas.\n\nÁbrela desde el cuadro de la mesa (👥 Separada) y usa las cuentas que ya existen.");
+        await recargarMesas(); return renderInicio();
+      }
+    }
+    // 3) reencender (y asegurar tipo TEMPORAL) las que ya existían
+    if(yaHay.length){
+      const r=await sb.from("mesa").update({activa:true,tipo:"TEMPORAL"}).in("id",yaHay.map(m=>m.id));
+      if(r.error) throw r.error;
+    }
+    // 4) crear SOLO las que faltan
+    const porNombre={}; yaHay.forEach(m=>porNombre[m.nombre]=m);
+    const faltan=nombres.filter(x=>!porNombre[x]).map(x=>({nombre:x,tipo:"TEMPORAL",activa:true}));
+    if(faltan.length){
+      const r2=await sb.from("mesa").insert(faltan);
+      if(r2.error) throw r2.error;
+    }
     await recargarMesas(); renderInicio();
-    flash(nom+" separada en "+n+" cuentas: "+base+"A a "+base+letras[n-1]);
+    const reuso=yaHay.length?` (${yaHay.length} reutilizada${yaHay.length>1?'s':''})`:'';
+    flash(nom+" separada en "+n+" cuentas: "+base+"A a "+base+letras[n-1]+reuso);
   }catch(e){ err("No se pudieron crear las cuentas separadas.",e); }
 };
 window.volverALlevar=(cid,tipo,nom)=>{
@@ -966,10 +1009,76 @@ window.pedirPartes=async(modo)=>{
     pintarDivision();
   }catch(e){err("No se pudo dividir.",e);}
 };
+/* ---- ARREGLO 8 oct 2026: PIDIERON MÁS DESPUÉS DE DIVIDIR ------------------
+   Antes, si ya habían pagado una parte y la mesa seguía pidiendo, la base no
+   dejaba volver a dividir ("Ya hay partes pagadas") y lo nuevo se quedaba sin
+   cobrar. Ahora:
+   · En partes IGUALES: el botón "🔄 Repartir lo nuevo" vuelve a calcular y
+     reparte el consumo que falta SOLO entre las personas que NO han pagado.
+     Lo ya pagado no se toca nunca.
+   · En CONSUMO: lo nuevo aparece en "faltan productos por asignar" y se
+     asigna a quien lo pidió (eso ya funcionaba).
+   · "➕ Agregar persona" crea una parte más (llegó alguien o alguien paga
+     aparte lo nuevo), sin deshacer nada de lo cobrado.                      */
+async function repartirPendienteIgual(silencioso){
+  await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId});
+  const{data:c,error:e1}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();
+  if(e1) throw e1;
+  const total=Math.round(Number(c.total)*100)/100;
+  const{data:partes,error:e2}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+  if(e2) throw e2;
+  const libres=(partes||[]).filter(p=>!p.pagada);
+  const pagadas=(partes||[]).filter(p=>p.pagada);
+  if(!libres.length){
+    if(!silencioso) alert("Todas las partes ya están pagadas.\n\nUsa «➕ Agregar persona» para cobrar aparte lo que se pidió después.");
+    return false;
+  }
+  const yaCubierto=pagadas.reduce((a,p)=>a+Number(p.debe),0);
+  const resto=Math.round((total-yaCubierto)*100)/100;
+  if(resto<=0){
+    if(!silencioso) alert("No hay nada pendiente por repartir.");
+    return false;
+  }
+  const base=Math.round((resto/libres.length)*100)/100;
+  let acum=0;
+  for(let i=0;i<libres.length;i++){
+    const monto = (i<libres.length-1) ? base : Math.round((resto-acum)*100)/100;
+    acum=Math.round((acum+monto)*100)/100;
+    const r=await sb.from("subcuenta").update({monto_fijo:monto}).eq("id",libres[i].subcuenta_id);
+    if(r.error) throw r.error;
+  }
+  return true;
+}
+window.repartirLoNuevo=async()=>{
+  try{
+    const ok=await repartirPendienteIgual(false);
+    if(ok) flash("Montos actualizados ✓");
+    pintarDivision();
+  }catch(e){ err("No se pudieron repartir los montos.",e); }
+};
+window.agregarParte=async()=>{
+  try{
+    const{data:partes,error}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    if(error)throw error;
+    if(!partes||!partes.length){ alert("La cuenta no está dividida."); return; }
+    const modo=partes[0].modo;
+    const num=Math.max(...partes.map(p=>Number(p.numero)))+1;
+    const{data:c}=await sb.from("cuenta").select("folio").eq("id",state.cuentaId).single();
+    const fila={cuenta_id:state.cuentaId, numero:num, etiqueta:'Persona '+num, modo:modo,
+                folio:(c&&c.folio?c.folio:'')+'-'+num};
+    if(modo==='IGUAL') fila.monto_fijo=0;
+    const r=await sb.from("subcuenta").insert(fila);
+    if(r.error) throw r.error;
+    if(modo==='IGUAL'){ try{ await repartirPendienteIgual(true); }catch(e){} }
+    flash("Persona "+num+" agregada ✓");
+    pintarDivision();
+  }catch(e){ err("No se pudo agregar la persona.",e); }
+};
 async function pintarDivision(){
   state.vista="division";$("footer").style.display="none";$("btnVolver").style.display="inline-block";
   $("ctx").innerHTML=`Dividir<small>${state.mesaNom}</small>`;
   try{
+    try{ await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId}); }catch(e){}
     const{data:partes,error}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
     if(error)throw error;
     if(!partes||!partes.length){ return renderCobro(); }
@@ -978,6 +1087,25 @@ async function pintarDivision(){
     if(modo==='CONSUMO'){
       const l=await lineasCuenta();
       sinAsignar=l.filter(x=>!x.subcuenta_id);
+    }
+    // ¿la mesa pidió más después de dividir? (el total ya no cuadra con las partes)
+    let difTxt='';
+    if(modo==='IGUAL'){
+      try{
+        const{data:cc}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();
+        const totalCuenta=Math.round(Number(cc.total)*100)/100;
+        const suma=Math.round(partes.reduce((a,p)=>a+Number(p.debe),0)*100)/100;
+        const dif=Math.round((totalCuenta-suma)*100)/100;
+        if(Math.abs(dif)>=0.01){
+          const hayLibres=partes.some(p=>!p.pagada);
+          difTxt=`<div class="aviso err" style="margin:10px 0">
+            <b>${dif>0?'La mesa pidió más después de dividir':'El consumo bajó después de dividir'}</b><br>
+            Diferencia: $${Math.abs(dif).toFixed(2)} ${dif>0?'sin repartir':'de más en las partes'}.<br>
+            ${hayLibres?'Toca <b>🔄 Repartir lo nuevo</b> para repartirlo entre quienes aún no pagan.'
+                       :'Todas las partes ya están pagadas: usa <b>➕ Agregar persona</b> para cobrarlo aparte.'}
+          </div>`;
+        }
+      }catch(e){}
     }
     const falta=partes.filter(p=>!p.pagada).length;
     const tarjetas=partes.map(p=>{
@@ -999,7 +1127,11 @@ async function pintarDivision(){
     $("main").innerHTML=`<div class="pad">
       <h2>Dividir — ${state.mesaNom}</h2>
       <p class="tenue">${modo==='IGUAL'?'Partes iguales: cada ticket lista todos los productos con su parte del precio.':'Cada quien paga lo suyo.'} Faltan ${falta} por pagar. Con 🧾 Ticket se imprime la cuenta de esa persona antes de cobrar.</p>
-      ${pend}${tarjetas}
+      ${difTxt}${pend}${tarjetas}
+      <div class="acbar">
+        ${modo==='IGUAL'?`<button onclick="repartirLoNuevo()" style="background:#2f6fb0;color:#fff;border-color:#2f6fb0">🔄 Repartir lo nuevo</button>`:''}
+        <button onclick="agregarParte()">➕ Agregar persona</button>
+      </div>
       <div class="acbar"><button onclick="deshacerDivision()">Deshacer división</button><button onclick="renderCobro()">‹ Volver al cobro</button></div>
     </div>`;
   }catch(e){err("No se pudo mostrar la división.",e);}
