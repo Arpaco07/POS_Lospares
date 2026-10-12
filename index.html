@@ -330,6 +330,15 @@ async function renderInicio(){
   const priv=cache.mesas.filter(m=>m.tipo==="PRIVADO").map(m=>tileMesa(m,oc,mando)).join("");
   const temp=cache.mesas.filter(m=>m.tipo==="TEMPORAL").map(m=>tileMesa(m,oc,mando)).join("");
   let avisoTurno='';
+  // 12 oct: si NO hay turno abierto, aviso fijo con boton para abrirlo.
+  // (Solo si la base contesta "no hay"; si no contesta, no se muestra nada.)
+  try{ const {data:_t0,error:_e0}=await sb.from("turno").select("id").eq("estado","ABIERTO").limit(1);
+    if(!_e0 && _t0 && !_t0.length){
+      window._turnoOkHasta=0;
+      avisoTurno=`<div style="background:#c0392b;color:#fff;border-radius:12px;padding:13px 15px;margin:0 0 14px;font-weight:800;line-height:1.45">⚠️ No hay TURNO abierto. No se pueden abrir mesas ni pedir.<br>
+        <button onclick="window._trasAbrirTurno=null;abrirTurnoAqui()" style="margin-top:10px;background:#fff;color:#c0392b;border-radius:10px;padding:10px 14px;font-weight:800">🔓 Abrir turno aquí</button></div>`;
+    }
+  }catch(e){}
   try{ const _h=new Date().getHours();
     if(_h>=23||_h<3){ const {data:_tt}=await sb.from("turno").select("id").eq("estado","ABIERTO").limit(1);
       if(_tt&&_tt.length) avisoTurno=`<div style="background:#c0392b;color:#fff;border-radius:12px;padding:13px 15px;margin:0 0 14px;font-weight:800;line-height:1.45">⚠️ Ya es tarde y el TURNO sigue ABIERTO.<br><span style="font-weight:600">Cajero o Admin: hagan el <b>Corte Z</b> en el Panel (Caja / Turno) para cerrar el día.</span></div>`;
@@ -395,6 +404,8 @@ window.quitarMesa=async(id)=>{ if(!confirm("¿Quitar esta mesa con nombre?")) re
 window.abrirMesa=async(id,nom,tipo,cta)=>{
   // si la mesa ya tiene cuenta abierta, entrar directo
   if(cta){state.tipoVenta="MESA";state.mesaId=id;state.mesaNom=nom;state.mesaTipo=tipo;state.cuentaId=cta;return renderComanda();}
+  // CANDADO DE TURNO (12 oct): sin turno no se abre mesa nueva
+  if(!(await exigirTurnoPara("abrir "+nom, ()=>modalAbrirMesa(id,nom,tipo)))) return;
   // ventana de apertura: personas + datos del cliente (opcionales)
   modalAbrirMesa(id,nom,tipo);
 };
@@ -563,6 +574,8 @@ window.volverALlevar=(cid,tipo,nom)=>{
 };
 window.abrirRapida=async(t)=>{ state.tipoVenta=t;state.mesaId=null;state.mesaTipo=null;state.comensalNom=null;state.mesaNom=t==="PARA_LLEVAR"?"Para llevar":"Boutique"; await crearCuenta(t,null,state.mesaNom,null); };
 async function crearCuenta(t,id,nom,tipo,comensales,cli){
+  // CANDADO DE TURNO (12 oct): ultima revision antes de abrir la cuenta
+  if(!(await exigirTurnoPara("abrir "+(nom||"la cuenta"), ()=>crearCuenta(t,id,nom,tipo,comensales,cli)))) return;
   try{
     let data=null,error=null;
     const base={p_tipo_venta:t,p_mesa_id:id,p_mesero_clave:state.mesero.clave};
@@ -660,7 +673,10 @@ async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._
   const tiempo=window._tiempo||1;
   cerrarModal();await agregar(p,cant,peso,op,nota,tiempo);}
 window.cerrarModal=()=>$("modalBg").classList.remove("on");
-async function agregar(p,cant,peso,op,nota,tiempo){try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null,p_tiempo:tiempo||1});if(error)throw error;
+async function agregar(p,cant,peso,op,nota,tiempo){
+  // CANDADO DE TURNO (12 oct): sin turno no se agregan productos
+  if(!(await exigirTurnoPara("agregar productos", ()=>agregar(p,cant,peso,op,nota,tiempo)))) return;
+  try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null,p_tiempo:tiempo||1});if(error)throw error;
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
 
@@ -1283,6 +1299,53 @@ async function exigirTurno(){
   alert("⚠️ No hay TURNO abierto.\n\nPídele al cajero o al administrador que abra el turno en el PANEL (Caja / Turno) antes de cobrar.");
   return false;
 }
+
+/* ===== CANDADO DE TURNO PARA ABRIR MESA Y PEDIR (12 oct 2026) ==============
+   Sin turno abierto NO se abre mesa (ni Para llevar ni Boutique) y NO se
+   agregan productos. Motivo: la cuenta toma su turno al abrirse; si se abre
+   antes que el turno, el Corte X / Z no la suma (paso el 12 oct con L-002419
+   y L-002420 en los desayunos).
+   - Si la tableta NO puede comprobar (red, base lenta) -> DEJA TRABAJAR
+     (regla de oro). Para ese caso la base tiene el modulo 67, que pega la
+     cuenta al turno al abrirlo o al cobrar.
+   - El aviso trae boton "Abrir turno aqui" (PIN de cajero o admin + fondo),
+     para no tener que ir al Panel; al abrirlo, sigue con lo que se iba a hacer.
+   - Un "si hay turno" se recuerda 60 s para no consultar en cada producto. */
+window._turnoOkHasta=0;
+async function turnoOk(){
+  if(Date.now()<window._turnoOkHasta) return true;
+  const ok=await hayTurnoAbierto();          // ante falla devuelve true (no bloquea)
+  if(ok) window._turnoOkHasta=Date.now()+60000;
+  return ok;
+}
+window._trasAbrirTurno=null;
+async function exigirTurnoPara(queHacia, continuar){
+  if(await turnoOk()) return true;
+  window._trasAbrirTurno=continuar||null;
+  $("modal").innerHTML=`<h3 style="color:#e1622c">⚠️ No hay TURNO abierto</h3>
+    <p style="font-size:16px;line-height:1.45;margin:10px 0 14px">No se puede <b>${queHacia}</b> sin turno abierto.<br>
+    Si se abre la mesa antes del turno, <b>el corte no la suma</b>.</p>
+    <p class="tenue" style="margin:0 0 14px">Pídele a <b>Héctor</b> o a <b>Carla</b> que lo abran, o ábrelo aquí con PIN de cajero o administrador.</p>
+    <div class="acciones">
+      <button class="cancelar" onclick="window._trasAbrirTurno=null;cerrarModal()">Cancelar</button>
+      <button class="ok" style="background:var(--naranja)" onclick="abrirTurnoAqui()">🔓 Abrir turno aquí</button>
+    </div>`;
+  $("modalBg").classList.add("on");
+  return false;
+}
+window.abrirTurnoAqui=async()=>{
+  const fs=prompt("Fondo de caja con el que inicia el turno ($):","0");
+  if(fs===null) return;
+  const f=parseFloat(fs); if(isNaN(f)||f<0){ alert("Escribe un fondo válido (0 o más)."); return; }
+  const cajaClave=await resolverCaja(); if(!cajaClave) return;
+  try{
+    const r=await sb.rpc("abrir_turno",{p_cajero_clave:cajaClave,p_fondo:f}); if(r.error) throw r.error;
+    window._turnoOkHasta=Date.now()+60000;
+    cerrarModal(); flash("Turno abierto ("+cajaClave+") ✓");
+    const sig=window._trasAbrirTurno; window._trasAbrirTurno=null;
+    if(sig){ await sig(); } else if(state.vista!=="comanda"){ renderInicio(); }
+  }catch(e){ err("No se pudo abrir el turno.",e); }
+};
 window._cobrando=false;
 async function cobrarYCerrar(){
   // CANDADO anti doble-toque: si ya se está cobrando esta cuenta, el segundo toque no hace nada.
