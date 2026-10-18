@@ -959,7 +959,12 @@ window.agregarPago=(clave,nombre)=>{const total=Number(state.cobro.total)+state.
   const v=parseFloat(prompt(`Monto en ${nombre}:`,restan.toFixed(2)));if(isNaN(v)||v<=0)return;state.pagos.push({clave,nombre,importe:v});pintarCobro();};
 window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
 async function resolverAdmin(){const pin=prompt("PIN de administrador:");if(!pin)return null;
-  try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}if(!data[0].es_admin){alert("Ese PIN no es de administrador");return null;}return data[0].clave;}catch(e){err("No se pudo validar.",e);return null;}}
+  try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}const u=data[0]; if(!(u.es_admin||u.rol==='ADMIN')){alert("Ese PIN no es de administrador");return null;}
+    /* 18-oct-2026 (modulos 69/70): se manda el PIN, NO la clave. La base lo
+       verifica con crypt igual que el login, asi la autorizacion no se puede
+       falsificar sabiendose la clave ('CARLA'). Tambien se acepta rol ADMIN
+       aunque la casilla este apagada, igual que el Panel. */
+    return pin;}catch(e){err("No se pudo validar.",e);return null;}}
 async function resolverCaja(){const pin=prompt("PIN de cajero o administrador (para abrir turno):");if(!pin)return null;
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}
     const u=data[0]; if(!(u.rol==='CAJERO'||u.rol==='ADMIN'||u.es_admin)){alert("Ese PIN no es de cajero ni administrador");return null;} return u.clave;
