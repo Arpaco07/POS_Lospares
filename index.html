@@ -1115,8 +1115,26 @@ async function pintarDivision(){
       try{
         const{data:cc}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();
         const totalCuenta=Math.round(Number(cc.total)*100)/100;
-        const suma=Math.round(partes.reduce((a,p)=>a+Number(p.debe),0)*100)/100;
-        const dif=Math.round((totalCuenta-suma)*100)/100;
+        let suma=Math.round(partes.reduce((a,p)=>a+Number(p.debe),0)*100)/100;
+        let dif=Math.round((totalCuenta-suma)*100)/100;
+        /* NUEVO 18-oct-2026. Si la mesa pidio mas DESPUES de dividir y todavia
+           NADIE ha pagado, los montos se reparten SOLOS. Antes habia que
+           acordarse de apretar "Repartir lo nuevo"; si no, cada parte se cobraba
+           con el monto viejo y la suma de las partes no daba el total de la mesa.
+           Si alguien YA pago, no se toca nada: ahi si hace falta decidir a mano. */
+        if(Math.abs(dif)>=0.01 && !partes.some(p=>p.pagada)){
+          try{
+            if(await repartirPendienteIgual(true)){
+              const{data:p2}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+              if(p2&&p2.length){
+                partes.length=0; p2.forEach(x=>partes.push(x));
+                suma=Math.round(partes.reduce((a,p)=>a+Number(p.debe),0)*100)/100;
+                dif=Math.round((totalCuenta-suma)*100)/100;
+                flash("La mesa pidió más: se repartieron los montos de nuevo");
+              }
+            }
+          }catch(e){}
+        }
         if(Math.abs(dif)>=0.01){
           const hayLibres=partes.some(p=>!p.pagada);
           difTxt=`<div class="aviso err" style="margin:10px 0">
@@ -1254,10 +1272,11 @@ async function datosTicketParte(sub){
 window.verTicketParte=async(sub)=>{
   try{
     const d=await datosTicketParte(sub);
-    const{data:c}=await sb.from("cuenta").select("abierta_en").eq("id",state.cuentaId).single();
+    const{data:c}=await sb.from("cuenta").select("abierta_en,total").eq("id",state.cuentaId).single();
     const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
     const apertura=_hm(c&&c.abierta_en), cierre=_hm(new Date());
-    const nota = d.n>1 && d.p.modo==='IGUAL' ? `<div style="text-align:center;font-size:11px">Cuenta dividida entre ${d.n} (esta es 1 de ${d.n})</div>` : '';
+    const totMesa=Number((c&&c.total)||0);
+    const nota = d.n>1 && d.p.modo==='IGUAL' ? `<div style="text-align:center;font-size:11px">Cuenta de la mesa $${totMesa.toFixed(2)} dividida entre ${d.n} · Parte ${d.p.numero} de ${d.n}</div>` : '';
     const tk=`<div style="text-align:center;font-weight:800;letter-spacing:1px">LOS PARES 84×88</div>
       <div style="text-align:center;font-size:11px">Restaurante de carnes · Cortes premium</div>
       <hr>
@@ -1268,9 +1287,11 @@ window.verTicketParte=async(sub)=>{
       <div class="r" style="font-size:18px;font-weight:800;margin-top:6px"><span>TOTAL</span><span>$${d.debe.toFixed(2)}</span></div>
       <div style="text-align:center;margin-top:12px;font-size:11px">¡Gracias por su visita!</div>`;
     window._ticket=tk;
+    const itemsV=d.itemsImp.slice();
+    if(d.p.modo==='IGUAL') itemsV.unshift({etq:`Cuenta de la mesa $${totMesa.toFixed(2)} entre ${d.n}`, imp:''});
     window._ticketData={ area:'CAJA',
-      encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (1 de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre, apertura, cierre, cierre_etq:'Ticket'},
-      items:d.itemsImp, subtotal:'$'+d.debe.toFixed(2), descuento:'', total:'$'+d.debe.toFixed(2) };
+      encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre, apertura, cierre, cierre_etq:'Ticket'},
+      items:itemsV, subtotal:'$'+d.debe.toFixed(2), descuento:'', total:'$'+d.debe.toFixed(2) };
     $("modal").innerHTML=`<h3>Cuenta — ${esc(d.p.etiqueta)}</h3><div class="ticket">${tk}</div>
       <div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cerrar</button>
       <button class="ok" style="background:var(--negro)" onclick="imprimirTicket()">🖨️ Imprimir</button></div>`;
@@ -1281,14 +1302,16 @@ async function imprimirParte(sub,formaNom,debe,prop){
   if(!PRINT_URL)return;
   try{
     const d=await datosTicketParte(sub);
-    const{data:c}=await sb.from("cuenta").select("abierta_en").eq("id",state.cuentaId).single();
+    const{data:c}=await sb.from("cuenta").select("abierta_en,total").eq("id",state.cuentaId).single();
     const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'--:--';
+    const totMesa=Number((c&&c.total)||0);
     const items=d.itemsImp.slice();
+    if(d.p.modo==='IGUAL') items.unshift({etq:`Cuenta de la mesa $${totMesa.toFixed(2)} entre ${d.n}`, imp:''});
     if(prop>0) items.push({etq:'Propina', imp:'$'+Number(prop).toFixed(2)});
     items.push({etq:'Pago: '+formaNom, imp:''});
     await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({area:'CAJA',
-        encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (1 de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
+        encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
                     apertura:_hm(c&&c.abierta_en), cierre:_hm(new Date()), cierre_etq:'Cerrada'},
         items:items, subtotal:'$'+Number(debe).toFixed(2), descuento:'', total:'$'+(Number(debe)+Number(prop||0)).toFixed(2)})});
   }catch(e){ /* si el asistente está apagado, no truena */ }
