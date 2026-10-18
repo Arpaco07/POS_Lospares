@@ -723,7 +723,24 @@ window.repSubVolver=()=>{state.rep.sub=null;pintarReportes();};
 window.repTodo=()=>{state.rep={cat:null,sub:null,all:true,modo:state.rep&&state.rep.modo};pintarReportes();};
 window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false,modo:state.rep&&state.rep.modo};pintarReportes();};
 
-function irA(v){state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
+/* ===== CANDADO DEL CAJERO (18 oct 2026) ============================
+   Antes el unico candado era ESCONDER los botones del menu al entrar.
+   Eso es maquillaje: la vista se podia alcanzar igual, y la de Empleados
+   dejaba palomear "Es administrador" o cambiarle el PIN a cualquiera.
+   Ahora el permiso se revisa AQUI, cada vez que se cambia de pantalla,
+   y ademas cada accion sensible pide PIN de administrador.
+   El candado de verdad vive en la base (modulo 68): aunque alguien se
+   brinque la pantalla, la base rechaza la orden sin PIN de admin.      */
+const VISTAS_CAJERO = ['cuentas','caja','llevar','clientes'];
+function puedeVer(v){ return !state.soloLectura || VISTAS_CAJERO.includes(v); }
+
+function irA(v){
+  if(!puedeVer(v)){
+    alert('Esta pantalla es solo para administradores.\n\nCon tu usuario puedes ver: Cuentas del día, Caja / Turno, Para llevar y Clientes.');
+    return;
+  }
+  state.vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();
+}
 async function render(){
   if(!state.rango) state.rango=rangoHoy();   // SEGURO: nunca calcular con rango vacio (evita "reading 'ini'")
   window._noAuto=false;   // al navegar/refrescar normal, se reactiva el auto-refresco
@@ -1021,6 +1038,11 @@ window.toggleVis=async(id,vis)=>{
 /* ---- EMPLEADOS (alta / rol / PIN) ---- */
 const ROLES=[["MESERO","Mesero"],["CAJERO","Cajero"],["ADMIN","Administrador"]];
 async function pintarEmpleados(){
+  if(state.soloLectura){
+    $("main").innerHTML=`<div class="pad"><h2>Empleados</h2>
+      <div class="aviso err">Solo un administrador puede ver y editar los empleados.</div></div>`;
+    return;
+  }
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando…</div></div>`;
   try{
     const{data,error}=await sb.from("empleado").select("id,clave,nombre,rol_id,es_admin,activo").order("nombre");
@@ -1053,17 +1075,25 @@ function formEmp(e){
 window.nuevoEmp=()=>formEmp({rol_id:null,es_admin:false,activo:true});
 window.editarEmp=(id)=>{const e=window._emps.find(x=>x.id===id);if(e)formEmp(e);};
 window.guardarEmp=async(id)=>{
+  if(state.soloLectura){ alert("Solo un administrador puede editar empleados."); return; }
   const nom=$("enom").value.trim();if(!nom){alert("Ponle nombre");return;}
-  try{const r=await sb.rpc("guardar_empleado",{p_id:id,p_nombre:nom,p_rol_clave:$("erol").value,p_es_admin:$("eadm").checked,p_activo:$("eact").checked});
+  // 18 oct: la base EXIGE PIN de administrador (modulo 68)
+  const apin=prompt("PIN de ADMINISTRADOR para confirmar el cambio:");
+  if(!apin) return;
+  try{const r=await sb.rpc("guardar_empleado",{p_id:id,p_nombre:nom,p_rol_clave:$("erol").value,p_es_admin:$("eadm").checked,p_activo:$("eact").checked,p_admin_pin:apin});
     if(r.error)throw r.error;
-    if(!id){const nuevoId=r.data;const pin=prompt("PIN para el nuevo empleado (4 dígitos):");if(pin){await sb.rpc("cambiar_pin",{p_id:nuevoId,p_pin:pin});}}
+    if(!id){const nuevoId=r.data;const pin=prompt("PIN para el nuevo empleado (4 dígitos):");if(pin){const r2=await sb.rpc("cambiar_pin",{p_id:nuevoId,p_pin:pin,p_admin_pin:apin}); if(r2.error) throw r2.error;}}
     cerrarModal();okmsg("Empleado guardado");pintarEmpleados();
   }catch(e){err("No se pudo guardar.",e);}
 };
 window.pinEmp=async(id,nombre)=>{
+  if(state.soloLectura){ alert("Solo un administrador puede cambiar PINes."); return; }
   const pin=prompt(`Nuevo PIN para ${nombre} (4 dígitos):`);if(!pin)return;
   if(pin.length<3){alert("PIN muy corto");return;}
-  try{const r=await sb.rpc("cambiar_pin",{p_id:id,p_pin:pin});if(r.error)throw r.error;okmsg("PIN actualizado");}catch(e){err("No se pudo cambiar el PIN.",e);}
+  // 18 oct: la base EXIGE PIN de administrador (modulo 68)
+  const apin=prompt("PIN de ADMINISTRADOR para confirmar el cambio:");
+  if(!apin) return;
+  try{const r=await sb.rpc("cambiar_pin",{p_id:id,p_pin:pin,p_admin_pin:apin});if(r.error)throw r.error;okmsg("PIN actualizado");}catch(e){err("No se pudo cambiar el PIN.",e);}
 };
 
 /* ---- FACTURACIÓN (CFDI 4.0) ---- */
