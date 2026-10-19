@@ -2192,15 +2192,25 @@ async function pintarCaja(){
    ========================================================================== */
 async function pintarRevision(turnoId){
   const caja=$("revisionTurno"); if(!caja) return;
+  window._turnoRevision=turnoId;   // para poder repintar después de dar por revisado
   caja.innerHTML=`<div class="tenue" style="margin:0 0 10px;font-size:13px">Revisando el turno…</div>`;
   try{
     const r=await sb.rpc("revisar_turno",{p_turno:turnoId});
     if(r.error) throw r.error;
     const filas=(r.data||[]).filter(x=>!String(x.nivel||'').includes('LIMPIO'));
 
-    /* Cortes de días pasados que ya no cuadran con la base (módulo 74). */
+    /* Cortes de días pasados que ya no cuadran con la base (módulo 74).
+       Desde el módulo 75 se piden SOLO los que faltan por revisar: lo que ya
+       se dio por visto no se vuelve a sacar. Si el 75 todavía no está puesto,
+       se pide a la antigua y todo sigue funcionando igual. */
     let viejos=[];
-    try{ const d=await sb.rpc("revisar_cortes",{p_dias:7}); if(!d.error) viejos=d.data||[]; }catch(e){}
+    try{
+      const d=await sb.rpc("revisar_cortes",{p_dias:7,p_todo:false});
+      if(d.error) throw d.error;
+      viejos=d.data||[];
+    }catch(e){
+      try{ const d2=await sb.rpc("revisar_cortes",{p_dias:7}); if(!d2.error) viejos=d2.data||[]; }catch(e2){}
+    }
 
     const graves = filas.filter(x=>String(x.nivel||'').includes('GRAVE')).length;
     const money  = v => (v===null||v===undefined||Number(v)===0) ? '' :
@@ -2229,19 +2239,45 @@ async function pintarRevision(turnoId){
       }
 
       if(viejos.length){
-        const v=viejos.slice(0,8).map(x=>`
-          <div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(128,128,128,.25)">
-            <b>Turno ${esc(String(x.turno))}</b> (${esc(x.cuando||'')}) · ${esc(x.concepto||'')}:
-            el corte dice <b>$${Number(x.guardado).toFixed(2)}</b>,
-            hoy hay <b>$${Number(x.ahora).toFixed(2)}</b>
-            (${Number(x.diferencia)>0?'+':''}${Number(x.diferencia).toFixed(2)})
-          </div>`).join('');
+        /* Agrupado POR TURNO, para que cada turno traiga su propio botón de
+           "ya lo revisé" y no haya que apagar los avisos uno por uno. */
+        const grupos={};
+        viejos.forEach(x=>{
+          const t=String(x.turno);
+          if(!grupos[t]) grupos[t]={turno:x.turno, cuando:x.cuando||'', filas:[]};
+          grupos[t].filas.push(x);
+        });
+        const orden=Object.values(grupos).sort((a,b)=>Number(b.turno)-Number(a.turno));
+
+        const bloques=orden.slice(0,6).map(g=>{
+          const renglones=g.filas.map(x=>`
+            <div style="margin-top:6px">
+              ${esc(x.concepto||'')}: el corte dice <b>$${Number(x.guardado).toFixed(2)}</b>,
+              hoy hay <b>$${Number(x.ahora).toFixed(2)}</b>
+              (${Number(x.diferencia)>0?'+':''}${Number(x.diferencia).toFixed(2)})
+            </div>`).join('');
+          /* El botón solo para administrador: el cajero ve el aviso pero no lo apaga. */
+          const boton = state.soloLectura ? '' :
+            `<div style="margin-top:10px">
+               <button onclick="darPorRevisado(${Number(g.turno)})"
+                 style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);
+                        color:inherit;border-radius:9px;padding:9px 14px;font-weight:700;font-size:14px">
+                 ✓ Ya lo revisé
+               </button>
+             </div>`;
+          return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(128,128,128,.25)">
+                    <b>Turno ${esc(String(g.turno))}</b> (${esc(g.cuando)})
+                    ${renglones}
+                    ${boton}
+                  </div>`;
+        }).join('');
+
         html+=`<div class="aviso err" style="margin:0 0 12px">
           <b>⚠ Un corte ya cerrado dejó de cuadrar con la base</b><br>
           Alguien corrigió, canceló o reabrió algo DESPUÉS de cerrar ese turno.
           El papel que se imprimió esa noche ya no dice lo mismo.
-          ${v}
-          ${viejos.length>8?`<div class="tenue" style="margin-top:6px">…y ${viejos.length-8} más.</div>`:''}
+          ${bloques}
+          ${orden.length>6?`<div class="tenue" style="margin-top:8px">…y ${orden.length-6} turno(s) más.</div>`:''}
         </div>`;
       }
     }
@@ -2251,6 +2287,87 @@ async function pintarRevision(turnoId){
     caja.innerHTML='';
   }
 }
+
+/* ===========================================================================
+   DAR POR REVISADO  (módulo 75) — 19 oct 2026
+   Cuando un descuadre de un corte viejo ya se aclaró, el administrador lo da
+   por visto y deja de salir. NO BORRA NADA: el descuadre sigue en la base, y
+   si ese número vuelve a moverse el aviso reaparece solo.
+   Usa la ventana del propio Panel, NO los cuadros del navegador (esos fallan
+   en los navegadores incrustados).
+   =========================================================================== */
+window.darPorRevisado=async(turno)=>{
+  try{
+    let filas=[];
+    try{
+      const d=await sb.rpc("revisar_cortes",{p_dias:400,p_todo:false});
+      if(!d.error) filas=(d.data||[]).filter(x=>Number(x.turno)===Number(turno));
+    }catch(e){}
+
+    const lista = filas.length
+      ? filas.map(x=>{
+          const d=Number(x.diferencia);
+          const palabra = d>0 ? 'sobran' : 'faltan';
+          return `<li>${esc(x.concepto||'')}: ${palabra}
+            <b>$${Math.abs(d).toFixed(2)}</b></li>`;
+        }).join('')
+      : '<li class="tenue">(sin detalle)</li>';
+
+    $("modal").innerHTML=`
+      <h3>Dar por revisado — Turno ${esc(String(turno))}</h3>
+      <p class="tenue" style="margin:0 0 10px">
+        Estos avisos dejarán de salir en el tablero:
+      </p>
+      <ul style="margin:0 0 12px;padding-left:20px">${lista}</ul>
+      <div class="aviso" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.4);
+           color:#e9d9a6;font-size:13px;margin:0 0 6px">
+        No se borra nada. El descuadre se queda en la base y lo puedes volver a
+        ver cuando quieras. <b>Si ese número vuelve a moverse, el aviso regresa solo.</b>
+      </div>
+      <label>¿Por qué ya quedó aclarado? (queda guardado con tu nombre)</label>
+      <input id="revNota" maxlength="200" placeholder="Ej: lo aclaramos Héctor y yo">
+      <div id="revErr" class="err" style="color:#ff8a7a;font-weight:700;min-height:18px;margin-top:8px"></div>
+      <div class="acc" style="display:flex;gap:8px;margin-top:14px">
+        <button onclick="cerrarModal()"
+          style="flex:1;background:var(--gris);border:1px solid var(--gris2);color:inherit;
+                 border-radius:10px;padding:12px;font-weight:700">Cancelar</button>
+        <button id="revOk" onclick="_confirmarRevisado(${Number(turno)})"
+          style="flex:1;background:var(--verde);color:#fff;border-radius:10px;padding:12px;font-weight:700">
+          ✓ Sí, ya lo revisé</button>
+      </div>`;
+    $("mbg").classList.add("on");
+    setTimeout(()=>{ try{ $("revNota").focus(); }catch(e){} }, 150);
+  }catch(e){ err("No se pudo abrir la ventana.",e); }
+};
+
+window._confirmarRevisado=async(turno)=>{
+  const bErr=$("revErr"), bOk=$("revOk");
+  try{
+    const nota=(($("revNota")||{}).value||'').trim();
+    if(bOk){ bOk.disabled=true; bOk.textContent="Guardando…"; }
+    if(bErr) bErr.textContent="";
+
+    /* El PIN con el que entró al Panel es el camino limpio del módulo 69.
+       Si por lo que sea no lo tenemos, se manda la clave como lo demás. */
+    const llave = state.pin || (state.admin && state.admin.clave) || '';
+
+    const r=await sb.rpc("dar_por_revisado",{
+      p_turno:Number(turno), p_nota:(nota||'sin nota'), p_admin_clave:llave });
+    if(r.error) throw r.error;
+
+    cerrarModal();
+    /* Primero se repinta (eso borra la caja), y HASTA DESPUES se pone el
+       mensaje arriba. Al revés el mensaje se perdía. */
+    try{ await pintarRevision(window._turnoRevision); }catch(e){}
+    const caja=$("revisionTurno");
+    if(caja) caja.insertAdjacentHTML('afterbegin',
+      `<div class="aviso ok" style="margin:0 0 12px"><b>✓ ${esc(String(r.data||'Listo.'))}</b></div>`);
+  }catch(e){
+    if(bOk){ bOk.disabled=false; bOk.textContent="✓ Sí, ya lo revisé"; }
+    const m=(e&&(e.message||e.hint||e.details))||'No se pudo guardar.';
+    if(bErr) bErr.textContent=m; else err("No se pudo dar por revisado.",e);
+  }
+};
 
 window.abrirTurnoP=async()=>{const f=parseFloat($("fondoP").value)||0;
   try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.admin.clave,p_fondo:f});if(r.error)throw r.error;okmsg("Turno abierto ✓");pintarCaja();}catch(e){err("No se pudo abrir turno.",e);}};
