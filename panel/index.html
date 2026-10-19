@@ -131,14 +131,36 @@
   .pll-b-cancel{flex:0 0 auto;min-width:50px;background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
 
   /* ======================================================================
-     CELULAR — agregado el 19 oct 2026
-     Todo lo de aqui adentro SOLO aplica en pantallas de menos de 500px de
-     ancho. Los celulares miden entre 360 y 430; las tabletas de 7 pulgadas
+     CELULAR — agregado el 19 oct 2026, corregido el mismo dia
+     Todo lo de aqui adentro SOLO aplica en pantallas de menos de 560px de
+     ancho. Los celulares miden entre 360 y 480; las tabletas de 7 pulgadas
      miden 600 o mas. O sea que a las tabletas NO les cambia absolutamente
      nada: ni un pixel. Si algun dia estorba, se borra este bloque completo
      y el Panel queda exactamente como estaba.
      ====================================================================== */
-  @media (max-width:500px){
+  @media (max-width:560px){
+
+    /* ------------------------------------------------------------------
+       ESTO ERA LO QUE DE VERDAD ROMPIA LA PANTALLA.
+       La barra de arriba es una sola fila que no se parte: la marca, el
+       sello PANEL, el punto LOCAL, el aviso de la nube y tu nombre. En el
+       celular no caben juntos, y al no caber ENSANCHAN LA PAGINA ENTERA.
+       Por eso las pestanas y los indicadores tambien salian recorridos,
+       aunque ellos estuvieran bien.
+       Ahora: la barra se parte en dos renglones si hace falta, y nada
+       puede volver a empujar la pagina de lado.
+       ------------------------------------------------------------------ */
+    html,body{overflow-x:hidden}
+    body>header,body>nav,body>main{max-width:100vw}
+
+    header{height:auto;min-height:52px;flex-wrap:wrap;gap:7px;row-gap:5px;padding:7px 10px}
+    header>*{min-width:0}
+    header .marca{font-size:15px}
+    header .marca .mnum{display:none}   /* el 84x88 chiquito: solo adorno, quita ancho */
+    header .tag{display:none}           /* el sello PANEL: el titulo ya lo dice */
+    header .ctx{margin-left:auto;font-size:12px;text-align:right;line-height:1.2}
+    #latido{font-size:11px}
+    #modo{font-size:11px}
 
     /* --- Lo que empujaba la pagina de lado: las tablas.
            Ahora cada tabla rueda sola de lado, sin arrastrar la pantalla. --- */
@@ -437,7 +459,19 @@ state.rep={cat:null,sub:null};
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function pintarMonitor(){
   await cargarMonitor();
-  if(!window._monTimer){ window._monTimer=setInterval(()=>{ if(state.vista==='monitor'){ const el=document.activeElement; if(el&&el.id==='monBuscar')return; cargarMonitor(); } }, 10000); }
+  /* 19-oct-2026: el Monitor tambien se repintaba solo cada 10 segundos y
+     te regresaba al principio. Ahora se apunta donde ibas y te devuelve. */
+  if(!window._monTimer){ window._monTimer=setInterval(async()=>{
+      if(state.vista!=='monitor')return;
+      const el=document.activeElement;
+      if(el&&(el.id==='monBuscar'||el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA'))return;
+      if(document.visibilityState!=='visible')return;
+      const mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;
+      const m=$("main"); const yM=m?m.scrollTop:0, xM=m?m.scrollLeft:0;
+      if(_tocando && yM>40)return;
+      try{ await cargarMonitor(); }catch(e){}
+      requestAnimationFrame(()=>{ try{ const m2=$("main"); if(m2){m2.scrollTop=yM;m2.scrollLeft=xM;} }catch(e){} });
+    }, 10000); }
 }
 async function cargarMonitor(){
   let d;
@@ -822,7 +856,20 @@ async function render(){
 
 /* ---- Auto-refresco: recarga sola la vista de consulta, sin estorbar ---- */
 const VISTAS_AUTO=['ventas','cuentas','reportes','propinas','llevar'];  // 'caja' NO: tiene su botón Actualizar y no debe regresarte del historial
-function _tickAuto(){
+
+/* 19-oct-2026 — ARREGLO: el refresco automatico repintaba todo y te
+   regresaba al principio de la pagina. Si ibas leyendo la lista de cuentas
+   a la mitad, cada 15 segundos te subia hasta arriba. Ahora se apunta
+   DONDE IBAS LEYENDO antes de repintar, y te deja en el mismo lugar.
+   Ademas: si estas desplazado hacia abajo y hay un dedo en la pantalla,
+   se espera al siguiente turno en vez de moverte el piso. */
+let _tocando=false;
+try{
+  document.addEventListener('touchstart',function(){_tocando=true;},{passive:true});
+  document.addEventListener('touchend',function(){setTimeout(function(){_tocando=false;},900);},{passive:true});
+}catch(e){}
+
+async function _tickAuto(){
   try{
     if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
     if(!state.rango)return;                                          // sin rango de fechas todavia: no calcular
@@ -830,7 +877,29 @@ function _tickAuto(){
     if(document.visibilityState!=='visible')return;                 // pestaña en 2do plano: no recargar
     var mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;      // hay un cuadro abierto: no interrumpir
     if(!VISTAS_AUTO.includes(state.vista))return;                    // solo vistas de consulta
-    render();
+
+    var m=$("main");
+    var yM=m?m.scrollTop:0, xM=m?m.scrollLeft:0;
+    var yP=window.scrollY||document.documentElement.scrollTop||0;
+
+    // Si esta leyendo mas abajo y trae el dedo en la pantalla, no lo
+    // interrumpimos: el dato se refresca en el siguiente turno.
+    if(_tocando && yM>40)return;
+
+    // Si esta escribiendo en un cuadro de texto, tampoco.
+    var el=document.activeElement;
+    if(el&&(el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA'))return;
+
+    await render();
+
+    // Devolverlo exactamente donde iba leyendo.
+    requestAnimationFrame(function(){
+      try{
+        var m2=$("main");
+        if(m2){ m2.scrollTop=yM; m2.scrollLeft=xM; }
+        if(yP)window.scrollTo(0,yP);
+      }catch(e){}
+    });
   }catch(e){}
 }
 if(!window._autoTimer){ window._autoTimer=setInterval(_tickAuto,15000); }
