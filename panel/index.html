@@ -129,6 +129,60 @@
   .pll-b-rechazar{background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
   .pll-b-print{flex:0 0 auto;min-width:50px;background:var(--gris);border:1px solid var(--gris2)!important;color:var(--texto)}
   .pll-b-cancel{flex:0 0 auto;min-width:50px;background:rgba(192,57,43,.16);color:#ff9c90;border:1px solid rgba(192,57,43,.4)!important}
+
+  /* ======================================================================
+     CELULAR — agregado el 19 oct 2026
+     Todo lo de aqui adentro SOLO aplica en pantallas de menos de 500px de
+     ancho. Los celulares miden entre 360 y 430; las tabletas de 7 pulgadas
+     miden 600 o mas. O sea que a las tabletas NO les cambia absolutamente
+     nada: ni un pixel. Si algun dia estorba, se borra este bloque completo
+     y el Panel queda exactamente como estaba.
+     ====================================================================== */
+  @media (max-width:500px){
+
+    /* --- Lo que empujaba la pagina de lado: las tablas.
+           Ahora cada tabla rueda sola de lado, sin arrastrar la pantalla. --- */
+    table{display:block;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table thead,table tbody,table tr{white-space:nowrap}
+    th,td{padding:9px 10px;font-size:13px}
+
+    /* --- Margenes y titulos un poco mas apretados --- */
+    .pad{padding:12px}
+    h2{font-size:18px;margin:2px 0 10px}
+
+    /* --- Pestanas: caben mas de un vistazo (siguen rodando de lado) --- */
+    nav{padding:6px 8px;gap:4px}
+    nav button{padding:9px 12px;font-size:14px}
+
+    /* --- Tarjetas de cuentas: los botones bajan en vez de apretarse --- */
+    .cta{flex-wrap:wrap;gap:8px;padding:12px}
+    .cta .info{flex:1 1 100%;min-width:0}
+    .cta .t{font-size:17px}
+    .cta button{flex:1 1 auto;padding:11px 10px}
+
+    /* --- Indicadores: dos por renglon en vez de uno --- */
+    .kpis{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+    .kpi{padding:12px}
+    .kpi .v{font-size:20px}
+
+    /* --- Barras de ventas: las etiquetas dejan de comerse la barra --- */
+    .bar .h{width:70px;font-size:12px}
+    .bar .v{width:74px;font-size:13px}
+
+    /* --- Para llevar: una tarjeta por renglon --- */
+    .pll-cols{grid-template-columns:1fr}
+    .pll-acc{flex-wrap:wrap}
+    .pll-acc button{min-width:0}
+
+    /* --- Renglones del menu y empleados --- */
+    .mitem{flex-wrap:wrap;gap:8px}
+    .mitem .info{flex:1 1 100%}
+
+    /* --- Ventanas emergentes: aprovechan casi toda la pantalla --- */
+    .modal-bg{padding:8px}
+    .modal{padding:14px;max-height:92dvh}
+    .modal .acc{flex-wrap:wrap}
+  }
 </style>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icono-180.png">
