@@ -2037,6 +2037,7 @@ async function pintarCaja(){
     $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
       <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
       ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s). Ciérralas (cóbralas) antes del Corte Z.</div>`:''}
+      <div id="revisionTurno"></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:280px">
           <div class="sec-t">Efectivo en caja (billetes)</div>
@@ -2105,8 +2106,83 @@ async function pintarCaja(){
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button><button class="nuevo" style="${bb};background:#2f6fb0" onclick="pintarVerificar()">🔎 Verificar corte</button></div>
       ${t.abiertas>0?'<p class="tenue" style="margin-top:6px">Para el Corte Z primero cobra las cuentas abiertas.</p>':''}
     </div>`;
+    /* La revisión del turno se pinta aparte para que la caja aparezca al
+       instante y no se quede esperando. Si algo falla, no estorba. */
+    try{ pintarRevision(turno.id); }catch(e){}
   }catch(e){err("No se pudo cargar la caja.",e);}
 }
+
+/* ==========================================================================
+   REVISIÓN DEL TURNO — módulos 73 y 74 (19 oct 2026)
+   Antes de cerrar, el sistema revisa solo y lo dice aquí. Nadie tiene que
+   acordarse de correr nada.
+
+   FALLA ABIERTO a propósito: si la base todavía no tiene los módulos 73/74,
+   o la consulta truena, este recuadro simplemente no aparece y la pantalla
+   de Caja sigue funcionando igual que siempre.
+   ========================================================================== */
+async function pintarRevision(turnoId){
+  const caja=$("revisionTurno"); if(!caja) return;
+  caja.innerHTML=`<div class="tenue" style="margin:0 0 10px;font-size:13px">Revisando el turno…</div>`;
+  try{
+    const r=await sb.rpc("revisar_turno",{p_turno:turnoId});
+    if(r.error) throw r.error;
+    const filas=(r.data||[]).filter(x=>!String(x.nivel||'').includes('LIMPIO'));
+
+    /* Cortes de días pasados que ya no cuadran con la base (módulo 74). */
+    let viejos=[];
+    try{ const d=await sb.rpc("revisar_cortes",{p_dias:7}); if(!d.error) viejos=d.data||[]; }catch(e){}
+
+    const graves = filas.filter(x=>String(x.nivel||'').includes('GRAVE')).length;
+    const money  = v => (v===null||v===undefined||Number(v)===0) ? '' :
+                        ' · <b>$'+Number(v).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})+'</b>';
+
+    let html='';
+
+    if(!filas.length && !viejos.length){
+      html=`<div class="aviso ok" style="margin:0 0 12px">
+        <b>✅ Revisión del turno: todo en orden.</b><br>
+        No hay mesas sin turno, cuentas cortas ni divisiones descuadradas. El Corte Z va limpio.
+      </div>`;
+    }else{
+      const items=filas.map(x=>`
+        <div style="margin-top:9px;padding-top:9px;border-top:1px solid rgba(128,128,128,.25)">
+          <b>${esc(x.nivel||'')} · ${esc(x.donde||'')}</b>${money(x.importe)}<br>
+          ${esc(x.problema||'')}
+          ${x.que_hacer?`<br><span style="opacity:.85">→ ${esc(x.que_hacer)}</span>`:''}
+        </div>`).join('');
+
+      if(filas.length){
+        html+=`<div class="${graves?'aviso err':'aviso'}" style="margin:0 0 12px${graves?'':';background:rgba(176,96,47,.14);border:1px solid rgba(176,96,47,.45)'}">
+          <b>${graves?'🔴':'🟡'} La revisión encontró ${filas.length} cosa(s) antes del Corte Z</b>
+          ${items}
+        </div>`;
+      }
+
+      if(viejos.length){
+        const v=viejos.slice(0,8).map(x=>`
+          <div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(128,128,128,.25)">
+            <b>Turno ${esc(String(x.turno))}</b> (${esc(x.cuando||'')}) · ${esc(x.concepto||'')}:
+            el corte dice <b>$${Number(x.guardado).toFixed(2)}</b>,
+            hoy hay <b>$${Number(x.ahora).toFixed(2)}</b>
+            (${Number(x.diferencia)>0?'+':''}${Number(x.diferencia).toFixed(2)})
+          </div>`).join('');
+        html+=`<div class="aviso err" style="margin:0 0 12px">
+          <b>⚠ Un corte ya cerrado dejó de cuadrar con la base</b><br>
+          Alguien corrigió, canceló o reabrió algo DESPUÉS de cerrar ese turno.
+          El papel que se imprimió esa noche ya no dice lo mismo.
+          ${v}
+          ${viejos.length>8?`<div class="tenue" style="margin-top:6px">…y ${viejos.length-8} más.</div>`:''}
+        </div>`;
+      }
+    }
+    caja.innerHTML=html;
+  }catch(e){
+    /* Módulos no instalados o consulta caída: no se estorba a nadie. */
+    caja.innerHTML='';
+  }
+}
+
 window.abrirTurnoP=async()=>{const f=parseFloat($("fondoP").value)||0;
   try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.admin.clave,p_fondo:f});if(r.error)throw r.error;okmsg("Turno abierto ✓");pintarCaja();}catch(e){err("No se pudo abrir turno.",e);}};
 window.movCajaP=async(tipo)=>{const et=tipo==='RETIRO'?'retiro (salida)':'depósito (entrada)';
