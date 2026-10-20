@@ -467,10 +467,10 @@ async function pintarMonitor(){
       if(el&&(el.id==='monBuscar'||el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA'))return;
       if(document.visibilityState!=='visible')return;
       const mb=$("mbg"); if(mb&&mb.classList.contains("on"))return;
-      const m=$("main"); const yM=m?m.scrollTop:0, xM=m?m.scrollLeft:0;
+      const m=$("main"); const yM=m?m.scrollTop:0;
       if(_tocando && yM>40)return;
-      try{ await cargarMonitor(); }catch(e){}
-      requestAnimationFrame(()=>{ try{ const m2=$("main"); if(m2){m2.scrollTop=yM;m2.scrollLeft=xM;} }catch(e){} });
+      // Mismo repintado callado: si el monitor no cambio, no se mueve nada.
+      await _repintarCallado(cargarMonitor);
     }, 10000); }
 }
 async function cargarMonitor(){
@@ -869,6 +869,48 @@ try{
   document.addEventListener('touchend',function(){setTimeout(function(){_tocando=false;},900);},{passive:true});
 }catch(e){}
 
+/* ---------------------------------------------------------------------------
+   REPINTADO CALLADO — 20 oct 2026
+   Antes el refresco automatico borraba la pantalla, ponia "Calculando…" y
+   hasta despues pintaba. Cada 15 segundos. Se veia feisimo y encima perdia
+   el lugar donde ibas leyendo.
+   Ahora la pantalla nueva se arma APARTE, fuera de la vista, y solo se pone
+   en su lugar SI DE VERDAD CAMBIO ALGO. Si no cambio nada —que es lo normal
+   casi siempre— no se mueve un solo pixel. El "Calculando…" tambien se queda
+   alla afuera: nunca se alcanza a ver.
+   --------------------------------------------------------------------------- */
+async function _repintarCallado(fn){
+  const real = $("main");
+  if(!real) return await fn();
+  const antes = real.innerHTML;
+  const yM = real.scrollTop, xM = real.scrollLeft;
+  const yP = window.scrollY || document.documentElement.scrollTop || 0;
+
+  const sombra = document.createElement('div');
+  sombra.style.cssText = 'position:absolute;left:-99999px;top:0;pointer-events:none;'
+                       + 'width:' + (real.clientWidth || 360) + 'px';
+  real.id = '_main_guardado';
+  sombra.id = 'main';
+  document.body.appendChild(sombra);
+
+  let nuevo = null;
+  try{
+    await fn();
+    nuevo = sombra.innerHTML;
+  }catch(e){
+    nuevo = null;                 // si algo fallo, se deja la pantalla como estaba
+  }finally{
+    try{ sombra.remove(); }catch(e){}
+    real.id = 'main';
+  }
+
+  if(nuevo !== null && nuevo !== antes){
+    real.innerHTML = nuevo;
+    real.scrollTop = yM; real.scrollLeft = xM;
+    if(yP) window.scrollTo(0, yP);
+  }
+}
+
 async function _tickAuto(){
   try{
     if(!state.admin)return;                                          // AUN NO ENTRA (pantalla de PIN): no calcular nada
@@ -879,8 +921,7 @@ async function _tickAuto(){
     if(!VISTAS_AUTO.includes(state.vista))return;                    // solo vistas de consulta
 
     var m=$("main");
-    var yM=m?m.scrollTop:0, xM=m?m.scrollLeft:0;
-    var yP=window.scrollY||document.documentElement.scrollTop||0;
+    var yM=m?m.scrollTop:0;
 
     // Si esta leyendo mas abajo y trae el dedo en la pantalla, no lo
     // interrumpimos: el dato se refresca en el siguiente turno.
@@ -890,16 +931,7 @@ async function _tickAuto(){
     var el=document.activeElement;
     if(el&&(el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA'))return;
 
-    await render();
-
-    // Devolverlo exactamente donde iba leyendo.
-    requestAnimationFrame(function(){
-      try{
-        var m2=$("main");
-        if(m2){ m2.scrollTop=yM; m2.scrollLeft=xM; }
-        if(yP)window.scrollTo(0,yP);
-      }catch(e){}
-    });
+    await _repintarCallado(render);
   }catch(e){}
 }
 if(!window._autoTimer){ window._autoTimer=setInterval(_tickAuto,15000); }
