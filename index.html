@@ -1118,6 +1118,11 @@ async function pintarDivision(){
     if(error)throw error;
     if(!partes||!partes.length){ return renderCobro(); }
     const modo=partes[0].modo;
+    /* Se guardan aqui para que "Asignar productos" no tenga que volver a
+       pedirlas a la base en cada toque (20-oct: eso lo hacia lento y se
+       notaba el repintado). Las etiquetas y el "ya pago" no cambian por
+       asignar un producto, asi que esta copia sirve. */
+    window._partesAhora = partes;
     let sinAsignar=[];
     if(modo==='CONSUMO'){
       const l=await lineasCuenta();
@@ -1267,7 +1272,8 @@ window.asignarProductos=async(sub,etiqueta)=>{
        gente hacía el camino largo (quitárselo al otro y luego asignarlo), y si
        se les olvidaba el segundo paso el importe quedaba sin dueño. Eso fue lo
        de la Mesa 17. Ahora se ve que se puede y dice qué va a pasar. */
-    const partesAhora=(await sb.rpc("estado_division",{p_cuenta:state.cuentaId})).data||[];
+    const partesAhora = window._partesAhora
+      || ((await sb.rpc("estado_division",{p_cuenta:state.cuentaId})).data || []);
     const etqDe=id=>{const p=partesAhora.find(z=>z.subcuenta_id===id);return p?p.etiqueta:'otra persona';};
     const pagadaDe=id=>{const p=partesAhora.find(z=>z.subcuenta_id===id);return !!(p&&p.pagada);};
     const filas=l.map(x=>{
