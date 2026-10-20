@@ -1082,6 +1082,20 @@ window.agregarParte=async()=>{
     const{data:partes,error}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
     if(error)throw error;
     if(!partes||!partes.length){ alert("La cuenta no está dividida."); return; }
+
+    /* 20-oct-2026 (caso Mesa 17): a las 14:23 alguien agregó una "Persona 3"
+       a una cuenta cuyas partes YA estaban impresas y cobradas. Eso no tiene
+       sentido y empezó el enredo. Si ya hay partes pagadas, se avisa y se
+       pide PIN de administrador antes de agregar a nadie. */
+    const yaPagadas = partes.filter(p=>p.pagada);
+    if(yaPagadas.length){
+      alert(`Ojo: ${yaPagadas.length} parte(s) de esta cuenta YA se cobraron (${yaPagadas.map(p=>p.etiqueta).join(', ')}).\n\n`
+          + `Agregar otra persona aquí no les quita ni les devuelve nada: la persona nueva nace en $0.00 y hay que asignarle productos a mano.\n\n`
+          + `Si lo que quieres es cobrar algo que quedó suelto, es mejor usar "⬇ Asignar lo que falta".`);
+      const pin=await resolverAdmin();
+      if(!pin) return;
+    }
+
     const modo=partes[0].modo;
     const num=Math.max(...partes.map(p=>Number(p.numero)))+1;
     const{data:c}=await sb.from("cuenta").select("folio").eq("id",state.cuentaId).single();
@@ -1147,6 +1161,12 @@ async function pintarDivision(){
       }catch(e){}
     }
     const falta=partes.filter(p=>!p.pagada).length;
+    /* 20-oct-2026 (caso Mesa 17): cuanto dinero quedo SIN DUENO.
+       Antes solo se decia "faltan N producto(s)" sin el monto, y como no
+       impedia cobrar, las partes se cobraban sin cuadrar con el total de la
+       mesa. Ahora se dice CUANTO y no se deja cobrar hasta repartirlo. */
+    const montoSuelto = sinAsignar.reduce((a,x)=>a+Number(x.importe||0),0);
+    const haySuelto   = sinAsignar.length > 0;
     const tarjetas=partes.map(p=>{
       const debe=Number(p.debe), pagado=Number(p.pagado), resta=Math.max(debe-pagado,0);
       return `<div class="cuenta" style="border:1px solid var(--gris2);border-radius:14px;padding:12px;margin-bottom:10px">
@@ -1158,11 +1178,28 @@ async function pintarDivision(){
           :`<div class="acbar" style="margin-top:8px">
               ${modo==='CONSUMO'?`<button onclick="asignarProductos(${p.subcuenta_id},'${esc(p.etiqueta)}')">Asignar productos</button>`:''}
               <button ${debe<=0?'disabled':''} onclick="verTicketParte(${p.subcuenta_id})">🧾 Ticket</button>
-              <button class="cerrar" ${debe<=0?'disabled':''} onclick="cobrarParte(${p.subcuenta_id},'${esc(p.etiqueta)}',${debe})">Cobrar $${resta.toFixed(2)}</button>
+              <button class="cerrar" ${(debe<=0||haySuelto)?'disabled':''}
+                onclick="${haySuelto?`alert('Primero reparte los $${montoSuelto.toFixed(2)} que están sin asignar. Si cobras ahora, las partes no van a sumar lo que consumió la mesa.')`:`cobrarParte(${p.subcuenta_id},'${esc(p.etiqueta)}',${debe})`}">
+                ${haySuelto?'Cobrar (falta repartir)':'Cobrar $'+resta.toFixed(2)}</button>
             </div>`}
       </div>`;}).join("");
-    const pend = sinAsignar.length
-      ? `<div class="aviso err" style="margin:10px 0"><b>Faltan ${sinAsignar.length} producto(s) por asignar</b><br>${sinAsignar.map(x=>cache.prodById[x.producto_id]?.nombre||'').join(', ')}</div>` : '';
+    /* El aviso de lo que quedo sin dueno: con MONTO, con nombres y precios,
+       y con un boton para repartirlo de un toque. */
+    const pend = haySuelto
+      ? `<div class="aviso err" style="margin:10px 0">
+           <b style="font-size:17px">⚠️ Faltan $${montoSuelto.toFixed(2)} por asignar</b><br>
+           <span style="opacity:.9">${sinAsignar.map(x=>`${esc(cache.prodById[x.producto_id]?.nombre||'?')} $${Number(x.importe||0).toFixed(2)}`).join(' · ')}</span>
+           <div style="margin-top:6px;font-size:13px;opacity:.85">
+             Mientras algo quede sin dueño, las partes no suman lo que consumió la mesa
+             y no se puede cobrar.
+           </div>
+           <div style="margin-top:9px">
+             <button onclick="repartirLoSuelto()"
+               style="background:#2f6fb0;color:#fff;border-color:#2f6fb0;padding:10px 14px;border-radius:10px;font-weight:700">
+               ⬇ Asignar lo que falta
+             </button>
+           </div>
+         </div>` : '';
     $("main").innerHTML=`<div class="pad">
       <h2>Dividir — ${state.mesaNom}</h2>
       <p class="tenue">${modo==='IGUAL'?'Partes iguales: cada ticket lista todos los productos con su parte del precio.':'Cada quien paga lo suyo.'} Faltan ${falta} por pagar. Con 🧾 Ticket se imprime la cuenta de esa persona antes de cobrar.</p>
@@ -1175,6 +1212,46 @@ async function pintarDivision(){
     </div>`;
   }catch(e){err("No se pudo mostrar la división.",e);}
 }
+/* 20-oct-2026 — "Asignar lo que falta".
+   Nace del caso de la Mesa 17: alguien le quitó la NARANJADA a Persona 1 para
+   pasarla a Persona 3 y se le olvidó el segundo paso. Quedaron $60 sin dueño,
+   las partes dejaron de cuadrar, y se acabó cobrando todo junto a mano.
+   Con esto se reparte de un toque, sin dos pasos que se puedan olvidar. */
+window.repartirLoSuelto=async()=>{
+  try{
+    const l=await lineasCuenta();
+    const sueltos=l.filter(x=>!x.subcuenta_id);
+    if(!sueltos.length){ flash("Ya no hay nada sin asignar"); return pintarDivision(); }
+    const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
+    const libres=(partes||[]).filter(p=>!p.pagada);
+    if(!libres.length){
+      alert("Todas las partes ya están pagadas. Usa ➕ Agregar persona para cobrar lo que falta aparte.");
+      return;
+    }
+    const total=sueltos.reduce((a,x)=>a+Number(x.importe||0),0);
+    const lista=sueltos.map(x=>`${esc(cache.prodById[x.producto_id]?.nombre||'?')} $${Number(x.importe||0).toFixed(2)}`).join('<br>');
+    const botones=libres.map(p=>`<button class="op" onclick="_mandarSueltosA(${p.subcuenta_id},'${esc(p.etiqueta)}')">${esc(p.etiqueta)} — lleva $${Number(p.debe).toFixed(2)}</button>`).join("");
+    $("modal").innerHTML=`<h3>¿De quién es lo que falta?</h3>
+      <p class="tenue" style="margin:-4px 0 10px">Son <b>$${total.toFixed(2)}</b>:<br>${lista}</p>
+      ${botones}
+      <button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
+    $("modalBg").classList.add("on");
+  }catch(e){ err("No se pudo leer lo que falta.",e); }
+};
+window._mandarSueltosA=async(sub, etiqueta)=>{
+  try{
+    const l=await lineasCuenta();
+    const sueltos=l.filter(x=>!x.subcuenta_id);
+    for(const x of sueltos){
+      const r=await sb.rpc("asignar_a_parte",{p_linea:x.id,p_sub:sub});
+      if(r.error) throw r.error;
+    }
+    cerrarModal();
+    flash(`Se le asignaron a ${etiqueta} ✓`);
+    pintarDivision();
+  }catch(e){ err("No se pudo asignar.",e); }
+};
+
 window.deshacerDivision=async()=>{
   if(!confirm("¿Quitar la división y volver a una sola cuenta?"))return;
   try{const r=await sb.rpc("quitar_division",{p_cuenta:state.cuentaId});if(r.error)throw r.error;
@@ -1185,21 +1262,52 @@ window.asignarProductos=async(sub,etiqueta)=>{
   try{
     const l=await lineasCuenta();
     if(!l.length){alert("No hay productos.");return;}
+    /* 20-oct-2026: lo de OTRA persona se veía deslavado, como si no se pudiera
+       tocar — y sí se puede: un toque lo mueve para acá. Por verse apagado, la
+       gente hacía el camino largo (quitárselo al otro y luego asignarlo), y si
+       se les olvidaba el segundo paso el importe quedaba sin dueño. Eso fue lo
+       de la Mesa 17. Ahora se ve que se puede y dice qué va a pasar. */
+    const partesAhora=(await sb.rpc("estado_division",{p_cuenta:state.cuentaId})).data||[];
+    const etqDe=id=>{const p=partesAhora.find(z=>z.subcuenta_id===id);return p?p.etiqueta:'otra persona';};
+    const pagadaDe=id=>{const p=partesAhora.find(z=>z.subcuenta_id===id);return !!(p&&p.pagada);};
     const filas=l.map(x=>{
       const nom=cache.prodById[x.producto_id]?.nombre||'';
       const mio=x.subcuenta_id===sub;
       const otro=x.subcuenta_id&&!mio;
-      return `<button class="op" onclick="toggleParte(${x.id},${sub},${mio})" ${otro?'style="opacity:.45"':''}>
-        ${mio?'✅':'⬜'} ${nom} — $${Number(x.importe).toFixed(2)}${otro?' (de otra persona)':''}</button>`;
+      const suelto=!x.subcuenta_id;
+      const bloqueado=otro&&pagadaDe(x.subcuenta_id);
+      const etiq = mio   ? '✅'
+                 : otro  ? (bloqueado?'🔒':'↔')
+                 : '⬜';
+      const cola = mio    ? ''
+                 : otro   ? ` <span style="opacity:.75">— es de ${esc(etqDe(x.subcuenta_id))}${bloqueado?', que ya pagó':'. Tócalo para traerlo aquí'}</span>`
+                 : suelto ? ` <span style="color:#e1622c;font-weight:700">— sin dueño</span>`
+                 : '';
+      return `<button class="op" onclick="toggleParte(${x.id},${sub},${mio})"${bloqueado?' style="opacity:.5"':''}>
+        ${etiq} ${esc(nom)} — $${Number(x.importe).toFixed(2)}${cola}</button>`;
     }).join("");
-    $("modal").innerHTML=`<h3>${etiqueta} — ¿qué pidió?</h3><p class="tenue">Toca para marcar o quitar.</p>${filas}
+    $("modal").innerHTML=`<h3>${etiqueta} — ¿qué pidió?</h3><p class="tenue">Toca para marcar o quitar. Lo que es de otra persona se trae de un toque.</p>${filas}
       <div class="acciones"><button class="ok" onclick="cerrarModal();pintarDivision()">Listo</button></div>`;
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudieron leer los productos.",e);}
 };
 window.toggleParte=async(linea,sub,quitar)=>{
-  try{const r=await sb.rpc("asignar_a_parte",{p_linea:linea,p_sub:quitar?null:sub});if(r.error)throw r.error;
-    const etiqueta=$("modal").querySelector("h3").textContent.split(" — ")[0];
+  const etiqueta=$("modal").querySelector("h3").textContent.split(" — ")[0];
+  const destino = quitar ? null : sub;
+  try{
+    let r=await sb.rpc("asignar_a_parte",{p_linea:linea,p_sub:destino});
+
+    /* 20-oct-2026 (modulo 77): si el producto sale de una parte QUE YA PAGO,
+       la base lo detiene y explica por que. Aqui se le enseña el motivo al
+       mesero y se le ofrece pedir PIN de administrador, en vez de solo decir
+       "no se pudo". */
+    if(r.error && /PIN de administrador|ya pago su parte/i.test(r.error.message||'')){
+      alert(r.error.message);
+      const pin=await resolverAdmin();
+      if(!pin){ return; }
+      r=await sb.rpc("asignar_a_parte",{p_linea:linea,p_sub:destino,p_admin_clave:pin});
+    }
+    if(r.error)throw r.error;
     asignarProductos(sub,etiqueta);
   }catch(e){err("No se pudo asignar.",e);}
 };
