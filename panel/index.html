@@ -1029,7 +1029,7 @@ async function pintarCancelaciones(){
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
 window.reabrir=async(id)=>{
-  if(!confirm("¿Reabrir esta cuenta ya cobrada? Volverá a estar ABIERTA para corregirla."))return;
+  if(!confirm(await _avisoReabrir(id)))return;
   const motivo=prompt("Motivo de reapertura (ej. se cobró de más):"); if(motivo===null)return;
   try{
     const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});
@@ -1857,8 +1857,36 @@ window.corrPropina=async(pagoId)=>{
     cerrarModal();okmsg("Propina corregida ✓");pintarCuentas();
   }catch(e){err("No se pudo corregir la propina.",e);}
 };
+/* 20-oct-2026 — el aviso de reabrir ahora dice QUÉ se va a borrar.
+   Caso Mesa 17: Carla reabrió una cuenta que YA estaba pagada completa, con
+   un aviso genérico que solo decía "se quitarán los pagos actuales". Se
+   borraron dos pagos por $715 y se perdió el registro de la división.
+   Si el aviso hubiera dicho los montos, probablemente se habría detenido. */
+async function _avisoReabrir(id){
+  const base = "¿Reabrir esta cuenta para re-cobrarla?\n\nVolverá a estar ABIERTA en el comandero.";
+  try{
+    const r = await sb.from("pago").select("importe,propina,forma_pago_id").eq("cuenta_id", id);
+    const pg = r.data || [];
+    const c  = await sb.from("cuenta").select("total,folio").eq("id", id).single();
+    const total = Number((c.data||{}).total || 0);
+    const folio = (c.data||{}).folio || '';
+    if(!pg.length) return base + "\n\n(Esta cuenta no tiene pagos registrados.)";
+    const suma = pg.reduce((a,x)=>a+Number(x.importe||0),0);
+    const prop = pg.reduce((a,x)=>a+Number(x.propina||0),0);
+    const lista = pg.map(x=>`   • ${(cache.formas[x.forma_pago_id]||{}).nombre||'—'}  $${Number(x.importe||0).toFixed(2)}`
+                            + (Number(x.propina||0)>0?`  (propina $${Number(x.propina).toFixed(2)})`:'')).join("\n");
+    const cuadra = Math.abs((suma - prop) - total) < 0.01;
+    return `⚠️ SE VAN A BORRAR ${pg.length} PAGO(S) POR $${suma.toFixed(2)}\n`
+         + `${folio?'Cuenta '+folio+'\n':''}\n${lista}\n\n`
+         + (cuadra
+             ? `Esta cuenta YA ESTÁ PAGADA COMPLETA (consumo $${total.toFixed(2)}).\n`
+               + `Si solo quieres corregir una propina o una forma de pago, ciérrala y usa los botones de corregir: no hace falta reabrir.\n\n`
+             : `Consumo $${total.toFixed(2)}.\n\n`)
+         + `Al reabrirla, esos pagos desaparecen y hay que volver a cobrarla desde el comandero.\n\n¿Continuar?`;
+  }catch(e){ return base + "\n\nSe quitarán los pagos actuales."; }
+}
 window.reabrirCuentaP=async(id)=>{
-  if(!confirm("¿Reabrir esta cuenta para re-cobrarla?\n\nSe quitarán los pagos actuales y volverá a estar ABIERTA en el comandero."))return;
+  if(!confirm(await _avisoReabrir(id)))return;
   try{const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:"correccion"});if(r.error)throw r.error;
     cerrarModal();okmsg("Cuenta reabierta — cóbrala de nuevo en el comandero");pintarCuentas();
   }catch(e){err("No se pudo reabrir.",e);}
@@ -2324,8 +2352,13 @@ window.darPorRevisado=async(turno)=>{
         No se borra nada. El descuadre se queda en la base y lo puedes volver a
         ver cuando quieras. <b>Si ese número vuelve a moverse, el aviso regresa solo.</b>
       </div>
-      <label>¿Por qué ya quedó aclarado? (queda guardado con tu nombre)</label>
-      <input id="revNota" maxlength="200" placeholder="Ej: lo aclaramos Héctor y yo">
+      <label>¿Por qué ya quedó aclarado?</label>
+      <input id="revNota" maxlength="200" placeholder="Ej: lo aclaramos Héctor y yo"
+             autocomplete="off" autocorrect="off" spellcheck="false">
+      <div class="tenue" style="font-size:12px;margin-top:6px;line-height:1.35">
+        Escríbelo con palabras. <b>Aquí NO va ningún PIN</b>: ya entraste al Panel con el
+        tuyo y esto queda guardado a nombre de ${esc((state.admin&&state.admin.nombre)||'ti')}.
+      </div>
       <div id="revErr" class="err" style="color:#ff8a7a;font-weight:700;min-height:18px;margin-top:8px"></div>
       <div class="acc" style="display:flex;gap:8px;margin-top:14px">
         <button onclick="cerrarModal()"
@@ -2344,6 +2377,17 @@ window._confirmarRevisado=async(turno)=>{
   const bErr=$("revErr"), bOk=$("revOk");
   try{
     const nota=(($("revNota")||{}).value||'').trim();
+
+    /* CANDADO (19 oct 2026): el 19 de octubre Arturo escribió su PIN en este
+       campo creyendo que se lo pedían, y se habría guardado en la bitácora en
+       texto plano. Si lo que escriben son puros números cortos, casi seguro es
+       un PIN: se detiene y se avisa, en vez de guardarlo. */
+    if(/^\d{3,8}$/.test(nota)){
+      if(bErr) bErr.textContent="Eso parece un PIN. Aquí no se pide PIN: escribe el motivo con palabras.";
+      try{ $("revNota").focus(); $("revNota").select(); }catch(e){}
+      return;
+    }
+
     if(bOk){ bOk.disabled=true; bOk.textContent="Guardando…"; }
     if(bErr) bErr.textContent="";
 
