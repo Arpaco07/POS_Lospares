@@ -1019,12 +1019,22 @@ window.pintarAuditoria=async(iso)=>{
     if(eids.length){ try{ const eq=await sb.from("empleado").select("id,nombre").in("id",eids); (eq.data||[]).forEach(e=>nom[e.id]=e.nombre);}catch(e){} }
     const cids=[...new Set(rows.filter(r=>r.entidad==='cuenta').map(r=>r.entidad_id).filter(Boolean))]; let fol={};
     if(cids.length){ try{ const cq=await sb.from("cuenta").select("id,folio").in("id",cids); (cq.data||[]).forEach(c=>fol[c.id]=c.folio);}catch(e){} }
-    const LBL={CORTESIA:'Cortesía',DESCUENTO_PRODUCTO:'Descuento a producto',DESCUENTO_CUENTA:'Descuento a cuenta',CANCELAR_CUENTA:'Canceló cuenta',REASIGNAR_MESERO:'Reasignó mesero',CORREGIR_FORMA_PAGO:'Corrigió forma de pago',CORREGIR_PROPINA:'Corrigió propina',REABRIR_CUENTA:'Reabrió cuenta',ANULAR_CUENTA:'Anuló cuenta',CANCELAR_PRODUCTO:'Canceló producto'};
+    const LBL={CORTESIA:'Cortesía',DESCUENTO_PRODUCTO:'Descuento a producto',DESCUENTO_CUENTA:'Descuento a cuenta',CANCELAR_CUENTA:'Canceló cuenta',REASIGNAR_MESERO:'Reasignó mesero',CORREGIR_FORMA_PAGO:'Corrigió forma de pago',CORREGIR_PROPINA:'Corrigió propina',REABRIR_CUENTA:'Reabrió cuenta',ANULAR_CUENTA:'Anuló cuenta',CANCELAR_PRODUCTO:'Canceló producto',
+      RETIRO_CAJA:'💸 Retiró de caja',DEPOSITO_CAJA:'💰 Metió a caja',
+      AVISO_MOVIMIENTO_SIN_NOMBRE:'⚠ Movimiento sin nombre',
+      CORTE_FORZADO_CON_MESAS_ABIERTAS:'⚠ Forzó el corte con mesas abiertas',
+      CORTE_REVISADO:'✓ Dio por revisado un descuadre',CORTE_REVISADO_DESHECHO:'Deshizo el "ya lo revisé"',
+      CUENTA_CAMBIA_DE_TURNO:'Cuenta pasó a otro turno',
+      REDIVIDIR_BORRA_PAGOS:'⚠ Volvió a dividir borrando pagos',
+      PRODUCTO_SALE_DE_PARTE_PAGADA:'⚠ Quitó un producto de una parte pagada',
+      AVISO_AUTORIZA_SIN_PIN:'⚠ Autorizó con clave en vez de PIN',
+      PAGO_DUPLICADO_EVITADO:'Se evitó un cobro doble',
+      OCULTAR_PLATILLO:'Ocultó un platillo',ELIMINAR_PLATILLO:'Borró un platillo'};
     const det=(d)=>{ if(!d)return ''; try{ if(typeof d==='string')d=JSON.parse(d);}catch(e){return esc(String(d));} if(typeof d!=='object'||d===null)return esc(String(d)); if(d.mesero_anterior_nombre||d.mesero_nuevo_nombre){return esc('de '+(d.mesero_anterior_nombre||'?')+' → '+(d.mesero_nuevo_nombre||'?'))+(d.motivo?(' · '+esc(String(d.motivo))):'');} const p=[]; for(const k in d){ if(d[k]!=null&&d[k]!=='')p.push(esc(k)+': '+esc(String(d[k]))); } return p.join(' · '); };
     const _dh=new Date(); const hoyISO=`${_dh.getFullYear()}-${String(_dh.getMonth()+1).padStart(2,'0')}-${String(_dh.getDate()).padStart(2,'0')}`;
     $("main").innerHTML=`<div class="pad">
       <h2>Auditoría</h2>
-      <p class="tenue" style="margin:0 0 10px">Quién hizo qué y cuándo: correcciones (forma de pago, propina), cortesías, descuentos, cancelaciones, reabrir cuenta y reasignar mesero.</p>
+      <p class="tenue" style="margin:0 0 10px">Quién hizo qué y cuándo: <b>retiros y depósitos de caja</b>, correcciones (forma de pago, propina), cortesías, descuentos, cancelaciones, reabrir cuenta y reasignar mesero.</p>
       <div class="rango" style="align-items:center;gap:10px;margin:0 0 12px;flex-wrap:wrap">
         <label class="tenue">Filtrar por día:</label>
         <input type="date" value="${iso||''}" max="${hoyISO}" onchange="pintarAuditoria(this.value)" style="padding:8px 10px;border:1px solid var(--gris2);border-radius:10px;background:var(--blanco);color:var(--texto);font-size:15px">
@@ -2186,9 +2196,12 @@ async function pintarCaja(){
                  <b>El bote está en el banco, no en la caja.</b> Hoy hubo mucha propina de tarjeta (${M(t.propBanco)}), y el 70% se le pagó a los meseros <b>en efectivo del cajón</b>. Ese dinero te llega después por la terminal.<br>
                  Para que el bote quedara apartado hoy habría que retirar ${M(boteFalta)} menos.</div>`
             : ''}
-          <div style="display:flex;gap:8px;margin-top:10px">
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <button class="nuevo" style="${bb};background:#2f6fb0" onclick="movCajaP('DEPOSITO')">＋ Depósito</button>
             <button class="nuevo" style="${bb};background:#8a6d1f" onclick="movCajaP('RETIRO')">− Retiro</button>
+            <button class="nuevo" style="${bb};background:var(--gris);border:1px solid var(--gris2)"
+                    onclick="imprimirMovimientos(${Number(turno.id)})"
+                    title="Imprime un ticket con los retiros y depósitos de este turno, para el corte a mano">🧾 Imprimir movimientos</button>
           </div>
           ${(efEsper-boteC-t.ret)<0 && t.ret>0 ? `<p class="tenue" style="margin:8px 0 0;font-size:12px">Antes de retirar, aparta <b>${M(boteC)}</b> del bote y lo que falte de propinas por pagar.</p>`:''}
         </div>
@@ -2447,10 +2460,98 @@ window._confirmarRevisado=async(turno)=>{
 
 window.abrirTurnoP=async()=>{const f=parseFloat($("fondoP").value)||0;
   try{const r=await sb.rpc("abrir_turno",{p_cajero_clave:state.admin.clave,p_fondo:f});if(r.error)throw r.error;okmsg("Turno abierto ✓");pintarCaja();}catch(e){err("No se pudo abrir turno.",e);}};
-window.movCajaP=async(tipo)=>{const et=tipo==='RETIRO'?'retiro (salida)':'depósito (entrada)';
-  const monto=parseFloat(prompt("Monto del "+et+" ($):","0")); if(isNaN(monto)||monto<=0){if(!isNaN(monto))alert("El monto debe ser mayor a 0.");return;}
-  const motivo=prompt("Motivo:")||null;
-  try{const r=await sb.rpc("registrar_movimiento_caja",{p_tipo:tipo,p_monto:monto,p_motivo:motivo,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;okmsg((tipo==='RETIRO'?"Retiro":"Depósito")+" registrado ✓");pintarCaja();}catch(e){err("No se pudo registrar el movimiento.",e);}};
+/* ---- RETIROS Y DEPOSITOS — ventana propia (22 oct 2026) ----
+   Antes esto usaba prompt() dos veces. Los navegadores incrustados
+   (el que abre dentro de otra app, con barra de X y ⋮) los BLOQUEAN:
+   la función recibía null y se salía en silencio, sin decir nada.
+   Por eso Carla no podía registrar retiros desde el iPhone.
+   Ahora es una ventana del Panel, como la de "ya lo revisé". */
+window.movCajaP=async(tipo)=>{
+  const esRet = tipo==='RETIRO';
+  const et    = esRet ? 'Retiro (sale dinero)' : 'Depósito (entra dinero)';
+  $("modal").innerHTML=`
+    <h3>${et}</h3>
+    <label>¿Cuánto?</label>
+    <input id="mcMonto" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00"
+           autocomplete="off">
+    <label style="margin-top:10px">${esRet?'¿A quién se le entrega?':'¿De quién entra?'}</label>
+    <input id="mcQuien" maxlength="60" placeholder="${esRet?'Ej: Don Pedro el jardinero':'Ej: Arturo'}"
+           autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="tenue" style="font-size:12px;margin-top:4px">
+      El nombre es <b>obligatorio</b>. Queda en la Auditoría junto con tu nombre.
+    </div>
+    <label style="margin-top:10px">¿Por qué?</label>
+    <input id="mcMotivo" maxlength="80" placeholder="Ej: garrafones de agua" autocomplete="off">
+    <div id="mcErr" class="err" style="color:#ff8a7a;font-weight:700;min-height:18px;margin-top:8px"></div>
+    <div class="acc" style="display:flex;gap:8px;margin-top:14px">
+      <button onclick="cerrarModal()"
+        style="flex:1;background:var(--gris);border:1px solid var(--gris2);color:inherit;
+               border-radius:10px;padding:12px;font-weight:700">Cancelar</button>
+      <button id="mcOk" onclick="_guardarMovCaja('${tipo}')"
+        style="flex:1;background:var(--verde);color:#fff;border-radius:10px;padding:12px;font-weight:700">
+        Registrar</button>
+    </div>`;
+  $("mbg").classList.add("on");
+  setTimeout(()=>{ const i=$("mcMonto"); if(i) i.focus(); }, 80);
+};
+
+window._guardarMovCaja=async(tipo)=>{
+  const bErr=$("mcErr"), bOk=$("mcOk");
+  const monto  = parseFloat(($("mcMonto")||{}).value);
+  const quien  = (($("mcQuien")||{}).value||'').trim();
+  const motivo = (($("mcMotivo")||{}).value||'').trim();
+  if(isNaN(monto) || monto<=0){ bErr.textContent="Pon un monto mayor a 0."; return; }
+  if(!quien){ bErr.textContent = (tipo==='RETIRO')
+      ? "Falta el nombre de a quién se le entrega el dinero."
+      : "Falta el nombre de quién entrega el dinero."; return; }
+  bErr.textContent=""; if(bOk){ bOk.disabled=true; bOk.textContent="Guardando…"; }
+  try{
+    const r=await sb.rpc("registrar_movimiento_caja",{
+      p_tipo:tipo, p_monto:monto, p_motivo:motivo||null,
+      p_empleado_clave:state.admin.clave, p_entregado_a:quien});
+    if(r.error) throw r.error;
+    cerrarModal();
+    okmsg((tipo==='RETIRO'?"Retiro":"Depósito")+" registrado ✓");
+    pintarCaja();
+  }catch(e){
+    if(bOk){ bOk.disabled=false; bOk.textContent="Registrar"; }
+    const m=(e&&(e.message||e.hint))||"No se pudo registrar.";
+    if(bErr) bErr.textContent=m; else err("No se pudo registrar el movimiento.",e);
+  }
+};
+
+/* ---- IMPRIME EL TICKET DE MOVIMIENTOS (para el corte manual) ---- */
+window.imprimirMovimientos=async(turnoId)=>{
+  if(modo!=="LOCAL"){ alert("La impresión no está disponible desde aquí (modo NUBE).\n\nÁbrelo en pos.lospares.com, dentro del restaurante o con el VPN prendido."); return; }
+  try{
+    const {data,error}=await sb.from("movimiento_caja")
+      .select("tipo,monto,motivo,entregado_a,creado_en,empleado_id")
+      .eq("turno_id",turnoId).order("creado_en");
+    if(error) throw error;
+    const movs=data||[];
+    if(!movs.length){ alert("Este turno no tiene retiros ni depósitos."); return; }
+    // nombres de quien capturo
+    const eids=[...new Set(movs.map(m=>m.empleado_id).filter(Boolean))]; let nom={};
+    if(eids.length){ try{ const eq=await sb.from("empleado").select("id,nombre").in("id",eids);
+      (eq.data||[]).forEach(e=>nom[e.id]=e.nombre); }catch(e){} }
+    const cuerpo={
+      area:'CAJA', turno:turnoId,
+      fecha:new Date().toLocaleDateString('es-MX'),
+      corte_de:(state.admin&&state.admin.nombre)||'',
+      movimientos:movs.map(m=>({
+        tipo:m.tipo, monto:Number(m.monto)||0,
+        entregado_a:m.entregado_a||null, motivo:m.motivo||null,
+        capturo:nom[m.empleado_id]||'',
+        hora:new Date(m.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),
+        dia:new Date(m.creado_en).toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit'})
+      }))};
+    const resp=await fetch(_printUrlCaja()+"/movimientos",{method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(cuerpo)});
+    const j=await resp.json().catch(()=>({ok:false}));
+    if(j.ok) okmsg("Ticket de movimientos impreso ✓");
+    else alert("No se pudo imprimir.\n\nRevisa que el asistente de impresión esté encendido\n(debe decir versión 5-movimientos).");
+  }catch(e){ err("No se pudo imprimir el ticket de movimientos.",e); }
+};
 window.pagarPropP=async(mid)=>{ if(!confirm("¿Pagar la propina (70%) de este mesero en efectivo?"))return;
   if(!window._turnoActual){alert("Primero abre la caja/turno.");return;}
   try{const r=await sb.rpc("pagar_propina_mesero",{p_mesero_id:mid,p_empleado_clave:state.admin.clave,p_turno:window._turnoActual});if(r.error)throw r.error;
