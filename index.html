@@ -722,7 +722,7 @@ async function verCuentaEditable(){
   try{const l=await lineasCuenta();if(!l.length){flash("La comanda está vacía");return;}
     const mpl=await modsDe(l.map(x=>x.id));
     const filas=l.map(x=>{const nomBase=cache.prodById[x.producto_id]?.nombre||"";const cant=Number(x.cantidad)||1;const nom=(cant>1&&!x.peso_kg?cant+'x ':'')+nomBase;const sub=[x.peso_kg?`${x.peso_kg} kg`:null,(mpl[x.id]||[]).join(", ")||null,x.estado==='IMPRESO'?'enviado':null].filter(Boolean).join(" · ");
-      return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}<button class="x" title="Repetir (pedir otro igual)" style="background:var(--verde)" onclick="repetirProducto(${x.producto_id})">🔁</button>${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button><button class="x" title="Quitar (aún no enviado)" onclick="quitarLinea(${x.id},'PENDIENTE','${esc(nom)}')">🗑</button>`:`<button class="x" title="Cancelar (ya enviado — pide admin)" style="background:#a12" onclick="quitarLinea(${x.id},'IMPRESO','${esc(nom)}')">✕</button>`}</div>`;}).join("");
+      return `<div class="linea"><div class="info"><div class="n">${nom}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}<button class="x" title="Repetir (pedir otro igual)" style="background:var(--verde)" onclick="repetirProducto(${x.producto_id})">🔁</button>${x.estado==='PENDIENTE'?`<button class="x" title="Mover a otra mesa" style="background:#2f6fb0" onclick="moverProducto(${x.id})">⇄</button><button class="x" title="Quitar (aún no enviado)" onclick="quitarLinea(${x.id},'PENDIENTE','${esc(nom)}')">🗑</button>`:`<button class="x" title="Pasar el cargo a otra cuenta (ya se envió — no se reimprime)" style="background:#c8781f" onclick="moverProducto(${x.id},true)">💵⇄</button><button class="x" title="Cancelar (ya enviado — pide admin)" style="background:#a12" onclick="quitarLinea(${x.id},'IMPRESO','${esc(nom)}')">✕</button>`}</div>`;}).join("");
     $("modal").innerHTML=`<h3>Comanda — ${state.mesaNom}</h3><div class="cuenta" style="margin:12px -18px 0">${filas}</div><div class="acciones"><button class="cancelar" onclick="cerrarModal()">Seguir pidiendo</button><button class="ok" style="background:#2f6fb0" onclick="reimprimir()">🖨️ Reimprimir</button><button class="ok" style="background:var(--negro)" onclick="cerrarModal();verCuenta()">🧾 Ver ticket</button></div>`;$("modalBg").classList.add("on");
   }catch(e){err("No se pudo leer la comanda.",e);}
 }
@@ -735,7 +735,7 @@ window.repetirProducto=async(prodId)=>{
   try{ await agregar(p,1,null,[],null); await refrescarTotal(); flash(p.nombre+" repetido ✓"); verCuentaEditable(); }
   catch(e){ err("No se pudo repetir.",e); }
 };
-window.moverProducto=async(linea)=>{
+window.moverProducto=async(linea,forzado)=>{
   // cargar mesas/cuentas ABIERTAS distintas a la actual
   let dest=[];
   try{
@@ -744,19 +744,33 @@ window.moverProducto=async(linea)=>{
     dest=(data||[]).filter(c=>c.id!==state.cuentaId).map(c=>({id:c.id, nom:c.tipo_venta==="MESA"?(mesaNom[c.mesa_id]||"Mesa"):(c.tipo_venta==="PARA_LLEVAR"?"Para llevar":"Boutique"), folio:c.folio}));
   }catch(e){ return err("No se pudieron leer las mesas.",e); }
   if(!dest.length){ alert("No hay otra mesa abierta para mover el producto."); return; }
-  $("modal").innerHTML=`<h3>Mover producto a…</h3><p class="tenue">Elige la mesa destino (debe estar abierta):</p>`+
-    dest.map(d=>`<button class="op" onclick="finMover(${linea},${d.id})">${d.nom} <small>${d.folio||''}</small></button>`).join("")+
+  $("modal").innerHTML=(forzado
+      ? `<h3>Pasar el cargo a otra cuenta</h3><p class="tenue">Este producto <b>ya se envió</b> a cocina/barra.<br>Solo se mueve el <b>cobro</b>: no se vuelve a imprimir la comanda y el reporte de cocina no cambia.<br><br>¿Quién lo va a pagar? (la cuenta debe estar abierta)</p>`
+      : `<h3>Mover producto a…</h3><p class="tenue">Elige la mesa destino (debe estar abierta):</p>`)+
+    dest.map(d=>`<button class="op" onclick="finMover(${linea},${d.id},${forzado?'true':'false'})">${d.nom} <small>${d.folio||''}</small></button>`).join("")+
     `<button class="op" style="text-align:center" onclick="cerrarModal();verCuentaEditable()">Cancelar</button>`;
   $("modalBg").classList.add("on");
 };
-window.finMover=async(linea,destino)=>{
+window.finMover=async(linea,destino,forzado)=>{
   cerrarModal();
   const a=await resolverAdmin(); if(!a)return;
+  // Solo se manda p_forzar_enviado cuando de verdad se fuerza. Asi, si una
+  // base todavia no tiene el modulo 81, los traspasos normales siguen
+  // funcionando igual que siempre (regla de oro: el servicio no se para).
+  const args={p_linea:linea,p_cuenta_destino:destino,p_admin_clave:a};
+  if(forzado) args.p_forzar_enviado=true;
   try{
-    const r=await sb.rpc("traspasar_producto",{p_linea:linea,p_cuenta_destino:destino,p_admin_clave:a});
+    const r=await sb.rpc("traspasar_producto",args);
     if(r.error)throw r.error;
-    await refrescarTotal(); flash("Producto movido ✓"); verCuentaEditable();
-  }catch(e){ err("No se pudo mover.",e); }
+    await refrescarTotal();
+    flash(forzado?"Cargo pasado ✓ (no se reimprimió)":"Producto movido ✓");
+    verCuentaEditable();
+  }catch(e){
+    const m=String((e&&(e.message||e.hint))||"");
+    if(forzado && /p_forzar_enviado|schema cache|does not exist|no existe/i.test(m)){
+      err("Falta correr el modulo 81 en esta base. Mientras tanto: cancela el producto en esta cuenta y capturálo en la otra.",e);
+    } else { err("No se pudo mover.",e); }
+  }
 };
 window.quitarLinea=async(id,estado,nombre)=>{
   nombre=nombre||"este producto";
