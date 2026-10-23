@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Servidor — Los Pares 84×88</title>
 <style>
-  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#141210;--gris2:#39332b;--texto:#efe7d6;--tenue:#a89e89;--verde:#2e7d46;--rojo:#c0392b;--blanco:#201d18;--oro:#d4af37;--oro2:#8b6914;--barra:58px;}
+  :root{--negro:#1c1c1c;--naranja:#e1622c;--gris:#141210;--gris2:#39332b;--texto:#efe7d6;--tenue:#a89e89;--verde:#2e7d46;--rojo:#c0392b;--blanco:#201d18;--oro:#d4af37;--oro2:#8b6914;--barra:58px;}.pinbg{position:fixed;inset:0;background:rgba(0,0,0,.80);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}.pincard{background:var(--blanco);border:1px solid var(--gris2);border-radius:18px;padding:18px;width:min(330px,92vw);box-shadow:0 10px 44px rgba(0,0,0,.65)}.pincard h3{margin:0 0 4px;font-size:17px;color:var(--texto);text-align:center;font-weight:800}.pincard .pinsub{display:block;font-size:12px;color:var(--tenue);font-weight:600;text-align:center;margin-bottom:8px}.pindots{text-align:center;font-size:26px;letter-spacing:9px;color:var(--oro);min-height:38px;line-height:38px;margin-bottom:12px;font-weight:800}.pingrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pinkey{font-size:22px;font-weight:700;padding:16px 0;border-radius:12px;background:var(--gris);border:1px solid var(--gris2);color:var(--texto);cursor:pointer}.pinkey:active{background:var(--gris2)}.pinok{background:var(--verde);color:#fff;border-color:var(--verde)}.pinborra{color:var(--tenue)}.pincancel{margin-top:10px;width:100%;padding:13px;border-radius:12px;background:transparent;border:1px solid var(--gris2);color:var(--tenue);font-weight:700;cursor:pointer}.ver{font-size:10px;font-weight:700;color:var(--tenue);border:1px solid var(--gris2);border-radius:999px;padding:2px 7px;letter-spacing:.4px;white-space:nowrap}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh}
@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v3-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1239,24 +1239,69 @@ function formEmp(e){
 }
 window.nuevoEmp=()=>formEmp({rol_id:null,es_admin:false,activo:true});
 window.editarEmp=(id)=>{const e=window._emps.find(x=>x.id===id);if(e)formEmp(e);};
+/* ---------------------------------------------------------------------
+   TECLADO DE PIN  ·  22-oct-2026  ·  lo pidio Carla
+   prompt() MUESTRA lo que se teclea: cualquiera parado junto a ella se
+   aprendia su PIN. Ademas los navegadores incrustados lo bloquean
+   (leccion 4.7). Puntitos, teclas grandes, y tambien teclado fisico.
+--------------------------------------------------------------------- */
+function pedirPin(titulo, subtitulo){
+  return new Promise(resolve=>{
+    let pin="", cerrado=false;
+    const bg=document.createElement("div"); bg.className="pinbg";
+    bg.innerHTML='<div class="pincard">'
+      +'<h3>'+(titulo||"PIN de administrador")+'</h3>'
+      +(subtitulo?'<span class="pinsub">'+subtitulo+'</span>':'')
+      +'<div class="pindots" id="pinDots"></div>'
+      +'<div class="pingrid">'
+      +[1,2,3,4,5,6,7,8,9].map(function(n){return '<button class="pinkey" data-n="'+n+'">'+n+'</button>';}).join("")
+      +'<button class="pinkey pinborra" data-b="1">\u232B</button>'
+      +'<button class="pinkey" data-n="0">0</button>'
+      +'<button class="pinkey pinok" data-ok="1">\u2713</button>'
+      +'</div>'
+      +'<button class="pincancel" data-x="1">Cancelar</button>'
+      +'</div>';
+    document.body.appendChild(bg);
+    const dots=bg.querySelector("#pinDots");
+    const pinta=function(){ dots.textContent = pin ? "\u25CF".repeat(pin.length) : "\u00B7 \u00B7 \u00B7 \u00B7"; };
+    const fin=function(v){ if(cerrado)return; cerrado=true;
+      document.removeEventListener("keydown",tecla); bg.remove(); resolve(v); };
+    bg.addEventListener("click",function(e){
+      const t=e.target.closest("button");
+      if(!t){ if(e.target===bg) fin(null); return; }
+      if(t.dataset.x)  return fin(null);
+      if(t.dataset.ok) return fin(pin||null);
+      if(t.dataset.b){ pin=pin.slice(0,-1); return pinta(); }
+      if(pin.length<12){ pin+=t.dataset.n; pinta(); }
+    });
+    const tecla=function(e){
+      if(e.key>="0"&&e.key<="9"&&e.key.length===1){ if(pin.length<12){pin+=e.key;pinta();} e.preventDefault(); }
+      else if(e.key==="Backspace"){ pin=pin.slice(0,-1); pinta(); e.preventDefault(); }
+      else if(e.key==="Enter"){ e.preventDefault(); fin(pin||null); }
+      else if(e.key==="Escape"){ e.preventDefault(); fin(null); }
+    };
+    document.addEventListener("keydown",tecla);
+    pinta();
+  });
+}
 window.guardarEmp=async(id)=>{
   if(state.soloLectura){ alert("Solo un administrador puede editar empleados."); return; }
   const nom=$("enom").value.trim();if(!nom){alert("Ponle nombre");return;}
   // 18 oct: la base EXIGE PIN de administrador (modulo 68)
-  const apin=prompt("PIN de ADMINISTRADOR para confirmar el cambio:");
+  const apin=await pedirPin("PIN de ADMINISTRADOR","para confirmar el cambio");
   if(!apin) return;
   try{const r=await sb.rpc("guardar_empleado",{p_id:id,p_nombre:nom,p_rol_clave:$("erol").value,p_es_admin:$("eadm").checked,p_activo:$("eact").checked,p_admin_pin:apin});
     if(r.error)throw r.error;
-    if(!id){const nuevoId=r.data;const pin=prompt("PIN para el nuevo empleado (4 dígitos):");if(pin){const r2=await sb.rpc("cambiar_pin",{p_id:nuevoId,p_pin:pin,p_admin_pin:apin}); if(r2.error) throw r2.error;}}
+    if(!id){const nuevoId=r.data;const pin=await pedirPin("PIN para el empleado nuevo","4 dígitos");if(pin){const r2=await sb.rpc("cambiar_pin",{p_id:nuevoId,p_pin:pin,p_admin_pin:apin}); if(r2.error) throw r2.error;}}
     cerrarModal();okmsg("Empleado guardado");pintarEmpleados();
   }catch(e){err("No se pudo guardar.",e);}
 };
 window.pinEmp=async(id,nombre)=>{
   if(state.soloLectura){ alert("Solo un administrador puede cambiar PINes."); return; }
-  const pin=prompt(`Nuevo PIN para ${nombre} (4 dígitos):`);if(!pin)return;
+  const pin=await pedirPin("Nuevo PIN para "+nombre,"4 dígitos");if(!pin)return;
   if(pin.length<3){alert("PIN muy corto");return;}
   // 18 oct: la base EXIGE PIN de administrador (modulo 68)
-  const apin=prompt("PIN de ADMINISTRADOR para confirmar el cambio:");
+  const apin=await pedirPin("PIN de ADMINISTRADOR","para confirmar el cambio");
   if(!apin) return;
   try{const r=await sb.rpc("cambiar_pin",{p_id:id,p_pin:pin,p_admin_pin:apin});if(r.error)throw r.error;okmsg("PIN actualizado");}catch(e){err("No se pudo cambiar el PIN.",e);}
 };
