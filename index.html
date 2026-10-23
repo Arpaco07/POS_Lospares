@@ -62,7 +62,7 @@
   footer{flex:0 0 auto;min-height:var(--footer);background:var(--blanco);border-top:1px solid var(--gris2);display:flex;align-items:center;gap:8px;padding:10px 12px}
   footer .tot{font-size:12px;color:var(--tenue)}footer .tot b{display:block;font-size:20px;color:var(--texto)}
   footer .btn{margin-left:auto;font-weight:700;border-radius:12px;padding:13px 14px;font-size:15px}
-  footer .b1{background:var(--gris);border:2px solid var(--oro);color:var(--oro)}
+  footer .b1{background:var(--gris);border:2px solid var(--oro);color:var(--oro)}.pinbg{position:fixed;inset:0;background:rgba(0,0,0,.80);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}.pincard{background:var(--blanco);border:1px solid var(--gris2);border-radius:18px;padding:18px;width:min(330px,92vw);box-shadow:0 10px 44px rgba(0,0,0,.65)}.pincard h3{margin:0 0 4px;font-size:17px;color:var(--texto);text-align:center;font-weight:800}.pincard .pinsub{display:block;font-size:12px;color:var(--tenue);font-weight:600;text-align:center;margin-bottom:8px}.pindots{text-align:center;font-size:26px;letter-spacing:9px;color:var(--oro);min-height:38px;line-height:38px;margin-bottom:12px;font-weight:800}.pingrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pinkey{font-size:22px;font-weight:700;padding:16px 0;border-radius:12px;background:var(--gris);border:1px solid var(--gris2);color:var(--texto);cursor:pointer}.pinkey:active{background:var(--gris2)}.pinok{background:var(--verde);color:#fff;border-color:var(--verde)}.pinborra{color:var(--tenue)}.pincancel{margin-top:10px;width:100%;padding:13px;border-radius:12px;background:transparent;border:1px solid var(--gris2);color:var(--tenue);font-weight:700;cursor:pointer}
   footer .b2{background:var(--negro);color:#fff}
   footer .b3{background:var(--naranja);color:#fff;margin-left:0}
   .cuenta{background:var(--blanco)}
@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v6-traspaso</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v7-pin</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none;margin-left:auto">🔄 Menú</button>
 </header>
@@ -1006,14 +1006,62 @@ window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(
 window.agregarPago=(clave,nombre)=>{const total=Number(state.cobro.total)+state.propina;const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);const restan=Math.max(total-pagado,0);
   const v=parseFloat(prompt(`Monto en ${nombre}:`,restan.toFixed(2)));if(isNaN(v)||v<=0)return;state.pagos.push({clave,nombre,importe:v});pintarCobro();};
 window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
-async function resolverAdmin(){const pin=prompt("PIN de administrador:");if(!pin)return null;
+/* ---------------------------------------------------------------------
+   TECLADO DE PIN  ·  22-oct-2026
+   Antes se usaba prompt(), y prompt() MUESTRA lo que se teclea: cualquiera
+   parado junto a Carla se aprendia su PIN. Lo pidio ella.
+   Ademas prompt() lo bloquean los navegadores incrustados (leccion 4.7),
+   asi que esto tambien quita dos de esos.
+   Ventana propia, puntitos en vez de numeros, teclas grandes para tableta.
+   Tambien funciona con el teclado fisico: numeros, Backspace, Enter, Esc.
+--------------------------------------------------------------------- */
+function pedirPin(titulo, subtitulo){
+  return new Promise(resolve=>{
+    let pin="", cerrado=false;
+    const bg=document.createElement("div"); bg.className="pinbg";
+    bg.innerHTML='<div class="pincard">'
+      +'<h3>'+(titulo||"PIN de administrador")+'</h3>'
+      +(subtitulo?'<span class="pinsub">'+subtitulo+'</span>':'')
+      +'<div class="pindots" id="pinDots"></div>'
+      +'<div class="pingrid">'
+      +[1,2,3,4,5,6,7,8,9].map(function(n){return '<button class="pinkey" data-n="'+n+'">'+n+'</button>';}).join("")
+      +'<button class="pinkey pinborra" data-b="1">\u232B</button>'
+      +'<button class="pinkey" data-n="0">0</button>'
+      +'<button class="pinkey pinok" data-ok="1">\u2713</button>'
+      +'</div>'
+      +'<button class="pincancel" data-x="1">Cancelar</button>'
+      +'</div>';
+    document.body.appendChild(bg);
+    const dots=bg.querySelector("#pinDots");
+    const pinta=function(){ dots.textContent = pin ? "\u25CF".repeat(pin.length) : "\u00B7 \u00B7 \u00B7 \u00B7"; };
+    const fin=function(v){ if(cerrado)return; cerrado=true;
+      document.removeEventListener("keydown",tecla); bg.remove(); resolve(v); };
+    bg.addEventListener("click",function(e){
+      const t=e.target.closest("button");
+      if(!t){ if(e.target===bg) fin(null); return; }
+      if(t.dataset.x)  return fin(null);
+      if(t.dataset.ok) return fin(pin||null);
+      if(t.dataset.b){ pin=pin.slice(0,-1); return pinta(); }
+      if(pin.length<12){ pin+=t.dataset.n; pinta(); }
+    });
+    const tecla=function(e){
+      if(e.key>="0"&&e.key<="9"&&e.key.length===1){ if(pin.length<12){pin+=e.key;pinta();} e.preventDefault(); }
+      else if(e.key==="Backspace"){ pin=pin.slice(0,-1); pinta(); e.preventDefault(); }
+      else if(e.key==="Enter"){ e.preventDefault(); fin(pin||null); }
+      else if(e.key==="Escape"){ e.preventDefault(); fin(null); }
+    };
+    document.addEventListener("keydown",tecla);
+    pinta();
+  });
+}
+async function resolverAdmin(){const pin=await pedirPin("PIN de administrador");if(!pin)return null;
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}const u=data[0]; if(!(u.es_admin||u.rol==='ADMIN')){alert("Ese PIN no es de administrador");return null;}
     /* 18-oct-2026 (modulos 69/70): se manda el PIN, NO la clave. La base lo
        verifica con crypt igual que el login, asi la autorizacion no se puede
        falsificar sabiendose la clave ('CARLA'). Tambien se acepta rol ADMIN
        aunque la casilla este apagada, igual que el Panel. */
     return pin;}catch(e){err("No se pudo validar.",e);return null;}}
-async function resolverCaja(){const pin=prompt("PIN de cajero o administrador (para abrir turno):");if(!pin)return null;
+async function resolverCaja(){const pin=await pedirPin("PIN de cajero o administrador","para abrir el turno");if(!pin)return null;
   try{const{data,error}=await sb.rpc("login_pin",{p_pin:pin});if(error)throw error;if(!data||!data.length){alert("PIN incorrecto");return null;}
     const u=data[0]; if(!(u.rol==='CAJERO'||u.rol==='ADMIN'||u.es_admin)){alert("Ese PIN no es de cajero ni administrador");return null;} return u.clave;
   }catch(e){err("No se pudo validar.",e);return null;}}
