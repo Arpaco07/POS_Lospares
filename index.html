@@ -12,7 +12,7 @@
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--gris);color:var(--texto);display:flex;flex-direction:column;height:100dvh;overscroll-behavior:none}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
   header{height:var(--barra);background:linear-gradient(180deg,#232019,#141210);color:#fff;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:2px solid var(--oro);box-shadow:0 2px 10px rgba(0,0,0,.35)}
-  header .marca{font-weight:800;font-size:18px;letter-spacing:.3px;display:flex;align-items:baseline;gap:7px}.marca b{color:var(--naranja)}
+  header .marca{font-weight:800;font-size:18px;letter-spacing:.3px;display:flex;align-items:baseline;gap:7px}.ver{font-size:10px;font-weight:700;color:var(--tenue);border:1px solid var(--gris2);border-radius:999px;padding:2px 7px;letter-spacing:.4px;white-space:nowrap}.marca b{color:var(--naranja)}
   header .marca .mnum{font-size:11px;font-weight:700;color:var(--oro);letter-spacing:2px;border:1px solid rgba(212,175,55,.5);border-radius:6px;padding:2px 6px;font-style:normal}
   header .ctx{margin-left:auto;font-size:14px;color:#e9e3d3;text-align:right;line-height:1.2}
   header .ctx small{display:block;color:#b7ad95;font-size:12px}
@@ -62,7 +62,7 @@
   footer{flex:0 0 auto;min-height:var(--footer);background:var(--blanco);border-top:1px solid var(--gris2);display:flex;align-items:center;gap:8px;padding:10px 12px}
   footer .tot{font-size:12px;color:var(--tenue)}footer .tot b{display:block;font-size:20px;color:var(--texto)}
   footer .btn{margin-left:auto;font-weight:700;border-radius:12px;padding:13px 14px;font-size:15px}
-  footer .b1{background:var(--gris);border:1px solid var(--gris2);color:var(--texto)}
+  footer .b1{background:var(--gris);border:2px solid var(--oro);color:var(--oro)}
   footer .b2{background:var(--negro);color:#fff}
   footer .b3{background:var(--naranja);color:#fff;margin-left:0}
   .cuenta{background:var(--blanco)}
@@ -208,14 +208,14 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v6-traspaso</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none;margin-left:auto">🔄 Menú</button>
 </header>
 <main id="main"><div class="cargando">Cargando…</div></main>
 <footer id="footer" style="display:none">
   <div class="tot">Total<b id="totTxt">$0.00</b></div>
-  <button class="btn b1" id="btnCuenta">Cuenta</button>
+  <button class="btn b1" id="btnCuenta">👁 Ver cuenta</button>
   <button class="btn b2" id="btnEnviar">Enviar</button>
   <button class="btn b3" id="btnCobrar">Cobrar</button>
 </footer>
