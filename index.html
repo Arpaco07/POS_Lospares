@@ -149,7 +149,7 @@
     header .ctx{margin-left:auto;font-size:12px;line-height:1.2}
     #modo{font-size:11px}
     /* El botón de Menú se queda —hace falta— pero deja de empujar. */
-    #btnRefrescar{margin-left:0;padding:7px 10px;font-size:13px;white-space:nowrap}
+    #btnRefrescar{margin-left:0;padding:7px 10px;font-size:13px;white-space:nowrap}#btnPropina{margin-left:0;padding:7px 10px;font-size:13px;white-space:nowrap}
     #btnVolver{padding:7px 10px;font-size:13px}
 
     /* Que la rejilla de mesas nunca empuje de lado. */
@@ -208,9 +208,9 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v7-pin</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v9-propina</span>
   <span class="ctx" id="ctx"></span>
-  <button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none;margin-left:auto">🔄 Menú</button>
+  <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
 <main id="main"><div class="cargando">Cargando…</div></main>
 <footer id="footer" style="display:none">
@@ -277,7 +277,7 @@ async function init(){
   if(!CLOUD_LLAVE || CLOUD_LLAVE.startsWith("PON_AQUI")) return setup();
   try{ sb=await conectar(); const b=$("modo"); if(b)b.innerHTML=badgeModo(); await cargarCatalogo(); renderLogin(); }
   catch(e){ grande("No se pudo cargar.",e); }
-  $("btnVolver").onclick=volver; $("btnCuenta").onclick=verCuentaEditable; $("btnEnviar").onclick=enviar; $("btnCobrar").onclick=renderCobro; $("btnRefrescar").onclick=actualizarMenu;
+  $("btnVolver").onclick=volver; $("btnCuenta").onclick=verCuentaEditable; $("btnEnviar").onclick=enviar; $("btnCobrar").onclick=renderCobro; $("btnRefrescar").onclick=actualizarMenu; $("btnPropina").onclick=verMisPropinas;
 }
 function setup(){ $("main").innerHTML=`<div class="setup"><h2>Falta la llave</h2><p>Pega tu llave pública en <code>SUPABASE_LLAVE</code>.</p></div>`; }
 
@@ -320,7 +320,7 @@ async function recargarMesas(){ const {data}=await sb.from("mesa").select("id,nu
 /* ---- PIN ---- */
 function renderLogin(){
   Object.assign(state,{mesero:null,pin:"",cuentaId:null,mesaId:null,comensalNom:null,vista:"login"});
-  $("footer").style.display="none";$("btnVolver").style.display="none";$("btnRefrescar").style.display="none";$("ctx").innerHTML="";
+  $("footer").style.display="none";$("btnVolver").style.display="none";$("btnRefrescar").style.display="none";$("btnPropina").style.display="none";$("ctx").innerHTML="";
   const t=[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="pinT('${n}')">${n}</button>`).join("");
   $("main").innerHTML=`<div class="login">
     <img class="login-logo" src="logo-pin.png" alt="Los Pares 84x88" onerror="this.style.display='none'">
@@ -341,7 +341,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
 /* ---- Mesas ---- */
 async function renderInicio(){
   Object.assign(state,{vista:"inicio",cuentaId:null,mesaId:null,tipoVenta:null,comensalNom:null});
-  $("footer").style.display="none";$("btnVolver").style.display="inline-block";$("btnRefrescar").style.display="inline-block";$("ctx").innerHTML=state.mesero.nombre;
+  $("footer").style.display="none";$("btnVolver").style.display="inline-block";$("btnRefrescar").style.display="inline-block";$("btnPropina").style.display="inline-block";$("ctx").innerHTML=state.mesero.nombre;
   await recargarMesas();
   const mando=(state.mesero.rol==='ADMIN'||state.mesero.rol==='CAJERO'||state.mesero.es_admin);
   let oc={}; let llevar=[];
@@ -751,9 +751,80 @@ window.moverProducto=async(linea,forzado)=>{
     `<button class="op" style="text-align:center" onclick="cerrarModal();verCuentaEditable()">Cancelar</button>`;
   $("modalBg").classList.add("on");
 };
+/* ---------------------------------------------------------------------
+   PIN PARA TRASPASAR  ·  modulo 83  ·  23-oct-2026
+   Antes esto llamaba a resolverAdmin(), o sea que un mesero tenia que
+   buscar a Carla o a Arturo para pasar un platillo a otra mesa. Si no
+   estaba ninguno de los dos, se quedaba parado con el cliente esperando.
+   Ahora manda su PROPIO PIN: la base deja pasar a un administrador o a un
+   empleado con el permiso "puede traspasar" encendido, y en los dos casos
+   queda en Auditoria quien fue.
+--------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------
+   MI PROPINA  ·  modulo 84  ·  23-oct-2026  ·  lo pidio Carla
+   Cada mesero ve, con su propio nombre, cuanto lleva de propina en el
+   turno y de que mesa salio cada una. SoftRestaurant lo hacia y se
+   extranaba.
+   Los numeros salen de mis_propinas(), que usa EXACTAMENTE la misma
+   cuenta que propinas_por_mesero(), la del corte de Carla: no puede
+   haber dos verdades.
+--------------------------------------------------------------------- */
+window.verMisPropinas = async () => {
+  if(!state.mesero){ return; }
+  $("modal").innerHTML = `<h3>💵 Mi propina</h3><p class="tenue">Sacando la cuenta\u2026</p>`;
+  $("modalBg").classList.add("on");
+  try{
+    const r = await sb.rpc("mis_propinas", { p_clave: state.mesero.clave });
+    if(r.error) throw r.error;
+    const d = r.data || {};
+    if(!d.ok){
+      $("modal").innerHTML = `<h3>💵 Mi propina</h3><p class="tenue">${d.motivo||'No se pudo.'}</p>`
+        + `<button class="op" style="text-align:center" onclick="cerrarModal()">Cerrar</button>`;
+      return;
+    }
+    const pesos = (n)=>'$'+Number(n||0).toFixed(2);
+    const lineas = (d.lineas||[]);
+    const filas = lineas.length
+      ? lineas.map(x=>`<div class="linea"><div class="info">`
+          +`<div class="n">${x.mesa}</div>`
+          +`<div class="sub">${x.hora} \u00b7 consumo ${pesos(x.consumo)} \u00b7 ${x.formas||''}</div>`
+          +`</div><span class="imp">${pesos(x.propina)}</span></div>`).join("")
+      : `<p class="tenue">Todav\u00eda no tienes propinas en este turno.<br>
+         Aparecen aqu\u00ed en cuanto cobres la mesa.</p>`;
+
+    $("modal").innerHTML =
+       `<h3>💵 Mi propina</h3>`
+      +`<p class="tenue">${d.mesero} \u00b7 turno ${d.turno}`
+      +`${d.turno_estado!=='ABIERTO'?' <b>(ya cerrado)</b>':''}</p>`
+      +filas
+      +`<div style="border-top:1px solid var(--gris2);margin-top:12px;padding-top:10px">`
+      +`<div class="linea"><div class="info"><div class="n">Propina de tus mesas</div>`
+      +`<div class="sub">efectivo ${pesos(d.efectivo)} \u00b7 tarjeta o transferencia ${pesos(d.banco)}</div></div>`
+      +`<span class="imp">${pesos(d.bruta)}</span></div>`
+      +`<div class="linea"><div class="info"><div class="n" style="color:var(--oro)">TE TOCA (70%)</div>`
+      +`<div class="sub">el 30% restante va al bote de cocina (${pesos(d.al_bote)})</div></div>`
+      +`<span class="imp" style="color:var(--oro);font-size:18px">${pesos(d.te_toca)}</span></div>`
+      +(d.ya_pagado
+          ? `<p class="tenue" style="color:var(--verde);font-weight:700;margin-top:8px">\u2713 Ya te pagaron ${pesos(d.pagado_monto)} de este turno.</p>`
+          : `<p class="tenue" style="margin-top:8px">Se paga al cierre del turno.</p>`)
+      +`</div>`
+      +`<button class="op" style="text-align:center" onclick="cerrarModal()">Cerrar</button>`;
+  }catch(e){
+    const m = String((e&&(e.message||e.hint))||"");
+    $("modal").innerHTML = `<h3>💵 Mi propina</h3>`
+      + `<p class="tenue">${/mis_propinas|schema cache|does not exist|no existe/i.test(m)
+           ? 'Falta correr el m\u00f3dulo 84 en esta base.' : 'No se pudo leer. '+m}</p>`
+      + `<button class="op" style="text-align:center" onclick="cerrarModal()">Cerrar</button>`;
+  }
+};
+async function resolverTraspaso(){
+  const pin = await pedirPin("Tu PIN","para pasar el producto a otra mesa");
+  if(!pin) return null;
+  return pin;   // la base decide si ese PIN tiene permiso
+}
 window.finMover=async(linea,destino,forzado)=>{
   cerrarModal();
-  const a=await resolverAdmin(); if(!a)return;
+  const a=await resolverTraspaso(); if(!a)return;
   // Solo se manda p_forzar_enviado cuando de verdad se fuerza. Asi, si una
   // base todavia no tiene el modulo 81, los traspasos normales siguen
   // funcionando igual que siempre (regla de oro: el servicio no se para).
@@ -769,6 +840,8 @@ window.finMover=async(linea,destino,forzado)=>{
     const m=String((e&&(e.message||e.hint))||"");
     if(forzado && /p_forzar_enviado|schema cache|does not exist|no existe/i.test(m)){
       err("Falta correr el modulo 81 en esta base. Mientras tanto: cancela el producto en esta cuenta y capturálo en la otra.",e);
+    } else if(/no tiene permiso para traspasar/i.test(m)){
+      err("Tu PIN no tiene permiso para pasar productos a otra mesa. Pideselo a Carla o a Arturo: se enciende en Panel / Empleados.",e);
     } else { err("No se pudo mover.",e); }
   }
 };
