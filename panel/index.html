@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v3-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v5-traspaso</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1020,7 +1020,7 @@ window.pintarAuditoria=async(iso)=>{
     const cids=[...new Set(rows.filter(r=>r.entidad==='cuenta').map(r=>r.entidad_id).filter(Boolean))]; let fol={};
     if(cids.length){ try{ const cq=await sb.from("cuenta").select("id,folio").in("id",cids); (cq.data||[]).forEach(c=>fol[c.id]=c.folio);}catch(e){} }
     const LBL={CORTESIA:'Cortesía',DESCUENTO_PRODUCTO:'Descuento a producto',DESCUENTO_CUENTA:'Descuento a cuenta',CANCELAR_CUENTA:'Canceló cuenta',REASIGNAR_MESERO:'Reasignó mesero',CORREGIR_FORMA_PAGO:'Corrigió forma de pago',CORREGIR_PROPINA:'Corrigió propina',REABRIR_CUENTA:'Reabrió cuenta',ANULAR_CUENTA:'Anuló cuenta',CANCELAR_PRODUCTO:'Canceló producto',
-      RETIRO_CAJA:'💸 Retiró de caja',DEPOSITO_CAJA:'💰 Metió a caja',
+      RETIRO_CAJA:'💸 Retiró de caja',DEPOSITO_CAJA:'💰 Metió a caja',REACTIVAR_CUENTA:'♻ Reactivó una cuenta cancelada',PERMISO_TRASPASO_ON:'⇄ Dio permiso de traspasar',PERMISO_TRASPASO_OFF:'⇄ Quitó el permiso de traspasar',TRASPASAR_PRODUCTO:'⇄ Movió un producto de mesa',TRASPASAR_PRODUCTO_ENVIADO:'💵 Pasó el cargo de un platillo ya enviado',CUENTA_REACTIVADA:'♻ Reactivó una cuenta cancelada',
       AVISO_MOVIMIENTO_SIN_NOMBRE:'⚠ Movimiento sin nombre',
       CORTE_FORZADO_CON_MESAS_ABIERTAS:'⚠ Forzó el corte con mesas abiertas',
       CORTE_REVISADO:'✓ Dio por revisado un descuadre',CORTE_REVISADO_DESHECHO:'Deshizo el "ya lo revisé"',
@@ -1054,20 +1054,35 @@ async function pintarCancelaciones(){
     const rAb=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id").eq("estado","ABIERTA").order("id",{ascending:false});
     const rCe=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,cerrada_en").eq("estado","CERRADA")
       .gte("cerrada_en",iso(state.rango.ini)).lt("cerrada_en",iso(state.rango.fin)).order("cerrada_en",{ascending:false}).limit(200);
-    if(rAb.error)throw rAb.error; if(rCe.error)throw rCe.error;
+    // 23 oct 2026: tambien las CANCELADAS. Antes esta pantalla NO las
+    // mostraba, asi que una cuenta cancelada por error desaparecia y no
+    // habia forma de volver. Se filtran por abierta_en porque cancelar una
+    // cuenta no le pone cerrada_en.
+    const rCa=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,abierta_en").eq("estado","CANCELADA")
+      .gte("abierta_en",iso(state.rango.ini)).lt("abierta_en",iso(state.rango.fin)).order("id",{ascending:false}).limit(200);
+    if(rAb.error)throw rAb.error; if(rCe.error)throw rCe.error; if(rCa.error)throw rCa.error;
     let mesaNom={};try{const m=await sb.from("mesa").select("id,numero,nombre");(m.data||[]).forEach(x=>mesaNom[x.id]=x.numero?("Mesa "+x.numero):x.nombre);}catch(e){}
     const fila=(c,etiqueta)=>{
       const et=c.tipo_venta==="MESA"?(mesaNom[c.mesa_id]||"Mesa"):(c.tipo_venta==="PARA_LLEVAR"?"Para llevar":"Boutique");
       const mesero=cache.empleados[c.mesero_id]?.nombre||'';
       return `<div class="cta"><div class="info"><div class="n">${et} · <span class="tenue">${etiqueta}</span></div>
         <small>${c.folio||''} · ${mesero}</small></div><div class="t">$${Number(c.total).toFixed(2)}</div>
-        ${c.estado==="ABIERTA"?`<button onclick="cambiarMesero(${c.id})">Cambiar mesero</button>`:`<button onclick="reabrir(${c.id})">Reabrir</button>`}<button onclick="cancelar(${c.id})">Cancelar</button></div>`;};
+        ${c.estado==="CANCELADA"
+            ? `<button style="background:var(--verde);color:#fff" onclick="reactivarCuenta(${c.id},'cancelaciones')">♻ Reactivar</button>`
+            : (c.estado==="ABIERTA"
+                ? `<button onclick="cambiarMesero(${c.id})">Cambiar mesero</button><button onclick="cancelar(${c.id})">Cancelar</button>`
+                : `<button onclick="reabrir(${c.id})">Reabrir</button><button onclick="cancelar(${c.id})">Cancelar</button>`)}</div>`;};
     const abiertas=(rAb.data||[]).map(c=>fila(c,'Abierta ahora')).join("");
     const cerradas=(rCe.data||[]).map(c=>fila(c,'Cerrada')).join("");
+    const canceladas=(rCa.data||[]).map(c=>fila(c,'CANCELADA')).join("");
     $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}
-      <p class="tenue">Cancelar pide motivo y queda registrado con tu nombre.</p>
+      <p class="tenue">Cancelar te dice de qué mesa es y cuánto trae antes de hacerlo, pide motivo y PIN, y queda registrado con tu nombre.<br>
+      <b>Para quitar UN producto esto no es aquí:</b> es en el comandero, abriendo la mesa → 👁 Ver cuenta → botón ✕ de ese renglón.</p>
       <div class="sec-t">Abiertas ahora</div>${abiertas||'<div class="proximamente">No hay cuentas abiertas.</div>'}
-      <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}</div>`;
+      <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}
+      <div class="sec-t">♻ Canceladas (${state.rango.label})</div>
+      ${canceladas||'<div class="proximamente">No hubo cuentas canceladas en el periodo.</div>'}
+      ${canceladas?'<p class="tenue" style="margin-top:6px">Si alguna se canceló por error, <b>Reactivar</b> la regresa a ABIERTA con todos sus productos. Pide PIN y queda en Auditoría.</p>':''}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
 window.reabrir=async(id)=>{
@@ -1097,12 +1112,111 @@ window.cambiarMesero=async(id)=>{
     pintarCancelaciones();
   }catch(e){err("No se pudo cambiar el mesero.",e);}
 };
-window.cancelar=async(id)=>{
-  const motivo=prompt("Motivo de la cancelación:");if(motivo===null)return;
-  try{const r=await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});if(r.error)throw r.error;
-    okmsg("Cuenta cancelada");pintarCancelaciones();
-  }catch(e){err("No se pudo cancelar.",e);}
+/* ======================================================================
+   CANCELAR UNA CUENTA — con aviso de lo que se va a perder  (23 oct 2026)
+
+   Lo que paso: Carla queria quitar UN PRODUCTO y cancelo la cuenta
+   COMPLETA de la Mesa 6 — $2,080 y 8 productos. El boton no avisaba
+   NADA: pedia el motivo con un prompt() y cancelaba.
+
+   Ahora dice de que mesa es, cuanto trae y cuantos productos, y recuerda
+   en la misma pantalla cual es el camino para quitar un solo producto.
+   El motivo es obligatorio y pide PIN de administrador.
+====================================================================== */
+async function _avisoCancelar(id){
+  let mesa='esta cuenta', folio='', total=0, prods=0;
+  try{
+    const c = await sb.from("cuenta").select("folio,total,mesa_id,tipo_venta").eq("id",id).single();
+    const d = c.data||{};
+    folio = d.folio||'';
+    total = Number(d.total||0);
+    if(d.tipo_venta==='MESA'){
+      try{ const m=await sb.from("mesa").select("numero,nombre").eq("id",d.mesa_id).single();
+           const md=m.data||{}; mesa = md.numero? ('la Mesa '+md.numero) : (md.nombre||'esta mesa'); }catch(e){}
+    } else mesa = (d.tipo_venta==='PARA_LLEVAR') ? 'este pedido para llevar' : 'esta cuenta de boutique';
+    const p = await sb.from("cuenta_producto").select("id,estado").eq("cuenta_id",id);
+    prods = (p.data||[]).filter(x=>x.estado!=='CANCELADO').length;
+  }catch(e){}
+  return {mesa, folio, total, prods};
+}
+
+window.cancelarCuentaVentana = async (id, despues) => {
+  const d = await _avisoCancelar(id);
+  $("modal").innerHTML =
+     `<h3>⚠️ Cancelar la cuenta COMPLETA</h3>`
+    +`<p class="tenue">Vas a cancelar <b>${d.mesa}</b>${d.folio?' ('+d.folio+')':''}:<br>`
+    +`<b style="font-size:19px">$${d.total.toFixed(2)}</b> y <b>${d.prods} producto(s)</b>.</p>`
+    +`<p class="tenue" style="border-left:3px solid var(--oro);padding-left:9px">`
+    +`¿Solo quieres quitar <b>un producto</b>? Entonces NO es aquí.<br>`
+    +`Es en el comandero: abre la mesa → <b>👁 Ver cuenta</b> → botón <b>✕</b> rojo en ese renglón.</p>`
+    +`<label style="margin-top:10px">¿Por qué se cancela? <b>(obligatorio)</b></label>`
+    +`<input id="cancMotivo" maxlength="80" placeholder="Ej: el cliente se fue sin consumir" autocomplete="off">`
+    +`<button class="op" style="background:var(--rojo);color:#fff;text-align:center" onclick="_cancelarYa(${id})">Sí, cancelar toda la cuenta</button>`
+    +`<button class="op" style="text-align:center" onclick="cerrarModal()">No, dejarla como está</button>`;
+  window._cancDespues = despues || 'cancelaciones';
+  $("modalBg").classList.add("on");
+  setTimeout(()=>{ const i=$("cancMotivo"); if(i) i.focus(); }, 60);
 };
+
+window._cancelarYa = async (id) => {
+  const motivo = ($("cancMotivo")?.value||"").trim();
+  if(!motivo){ alert("Escribe por qu\u00e9 se cancela. Queda en la bit\u00e1cora."); return; }
+  const despues = window._cancDespues;
+  cerrarModal();
+  const pin = await pedirPin("PIN de administrador","para cancelar la cuenta");
+  if(!pin) return;
+  try{
+    const r = await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:pin,p_motivo:motivo});
+    if(r.error) throw r.error;
+    okmsg("Cuenta cancelada");
+    if(despues==='cuentas') pintarCuentas(); else pintarCancelaciones();
+  }catch(e){ err("No se pudo cancelar.",e); }
+};
+
+/* ======================================================================
+   REACTIVAR UNA CUENTA CANCELADA  (modulo 82)
+
+   Porque por mas avisos que se pongan, un dia se vuelve a ir el dedo.
+   Pide PIN de administrador, exige motivo y queda en Auditoria como
+   REACTIVAR_CUENTA.
+====================================================================== */
+window.reactivarCuenta = async (id, despues) => {
+  const d = await _avisoCancelar(id);
+  $("modal").innerHTML =
+     `<h3>♻ Reactivar la cuenta</h3>`
+    +`<p class="tenue"><b>${d.mesa}</b>${d.folio?' ('+d.folio+')':''} — `
+    +`<b>$${d.total.toFixed(2)}</b>, ${d.prods} producto(s).<br>`
+    +`Va a volver a estar <b>ABIERTA</b> en el comandero, con todo lo que traía.</p>`
+    +`<label style="margin-top:10px">¿Por qué se reactiva? <b>(obligatorio)</b></label>`
+    +`<input id="reacMotivo" maxlength="80" value="Se cancel\u00f3 por error" autocomplete="off">`
+    +`<button class="op" style="background:var(--verde);color:#fff;text-align:center" onclick="_reactivarYa(${id})">Sí, reactivarla</button>`
+    +`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
+  window._reacDespues = despues || 'cancelaciones';
+  $("modalBg").classList.add("on");
+  setTimeout(()=>{ const i=$("reacMotivo"); if(i){ i.focus(); i.select(); } }, 60);
+};
+
+window._reactivarYa = async (id) => {
+  const motivo = ($("reacMotivo")?.value||"").trim();
+  if(!motivo){ alert("Escribe por qu\u00e9 se reactiva. Queda en la bit\u00e1cora."); return; }
+  const despues = window._reacDespues;
+  cerrarModal();
+  const pin = await pedirPin("PIN de administrador","para reactivar la cuenta");
+  if(!pin) return;
+  try{
+    const r = await sb.rpc("reactivar_cuenta",{p_cuenta:id,p_admin_clave:pin,p_motivo:motivo});
+    if(r.error) throw r.error;
+    okmsg("Cuenta reactivada ✓ — ya est\u00e1 abierta en el comandero");
+    if(despues==='cuentas') pintarCuentas(); else pintarCancelaciones();
+  }catch(e){
+    const m = String((e&&(e.message||e.hint))||"");
+    if(/reactivar_cuenta|schema cache|does not exist|no existe/i.test(m)){
+      err("Falta correr el m\u00f3dulo 82 en esta base.",e);
+    } else err("No se pudo reactivar.",e);
+  }
+};
+
+window.cancelar=async(id)=>{ await cancelarCuentaVentana(id,'cancelaciones'); };
 
 /* ---- MENU (alta / edición / mover) ---- */
 const SECS=[["DESAYUNO","Desayuno"],["COMIDA","Comida"],["BEBIDAS","Bebidas"],["BOUTIQUE","Boutique"]];
@@ -1210,22 +1324,58 @@ async function pintarEmpleados(){
   }
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando…</div></div>`;
   try{
-    const{data,error}=await sb.from("empleado").select("id,clave,nombre,rol_id,es_admin,activo").order("nombre");
+    const{data,error}=await sb.from("empleado").select("id,clave,nombre,rol_id,es_admin,activo,puede_traspasar").order("nombre");
     if(error)throw error;
     let roles={};try{const r=await sb.from("rol").select("id,clave,nombre");(r.data||[]).forEach(x=>roles[x.id]=x);}catch(e){}
     window._emps=data||[]; window._roles=roles;
     const filas=(data||[]).map(e=>{
       const rn=roles[e.rol_id]?.nombre||'';
       return `<div class="cta ${e.activo?'':'oculto'}"><div class="info"><div class="n">${e.nombre} ${e.es_admin?'<span class="tenue">· admin</span>':''}</div>
-        <small>${rn}${e.activo?'':' · inactivo'}</small></div>
+        <small>${rn}${e.activo?'':' · inactivo'}${e.puede_traspasar?' · ⇄ puede traspasar':''}</small></div>
         <button onclick="editarEmp(${e.id})">Editar</button>
-        <button onclick="pinEmp(${e.id},'${(e.nombre||'').replace(/'/g,"")}')">PIN</button></div>`;}).join("");
+        <button onclick="pinEmp(${e.id},'${(e.nombre||'').replace(/'/g,"")}')">PIN</button>
+        <button title="Pasar platillos a otra mesa sin PIN de admin"
+          style="${e.puede_traspasar?'background:var(--verde);color:#fff':''}"
+          onclick="togglePermisoTraspaso(${e.id},${e.puede_traspasar?'false':'true'},'${(e.nombre||'').replace(/'/g,"")}')">⇄ Traspaso</button></div>`;}).join("");
     $("main").innerHTML=`<div class="pad"><h2>Empleados</h2>
       <button class="nuevo" onclick="nuevoEmp()">＋ Nuevo empleado</button>
       ${filas}
-      <p class="tenue" style="margin-top:10px">Para tus responsables de caja ponles rol <b>Cajero</b>: pueden hacer corte pero no cancelar ni editar. Solo <b>Administrador</b> cancela/modifica.</p></div>`;
+      <p class="tenue" style="margin-top:10px">Para tus responsables de caja ponles rol <b>Cajero</b>: pueden hacer corte pero no cancelar ni editar. Solo <b>Administrador</b> cancela/modifica.</p>
+      <p class="tenue"><b>⇄ Traspaso</b> (verde = encendido): deja que esa persona pase un platillo de una mesa a otra <b>con su propio PIN</b>, sin buscarte a ti. Sirve para las cortesías entre mesas y para cuando el cliente ya se quiere ir. Todo queda en Auditoría con su nombre.<br>
+      No le da ningún otro permiso: cancelar, descuentos y cortes&nbsp;siguen pidiendo PIN de administrador.</p></div>`;
   }catch(e){err("No se pudieron leer los empleados.",e);}
 }
+window.togglePermisoTraspaso = async (id, valor, nombre) => {
+  const enciende = (valor===true || valor==='true');
+  $("modal").innerHTML =
+     `<h3>\u21C4 ${enciende?'Dar':'Quitar'} el permiso de traspasar</h3>`
+    +`<p class="tenue"><b>${nombre}</b> ${enciende
+        ? 'va a poder pasar platillos de una mesa a otra <b>con su propio PIN</b>, sin buscarte.<br><br>'
+          +'No le da ning\u00fan otro permiso. Cada traspaso queda en Auditor\u00eda con su nombre, '
+          +'y si el platillo ya se envi\u00f3 a cocina <b>no se reimprime</b>.'
+        : 'va a volver a necesitar PIN de administrador para pasar platillos entre mesas.'}</p>`
+    +`<button class="op" style="text-align:center;${enciende?'background:var(--verde);color:#fff':''}" onclick="_togglePermisoYa(${id},${enciende})">${enciende?'S\u00ed, d\u00e1rselo':'S\u00ed, quit\u00e1rselo'}</button>`
+    +`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
+  $("modalBg").classList.add("on");
+};
+
+window._togglePermisoYa = async (id, valor) => {
+  cerrarModal();
+  const pin = await pedirPin("PIN de administrador", valor?"para dar el permiso":"para quitar el permiso");
+  if(!pin) return;
+  try{
+    const r = await sb.rpc("set_puede_traspasar",{p_id:id,p_valor:valor,p_admin_pin:pin});
+    if(r.error) throw r.error;
+    okmsg(valor?"Permiso dado \u2713":"Permiso quitado");
+    pintarEmpleados();
+  }catch(e){
+    const m = String((e&&(e.message||e.hint))||"");
+    if(/set_puede_traspasar|schema cache|does not exist|no existe/i.test(m)){
+      err("Falta correr el m\u00f3dulo 83 en esta base.",e);
+    } else err("No se pudo cambiar el permiso.",e);
+  }
+};
+
 function formEmp(e){
   const rolClave=window._roles[e.rol_id]?.clave||'MESERO';
   const opts=ROLES.map(r=>`<option value="${r[0]}" ${rolClave===r[0]?'selected':''}>${r[1]}</option>`).join("");
@@ -1978,13 +2128,7 @@ window.reabrirCuentaP=async(id)=>{
     cerrarModal();okmsg("Cuenta reabierta — cóbrala de nuevo en el comandero");pintarCuentas();
   }catch(e){err("No se pudo reabrir.",e);}
 };
-window.anularCuentaP=async(id)=>{
-  const motivo=prompt("Motivo de la anulación:","")||null;
-  if(!confirm("¿ANULAR esta cuenta? Quedará cancelada."))return;
-  try{const r=await sb.rpc("cancelar_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});if(r.error)throw r.error;
-    cerrarModal();okmsg("Cuenta anulada ✓");pintarCuentas();
-  }catch(e){err("No se pudo anular.",e);}
-};
+window.anularCuentaP=async(id)=>{ cerrarModal(); await cancelarCuentaVentana(id,'cuentas'); };
 
 /* ==== VER / REIMPRIMIR EL TICKET ========================================
    VER: abre el ticket en una ventana, tal cual sale en papel. No imprime,
