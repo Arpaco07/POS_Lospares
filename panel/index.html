@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6-aclarado</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.1-mbg</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1154,7 +1154,7 @@ window.cancelarCuentaVentana = async (id, despues) => {
     +`<button class="op" style="background:var(--rojo);color:#fff;text-align:center" onclick="_cancelarYa(${id})">Sí, cancelar toda la cuenta</button>`
     +`<button class="op" style="text-align:center" onclick="cerrarModal()">No, dejarla como está</button>`;
   window._cancDespues = despues || 'cancelaciones';
-  $("modalBg").classList.add("on");
+  $("mbg").classList.add("on");
   setTimeout(()=>{ const i=$("cancMotivo"); if(i) i.focus(); }, 60);
 };
 
@@ -1192,7 +1192,7 @@ window.reactivarCuenta = async (id, despues) => {
     +`<button class="op" style="background:var(--verde);color:#fff;text-align:center" onclick="_reactivarYa(${id})">Sí, reactivarla</button>`
     +`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
   window._reacDespues = despues || 'cancelaciones';
-  $("modalBg").classList.add("on");
+  $("mbg").classList.add("on");
   setTimeout(()=>{ const i=$("reacMotivo"); if(i){ i.focus(); i.select(); } }, 60);
 };
 
@@ -1356,7 +1356,7 @@ window.togglePermisoTraspaso = async (id, valor, nombre) => {
         : 'va a volver a necesitar PIN de administrador para pasar platillos entre mesas.'}</p>`
     +`<button class="op" style="text-align:center;${enciende?'background:var(--verde);color:#fff':''}" onclick="_togglePermisoYa(${id},${enciende})">${enciende?'S\u00ed, d\u00e1rselo':'S\u00ed, quit\u00e1rselo'}</button>`
     +`<button class="op" style="text-align:center" onclick="cerrarModal()">Cancelar</button>`;
-  $("modalBg").classList.add("on");
+  $("mbg").classList.add("on");
 };
 
 window._togglePermisoYa = async (id, valor) => {
