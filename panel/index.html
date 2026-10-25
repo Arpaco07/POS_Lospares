@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.1-mbg</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.3-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1086,12 +1086,19 @@ async function pintarCancelaciones(){
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
 window.reabrir=async(id)=>{
+  /* 25-oct-2026 — mismo candado con salida por PIN que en Cuentas del día */
+  const f = await _cuentaPasada(id);
+  const pin = await _permisoReabrirPasada(id);
+  if(pin===null) return;
   if(!confirm(await _avisoReabrir(id)))return;
   const motivo=prompt("Motivo de reapertura (ej. se cobró de más):"); if(motivo===null)return;
+  const clave=pin || state.admin.clave;
+  const mot = pin ? ("FORZADO dia anterior (" + _fdia(f) + "): " + motivo) : motivo;
   try{
-    const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:motivo});
+    const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:clave,p_motivo:mot});
     if(r.error)throw r.error;
     okmsg("Cuenta reabierta"); pintarCancelaciones();
+    if(pin) _avisoDespuesDeForzar(f);
   }catch(e){err("No se pudo reabrir.",e);}
 };
 window.cambiarMesero=async(id)=>{
@@ -2002,6 +2009,12 @@ window.verCuentaPanel=(id)=>{
   window._verId=id; const M=v=>'$'+Number(v||0).toFixed(2); const admin=!state.soloLectura;
   const ps=pagos.filter(p=>p.cuenta_id===id);
   const bcorr='padding:5px 10px;border-radius:8px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto);font-size:13px;font-weight:700';
+  /* 25-oct-2026 — boton DESTACADO para cambiar la forma de pago. Antes decia
+     solo "Forma" en gris chiquito, al lado del renglon del pago, mientras que
+     "Reabrir para re-cobrar" era un boton grande y azul. Carla reabria las
+     cuentas para cambiar la forma de pago (6 veces en 3 dias) porque ese era
+     el unico boton que se veia. Mismo patron que los retiros con prompt(). */
+  const bcorrA='padding:7px 12px;border-radius:8px;border:1px solid var(--oro);background:rgba(201,162,77,.16);color:var(--oro);font-size:13px;font-weight:800';
   const _pagado=ps.reduce((a,p)=>a+Number(p.importe||0),0);
   const _exceso=_pagado-Number(c.total||0)-Number(c.propina||0);
   const _sobre=ps.length>1 && _exceso>0.01;
@@ -2029,7 +2042,7 @@ window.verCuentaPanel=(id)=>{
   const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gris2)">
       <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
-      ${admin?`<span style="white-space:nowrap"><button style="${bcorr}" onclick="corrForma(${p.id})">Forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button>${_sobre?` <button style="${bcorr};color:#e74c3c;border-color:#e74c3c" onclick="quitarPagoDup(${p.id})">✕ Quitar</button>`:''}</span>`:''}
+      ${admin?`<span style="white-space:nowrap"><button style="${bcorrA}" onclick="corrForma(${p.id})">💳 Cambiar forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button>${_sobre?` <button style="${bcorr};color:#e74c3c;border-color:#e74c3c" onclick="quitarPagoDup(${p.id})">✕ Quitar</button>`:''}</span>`:''}
     </div>`;}).join("")||'<div class="tenue">Sin pagos registrados.</div>';
   const avisoSobre=_sobre?`<div style="background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86;border-radius:10px;padding:10px 12px;margin:8px 0;font-size:13px"><b>⚠ Cobrado de más: ${M(_exceso)}</b> (pagado ${M(_pagado)} vs total ${M(c.total)} + propina ${M(c.propina)}). Casi siempre es un pago duplicado.${admin?' Quita el que sobra con <b>✕ Quitar</b>; la propina y el corte se corrigen solos.':' Avísale a un administrador.'}</div>`:'';
   const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
@@ -2040,8 +2053,9 @@ window.verCuentaPanel=(id)=>{
     <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
     <div class="sec-t" style="margin-top:12px">Pagos registrados</div>${avisoSobre}<div>${filas}</div>
     ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="ok" style="background:#2f6fb0" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
+      <div class="tenue" style="font-size:12px;margin:-4px 0 8px">Para cambiar una forma de pago o una propina <b>no se reabre</b>: usa los botones del renglón del pago, aquí arriba. Reabrir borra el cobro.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button style="${bcorr}" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
         <button class="ok" style="background:#c0392b" onclick="anularCuentaP(${id})">✕ Anular cuenta</button>
       </div>`:''}
     <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="verTicketP(${id})">👁 Ver ticket</button><button class="ok" style="background:var(--negro)" onclick="reimprimirTicketP(${id})">🖨 Reimprimir</button></div>`;
@@ -2088,8 +2102,24 @@ window.finForma=async(pagoId,formaId)=>{
     cerrarModal();okmsg("Forma de pago corregida ✓");pintarCuentas();
   }catch(e){err("No se pudo corregir la forma de pago.",e);}
 };
-window.corrPropina=async(pagoId)=>{
-  const v=parseFloat(prompt("Propina correcta (en pesos):","0")); if(isNaN(v)||v<0)return;
+/* 25-oct-2026 — ventana propia en vez de prompt(). Carla usa el Panel en su
+   iPhone, donde los prompt() son justo lo que la hizo dejar de usar los
+   retiros (leccion 4.7). Mismo tropiezo, otro boton. */
+window.corrPropina=(pagoId)=>{
+  $("modal").innerHTML=`<h3>Corregir propina</h3>
+    <p class="tenue">Escribe la propina correcta de este pago, en pesos. Si el cliente no dejó propina, pon 0.</p>
+    <input id="cpProp" type="number" inputmode="decimal" step="0.01" min="0" value="0"
+           style="width:100%;padding:14px;font-size:18px;font-weight:800;text-align:center;border-radius:10px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto)">
+    <div class="acc" style="margin-top:14px">
+      <button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button>
+      <button class="ok" onclick="finPropina(${pagoId})">Guardar propina</button>
+    </div>`;
+  $("mbg").classList.add("on");
+  setTimeout(()=>{const i=$("cpProp"); if(i){i.focus();i.select();}},60);
+};
+window.finPropina=async(pagoId)=>{
+  const v=parseFloat(($("cpProp")||{}).value);
+  if(isNaN(v)||v<0){ alert("Escribe un monto válido (0 o más)."); return; }
   try{const r=await sb.rpc("corregir_propina",{p_pago:pagoId,p_propina:v,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
     cerrarModal();okmsg("Propina corregida ✓");pintarCuentas();
   }catch(e){err("No se pudo corregir la propina.",e);}
@@ -2122,10 +2152,70 @@ async function _avisoReabrir(id){
          + `Al reabrirla, esos pagos desaparecen y hay que volver a cobrarla desde el comandero.\n\n¿Continuar?`;
   }catch(e){ return base + "\n\nSe quitarán los pagos actuales."; }
 }
+/* 25-oct-2026 — CANDADO: no se reabre una cuenta de una jornada ya pasada.
+   Pedido de Carla: "que no deje re abrir cuentas pasadas, que solo deje
+   modificar metodos de pago".
+   Por que: cerrar_cuenta sella con cerrada_en = now(), asi que al re-cobrarla
+   la cuenta se fecha HOY, y si su turno ya estaba cerrado el modulo 72 la pasa
+   al turno abierto de hoy. Como el Corte Z de su dia YA esta congelado y si la
+   incluyo, la venta termina contada DOS VECES: una en el corte viejo y otra en
+   el de hoy. Paso el 25 de octubre con L-002716 ($645).
+   Salida de emergencia: si de verdad hay que reabrir una cuenta pasada, se
+   hace por SQL en la HP, que deja rastro en auditoria. */
+/* Devuelve null si la cuenta es de HOY (jornada en curso), o la fecha de
+   cierre si es de una jornada anterior. Falla abierto: si no se puede
+   comprobar, devuelve null y deja trabajar (regla de oro). */
+async function _cuentaPasada(id){
+  try{
+    const c = await sb.from("cuenta").select("cerrada_en").eq("id", id).single();
+    const cer = (c.data||{}).cerrada_en;
+    if(!cer) return null;
+    const f = new Date(cer);
+    return (jornadaDe(f) < hoyJornada()) ? f : null;
+  }catch(e){ return null; }
+}
+const _fdia=f=>f.toLocaleDateString('es-MX',{weekday:'long',day:'2-digit',month:'2-digit'});
+
+/* Aviso + salida por PIN. Devuelve el PIN si el admin decide forzar, "" si la
+   cuenta es de hoy (no hace falta forzar), o null si se arrepintió. */
+async function _permisoReabrirPasada(id){
+  const f = await _cuentaPasada(id);
+  if(!f) return "";                                  // cuenta de hoy: camino normal
+  const sigue = confirm(
+      "⚠️ ESTA CUENTA ES DE UN DÍA ANTERIOR (" + _fdia(f) + ")\n\n"
+    + "Si la reabres y la vuelves a cobrar, se registra con la fecha de HOY y se pasa "
+    + "al turno de hoy. Como el Corte Z de su día ya está hecho y sí la incluyó, la "
+    + "venta quedaría contada DOS VECES.\n\n"
+    + "CASI SIEMPRE NO HACE FALTA REABRIR:\n"
+    + "• Cambiar la forma de pago → botón 💳 Cambiar forma, en el renglón del pago.\n"
+    + "• Corregir la propina → botón Propina, en ese mismo renglón.\n"
+    + "Las dos corrigen el día correcto y NO borran el cobro.\n\n"
+    + "¿Aun así reabrirla? Se pedirá el PIN de un administrador y quedará en Auditoría.");
+  if(!sigue) return null;
+  const pin = await pedirPin("PIN de administrador","para reabrir una cuenta de un día anterior");
+  return pin || null;
+}
+/* Recordatorio despues de forzar: la cuenta YA quedo fechada hoy. */
+function _avisoDespuesDeForzar(f){
+  alert("HECHO, pero ojo:\n\n"
+      + "Al volver a cobrarla, esta cuenta del " + _fdia(f) + " va a quedar con la fecha de HOY "
+      + "y en el turno de hoy.\n\n"
+      + "Para que no se cuente dos veces, hay que regresarla a su día corriendo en la HP "
+      + "el script «85A_regresar_cuenta_a_su_dia.sql». Avísale a Arturo.");
+}
 window.reabrirCuentaP=async(id)=>{
+  const f = await _cuentaPasada(id);
+  const pin = await _permisoReabrirPasada(id);
+  if(pin===null) return;                             // se arrepintió o no dio PIN
   if(!confirm(await _avisoReabrir(id)))return;
-  try{const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:state.admin.clave,p_motivo:"correccion"});if(r.error)throw r.error;
+  /* Con PIN se manda el PIN (lo valida _exigir_admin con crypt); sin PIN, la
+     clave de siempre. Pendiente 🟡 de DECISIONES: reabrir mandaba la clave. */
+  const clave  = pin || state.admin.clave;
+  const motivo = pin ? ("FORZADO: cuenta del " + _fdia(f) + " reabierta en dia posterior — revisar doble conteo en el corte")
+                     : "correccion";
+  try{const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:clave,p_motivo:motivo});if(r.error)throw r.error;
     cerrarModal();okmsg("Cuenta reabierta — cóbrala de nuevo en el comandero");pintarCuentas();
+    if(pin) _avisoDespuesDeForzar(f);
   }catch(e){err("No se pudo reabrir.",e);}
 };
 window.anularCuentaP=async(id)=>{ cerrarModal(); await cancelarCuentaVentana(id,'cuentas'); };
