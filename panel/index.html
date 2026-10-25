@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.4-dia</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.5-corte</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -2042,7 +2042,7 @@ window.verCuentaPanel=(id)=>{
   const filas=ps.map(p=>{const fn=cache.formas[p.forma_pago_id]?.nombre||'—';
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gris2)">
       <span>${esc(fn)} — ${M(p.importe)}${Number(p.propina)>0?` · propina ${M(p.propina)}`:''}</span>
-      ${admin?`<span style="white-space:nowrap"><button style="${bcorrA}" onclick="corrForma(${p.id})">💳 Cambiar forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button>${_sobre?` <button style="${bcorr};color:#e74c3c;border-color:#e74c3c" onclick="quitarPagoDup(${p.id})">✕ Quitar</button>`:''}</span>`:''}
+      ${admin?`<span style="white-space:nowrap"><button style="${bcorrA}" onclick="corrForma(${p.id})">💳 Cambiar forma</button> <button style="${bcorr}" onclick="corrPropina(${p.id})">Propina</button>${Number(p.propina)>0?` <button style="${bcorrA}" title="La propina se dejó en otra forma (p. ej. el consumo con tarjeta y la propina en billetes)" onclick="corrPropForma(${p.id},${Number(p.propina)})">💵 Propina en otra forma</button>`:''}${_sobre?` <button style="${bcorr};color:#e74c3c;border-color:#e74c3c" onclick="quitarPagoDup(${p.id})">✕ Quitar</button>`:''}</span>`:''}
     </div>`;}).join("")||'<div class="tenue">Sin pagos registrados.</div>';
   const avisoSobre=_sobre?`<div style="background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86;border-radius:10px;padding:10px 12px;margin:8px 0;font-size:13px"><b>⚠ Cobrado de más: ${M(_exceso)}</b> (pagado ${M(_pagado)} vs total ${M(c.total)} + propina ${M(c.propina)}). Casi siempre es un pago duplicado.${admin?' Quita el que sobra con <b>✕ Quitar</b>; la propina y el corte se corrigen solos.':' Avísale a un administrador.'}</div>`:'';
   const _hm=v=>v?new Date(v).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—';
@@ -2093,6 +2093,81 @@ window.quitarPagoDup=async(pagoId)=>{
     cerrarModal();okmsg("Pago duplicado eliminado ✓ (propina y totales corregidos)");pintarCuentas();
   }catch(e){err("No se pudo quitar el pago.",e);}
 };
+/* ===== MÓDULO 86 · las dos correcciones de después del corte ============== */
+
+/* 🔄 Regenerar un corte ya hecho.
+   La tabla 'corte' guarda una FOTO: no se recalcula sola. Si después del Corte
+   Z se corrige una forma de pago o una propina de ese día, el corte sigue
+   imprimiendo lo viejo. Esto lo vuelve a calcular ENCIMA del mismo renglón,
+   para que no queden dos Cortes Z del mismo turno (el Panel los lista todos
+   con su botón de imprimir y se podría imprimir el equivocado). */
+window.regenerarCorteP=async(corteId)=>{
+  if(!confirm("¿Volver a calcular este corte?\n\n"
+    + "Se recalcula con las correcciones que se hayan hecho después de que se hizo "
+    + "(formas de pago, propinas, cuentas que volvieron a su día).\n\n"
+    + "NO mueve dinero: solo vuelve a sumar lo que ya está registrado. "
+    + "Los números de antes quedan guardados en Auditoría.")) return;
+  const pin=await pedirPin("PIN de administrador","para volver a calcular el corte");
+  if(!pin) return;
+  /* ⚠️ M NO es global en este archivo: se declara dentro de cada función.
+     Sin esta línea el botón revienta al picarlo aunque la sintaxis pase
+     (lección §4.12, la que tumbó las tres ventanas del 24 de octubre). */
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  try{
+    const r=await sb.rpc("regenerar_corte",{p_corte:corteId,p_admin_pin:pin});
+    if(r.error)throw r.error;
+    const d=r.data||{};
+    const cmb=(a,b)=>{const x=Number(a||0),y=Number(b||0);
+      return Math.abs(x-y)<0.005?`sin cambio (${M(y)})`:`${M(x)} → ${M(y)}`;};
+    $("modal").innerHTML=`<h3>Corte recalculado ✓</h3>
+      <div class="ticket">
+        <div class="r"><span>Ventas</span><span>${cmb(d.ventas_antes,d.ventas_ahora)}</span></div>
+        <div class="r"><span>Efectivo</span><span>${cmb(d.efectivo_antes,d.efectivo_ahora)}</span></div>
+        <div class="r"><span>Tarjeta</span><span>${cmb(d.tarjeta_antes,d.tarjeta_ahora)}</span></div>
+        <div class="r"><span>Propinas</span><span>${cmb(d.propinas_antes,d.propinas_ahora)}</span></div>
+        <div class="r"><span>Cuentas</span><span>${d.cuentas_antes} → ${d.cuentas_ahora}</span></div>
+      </div>
+      <p class="tenue" style="margin-top:10px">Ya puedes reimprimirlo con el botón 🖨 y va a salir con estos números.</p>
+      <div class="acc"><button class="ok" onclick="cerrarModal();pintarCaja()">Listo</button></div>`;
+    $("mbg").classList.add("on");
+  }catch(e){err("No se pudo recalcular el corte.",e);}
+};
+
+/* 💵 Mover la propina a otra forma de pago.
+   La propina vive colgada del renglón del pago, así que hereda SU forma. Si el
+   consumo se pagó con tarjeta y la propina se dejó en billetes, quedaba
+   clasificada como dinero en el banco y el cajón no cuadraba.
+   Esto parte el renglón en dos sin mover un peso del total (lección §4.13).
+   OJO: 💳 Cambiar forma NO sirve para esto — ése mueve el pago completo. */
+window.corrPropForma=(pagoId,propina)=>{
+  const M=v=>'$'+Number(v||0).toFixed(2);          // M no es global (§4.12)
+  const opts=Object.values(cache.formas).map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700" onclick="finPropForma(${pagoId},${f.id})">${f.tipo==='EFECTIVO'?'💵 ':'💳 '}${esc(f.nombre)}</button>`).join("");
+  $("modal").innerHTML=`<h3>¿En qué dejó la propina?</h3>
+    <p class="tenue">Propina de <b>${M(propina)}</b>. Elige la forma en que el cliente la dejó de verdad.</p>
+    <p class="tenue" style="font-size:12px">El renglón se parte en dos: el consumo se queda en su forma y la propina pasa a la que elijas. <b>El total cobrado no cambia</b>, solo cambia si cuenta como billetes en el cajón o como dinero en el banco.</p>
+    ${opts}
+    <div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
+  $("mbg").classList.add("on");
+};
+window.finPropForma=async(pagoId,formaId)=>{
+  const M=v=>'$'+Number(v||0).toFixed(2);          // M no es global (§4.12)
+  const pin=await pedirPin("PIN de administrador","para mover la propina de forma de pago");
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("mover_propina_a_forma",{p_pago:pagoId,p_forma_id:formaId,p_admin_pin:pin});
+    if(r.error)throw r.error;
+    const d=r.data||{};
+    cerrarModal();
+    okmsg(`Propina de ${M(d.propina)} movida de ${d.de} a ${d.a} ✓`);
+    pintarCuentas();
+    alert("Listo.\n\n"
+      + `La propina de ${M(d.propina)} quedó en ${d.a}.\n`
+      + `El total cobrado de la cuenta sigue siendo ${M(d.total_cobrado)} — no se movió dinero.\n\n`
+      + "Si el Corte Z de ese día ya estaba hecho, acuérdate de volver a calcularlo "
+      + "con el botón 🔄 en Caja/Turno, o seguirá imprimiendo los números viejos.");
+  }catch(e){err("No se pudo mover la propina.",e);}
+};
+
 window.corrForma=(pagoId)=>{
   const opts=Object.values(cache.formas).map(f=>`<button class="op" style="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid var(--gris2);border-radius:10px;background:var(--gris);color:var(--texto);font-weight:700" onclick="finForma(${pagoId},${f.id})">${esc(f.nombre)}</button>`).join("");
   $("modal").innerHTML=`<h3>Cambiar forma de pago</h3><p class="tenue">Elige la forma correcta:</p>${opts}<div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
@@ -3285,7 +3360,7 @@ window.pintarCorteHist=async(iso)=>{
     const cortesGuardHtml = cortesGuard.length
       ? `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div>
          <div style="overflow-x:auto"><table><thead><tr><th>Hora</th><th>Tipo / día real del turno</th><th>Cajero</th><th class="n">Efectivo</th><th class="n">Tarjeta</th><th class="n">Crédito</th><th class="n">Débito</th><th class="n">Vales</th><th class="n">Transf.</th><th class="n">Propinas</th><th class="n">Venta</th><th class="n">Cuentas</th><th class="n">Ver</th></tr></thead>
-         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${c.total_tarjeta_credito!=null?M(c.total_tarjeta_credito):'—'}</td><td class="n">${c.total_tarjeta_debito!=null?M(c.total_tarjeta_debito):'—'}</td><td class="n">${c.total_vales!=null?M(c.total_vales):'—'}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button></td></tr>`).join('')}</tbody></table></div>
+         <tbody>${cortesGuard.map((c,i)=>`<tr><td>${new Date(c.creado_en).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</td><td>${c.tipo==='TURNO'?'Corte Z (cierre)':(c.tipo==='X'?'Corte X (cambio turno)':'Corte del día')}${_leyenda(c)?`<br><span class="tenue" style="font-size:11px">${_leyenda(c)}</span>`:''}</td><td>${esc(cgNom[c.empleado_id]||'—')}</td><td class="n">${M(c.total_efectivo)}</td><td class="n">${M(c.total_tarjeta)}</td><td class="n">${c.total_tarjeta_credito!=null?M(c.total_tarjeta_credito):'—'}</td><td class="n">${c.total_tarjeta_debito!=null?M(c.total_tarjeta_debito):'—'}</td><td class="n">${c.total_vales!=null?M(c.total_vales):'—'}</td><td class="n">${M(c.total_transferencia)}</td><td class="n">${M(c.total_propinas)}</td><td class="n">${M(c.total_ventas)}</td><td class="n">${c.num_cuentas}</td><td class="n"><button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#5a4a9c" onclick="imprimirCorteGuardado(${i})">🖨</button>${state.admin&&!state.soloLectura?` <button class="nuevo" style="width:auto;margin:0;padding:5px 10px;background:#2f6fb0" title="Volver a calcular este corte con las correcciones hechas después" onclick="regenerarCorteP(${c.id})">🔄</button>`:''}</td></tr>`).join('')}</tbody></table></div>
          <p class="tenue" style="margin-top:6px">Cada renglón es un Corte completo por sí solo — <b>no se suman entre ellos</b>. Si un turno se fue a la madrugada, la leyenda dice el día real (cuándo abrió y cuándo cerró). Toca 🖨 para abrir/imprimir cada uno.</p>`
       : `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte X ni Z (no se usó el botón 🧾 Corte X ni 🔒 Corte Z, o el turno cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
