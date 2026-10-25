@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.5-corte</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.6-reparto</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -2053,8 +2053,9 @@ window.verCuentaPanel=(id)=>{
     <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
     <div class="sec-t" style="margin-top:12px">Pagos registrados</div>${avisoSobre}<div>${filas}</div>
     ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
-      <div class="tenue" style="font-size:12px;margin:-4px 0 8px">Para cambiar una forma de pago o una propina <b>no se reabre</b>: usa los botones del renglón del pago, aquí arriba. Reabrir borra el cobro.</div>
+      <div class="tenue" style="font-size:12px;margin:-4px 0 8px">Para cambiar una forma de pago, una propina o los montos <b>no se reabre</b>: usa los botones de arriba o ✏️ Corregir el reparto. Reabrir borra el cobro.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="ok" style="background:#2f6fb0" title="Cambiar cuánto se cobró en cada forma de pago" onclick="editarReparto(${id})">✏️ Corregir el reparto</button>
         <button style="${bcorr}" onclick="reabrirCuentaP(${id})">↩ Reabrir para re-cobrar</button>
         <button class="ok" style="background:#c0392b" onclick="anularCuentaP(${id})">✕ Anular cuenta</button>
       </div>`:''}
@@ -2093,6 +2094,132 @@ window.quitarPagoDup=async(pagoId)=>{
     cerrarModal();okmsg("Pago duplicado eliminado ✓ (propina y totales corregidos)");pintarCuentas();
   }catch(e){err("No se pudo quitar el pago.",e);}
 };
+/* ===== MÓDULO 87 · corregir el REPARTO de pagos ==========================
+   Los meseros cobran mal a diario y Carla lo encuentra al cuadrar contra el
+   lote de la terminal. Hasta el 25-oct no había con qué: `corregir_forma_pago`
+   cambia la FORMA, no el MONTO. El único camino era reabrir y recapturar.
+   Esta ventana deja reescribir el reparto completo. El candado vive en la
+   base: suma(importes) tiene que dar consumo + suma(propinas), exacto. Aquí
+   arriba se muestra en vivo si cuadra, y Guardar está apagado hasta que sí.
+   NO cambia el consumo: eso sale de los productos. ============================ */
+window._rp=null;                                   // el borrador que se está editando
+
+window.editarReparto=async(cuentaId)=>{
+  const M=v=>'$'+Number(v||0).toFixed(2);          // M no es global (§4.12)
+  try{
+    const c=await sb.from("cuenta").select("folio,estado,total,propina").eq("id",cuentaId).single();
+    if(c.error) throw c.error;
+    if((c.data||{}).estado!=='CERRADA'){ alert("El reparto solo se corrige en cuentas ya cobradas."); return; }
+    const p=await sb.from("pago").select("forma_pago_id,importe,propina").eq("cuenta_id",cuentaId).order("id");
+    if(p.error) throw p.error;
+    window._rp={ cuenta:cuentaId, folio:(c.data||{}).folio, total:Number((c.data||{}).total||0),
+                 filas:(p.data||[]).map(x=>({forma:x.forma_pago_id, importe:Number(x.importe||0), propina:Number(x.propina||0)})) };
+    pintarReparto();
+  }catch(e){ err("No se pudo abrir el reparto.",e); }
+};
+
+function _rpCuadre(){
+  const d=window._rp; if(!d) return {imp:0,prop:0,debe:0,dif:0};
+  const imp =d.filas.reduce((a,f)=>a+(Number(f.importe)||0),0);
+  const prop=d.filas.reduce((a,f)=>a+(Number(f.propina)||0),0);
+  const debe=Math.round((d.total+prop)*100)/100;
+  return { imp:Math.round(imp*100)/100, prop:Math.round(prop*100)/100, debe,
+           dif:Math.round((imp-debe)*100)/100 };
+}
+
+window.pintarReparto=()=>{
+  const d=window._rp; if(!d) return;
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const q=_rpCuadre();
+  const cuadra=Math.abs(q.dif)<0.01;
+  const ops=f=>Object.values(cache.formas).map(x=>
+     `<option value="${x.id}" ${Number(f.forma)===Number(x.id)?'selected':''}>${esc(x.nombre)}</option>`).join("");
+  const inp='width:100%;padding:9px;border-radius:8px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto);font-weight:700;text-align:right';
+  const filas=d.filas.map((f,i)=>`
+    <div style="display:grid;grid-template-columns:1fr 92px 92px 34px;gap:6px;align-items:center;margin:6px 0">
+      <select onchange="rpSet(${i},'forma',this.value)" style="${inp};text-align:left">${ops(f)}</select>
+      <input type="number" step="0.01" min="0" value="${f.importe}" title="Importe"
+             onchange="rpSet(${i},'importe',this.value)" oninput="rpSet(${i},'importe',this.value,true)" style="${inp}">
+      <input type="number" step="0.01" min="0" value="${f.propina}" title="De eso, cuánto es propina"
+             onchange="rpSet(${i},'propina',this.value)" oninput="rpSet(${i},'propina',this.value,true)" style="${inp}">
+      <button title="Quitar este renglón" onclick="rpQuita(${i})" style="padding:8px;border-radius:8px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;font-weight:800">✕</button>
+    </div>`).join("");
+  $("modal").innerHTML=`<h3>Corregir el reparto — ${esc(d.folio||'')}</h3>
+    <p class="tenue" style="margin:-4px 0 10px">Consumo de la cuenta: <b>${M(d.total)}</b> · no se cambia desde aquí.
+    Ajusta cómo se repartió lo cobrado entre las formas de pago.</p>
+    <div style="display:grid;grid-template-columns:1fr 92px 92px 34px;gap:6px;font-size:12px" class="tenue">
+      <span>Forma de pago</span><span style="text-align:right">Importe</span><span style="text-align:right">Propina</span><span></span></div>
+    ${filas}
+    <button onclick="rpAgrega()" style="margin:8px 0;padding:8px 12px;border-radius:8px;border:1px dashed var(--gris2);background:transparent;color:var(--texto);font-weight:700">+ Agregar renglón</button>
+    <div id="rpCuadre" style="margin:10px 0;padding:10px 12px;border-radius:10px;font-size:13px;${
+      cuadra ? 'background:rgba(46,125,70,.15);border:1px solid #2e7d46;color:#7fd79b'
+             : 'background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86'}">
+      ${cuadra
+        ? `<b>✓ Cuadra.</b> Suma ${M(q.imp)} = consumo ${M(d.total)} + propina ${M(q.prop)}.`
+        : `<b>⚠ No cuadra todavía.</b> La suma de los renglones da ${M(q.imp)} y debe dar <b>${M(q.debe)}</b>
+           (consumo ${M(d.total)} + propina ${M(q.prop)}).
+           ${q.dif>0?`Sobran <b>${M(q.dif)}</b>.`:`Faltan <b>${M(-q.dif)}</b>.`}`}
+    </div>
+    <p class="tenue" style="font-size:12px">La columna <b>Propina</b> es cuánto de ESE renglón es propina. Si el cliente la dejó en billetes y el consumo fue con tarjeta, va en un renglón de efectivo aparte.</p>
+    <div class="acc" style="margin-top:12px">
+      <button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button>
+      <button class="ok" ${cuadra?'':'disabled style="opacity:.45"'} onclick="rpGuardar()">Guardar reparto</button>
+    </div>`;
+  $("mbg").classList.add("on");
+};
+
+/* vivo = solo recalcula el marcador sin repintar (para no perder el foco del input) */
+window.rpSet=(i,campo,valor,vivo)=>{
+  const d=window._rp; if(!d||!d.filas[i]) return;
+  d.filas[i][campo] = (campo==='forma') ? Number(valor) : (parseFloat(valor)||0);
+  if(vivo){ _rpMarcador(); } else { pintarReparto(); }
+};
+function _rpMarcador(){
+  const el=$("rpCuadre"); if(!el) return;
+  const d=window._rp; const M=v=>'$'+Number(v||0).toFixed(2);
+  const q=_rpCuadre(); const cuadra=Math.abs(q.dif)<0.01;
+  el.style.cssText=`margin:10px 0;padding:10px 12px;border-radius:10px;font-size:13px;${
+    cuadra ? 'background:rgba(46,125,70,.15);border:1px solid #2e7d46;color:#7fd79b'
+           : 'background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86'}`;
+  el.innerHTML = cuadra
+    ? `<b>✓ Cuadra.</b> Suma ${M(q.imp)} = consumo ${M(d.total)} + propina ${M(q.prop)}.`
+    : `<b>⚠ No cuadra todavía.</b> La suma de los renglones da ${M(q.imp)} y debe dar <b>${M(q.debe)}</b>
+       (consumo ${M(d.total)} + propina ${M(q.prop)}).
+       ${q.dif>0?`Sobran <b>${M(q.dif)}</b>.`:`Faltan <b>${M(-q.dif)}</b>.`}`;
+  const b=document.querySelector('#modal .acc .ok');
+  if(b){ b.disabled=!cuadra; b.style.opacity=cuadra?'':'.45'; }
+}
+window.rpAgrega=()=>{ const d=window._rp; if(!d) return;
+  const q=_rpCuadre(); const falta=Math.max(0,-q.dif);
+  d.filas.push({forma:Number(Object.values(cache.formas)[0].id), importe:Math.round(falta*100)/100, propina:0});
+  pintarReparto(); };
+window.rpQuita=(i)=>{ const d=window._rp; if(!d) return;
+  if(d.filas.length<=1){ alert("Tiene que quedar al menos un renglón de pago."); return; }
+  d.filas.splice(i,1); pintarReparto(); };
+
+window.rpGuardar=async()=>{
+  const d=window._rp; if(!d) return;
+  const M=v=>'$'+Number(v||0).toFixed(2);
+  const q=_rpCuadre();
+  if(Math.abs(q.dif)>=0.01){ alert("Todavía no cuadra."); return; }
+  const pin=await pedirPin("PIN de administrador","para corregir el reparto de pagos");
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("reparto_pagos",{
+      p_cuenta:d.cuenta,
+      p_pagos:d.filas.map(f=>({forma_id:Number(f.forma),importe:Number(f.importe),propina:Number(f.propina)})),
+      p_admin_pin:pin,
+      p_motivo:"se corrigio el reparto entre formas de pago"});
+    if(r.error)throw r.error;
+    const z=r.data||{};
+    cerrarModal(); okmsg("Reparto corregido ✓"); pintarCuentas();
+    alert("Listo.\n\n"
+      + `${esc(z.folio||'')}: consumo ${M(z.consumo)}, propina ${M(z.propina_ahora)}, cobrado ${M(z.total_cobrado)}.\n`
+      + (z.cambio_la_propina ? `\n⚠ La propina cambió de ${M(z.propina_antes)} a ${M(z.propina_ahora)}: eso mueve el 70% del mesero de ese turno.\n` : '')
+      + "\nSi el Corte Z de ese día ya estaba hecho, vuelve a calcularlo con el botón 🔄 en el corte de ese día, o seguirá imprimiendo los números viejos.");
+  }catch(e){ err("No se pudo corregir el reparto.",e); }
+};
+
 /* ===== MÓDULO 86 · las dos correcciones de después del corte ============== */
 
 /* 🔄 Regenerar un corte ya hecho.
