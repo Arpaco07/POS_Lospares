@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.3-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.4-dia</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -2149,8 +2149,21 @@ async function _avisoReabrir(id){
              ? `Esta cuenta YA ESTÁ PAGADA COMPLETA (consumo $${total.toFixed(2)}).\n`
                + `Si solo quieres corregir una propina o una forma de pago, ciérrala y usa los botones de corregir: no hace falta reabrir.\n\n`
              : `Consumo $${total.toFixed(2)}.\n\n`)
-         + `Al reabrirla, esos pagos desaparecen y hay que volver a cobrarla desde el comandero.\n\n¿Continuar?`;
+         + `Al reabrirla, esos pagos desaparecen y hay que volver a cobrarla desde el comandero.\n`
+         + (await _notaDelDia(id))
+         + `\n¿Continuar?`;
   }catch(e){ return base + "\n\nSe quitarán los pagos actuales."; }
+}
+/* 25-oct-2026 — si la cuenta es de un dia anterior, decirlo AQUI mismo (en el
+   aviso que ya lista los montos) en vez de abrir otra ventana encima. */
+async function _notaDelDia(id){
+  try{
+    const f = await _cuentaPasada(id);
+    if(!f) return "";
+    return (await _hay85D())
+      ? `\n📅 Es del ${_fdia(f)}: al volver a cobrarla SE QUEDA EN ESE DÍA y en su turno.\n`
+      : `\n⚠️ Es del ${_fdia(f)} y esta base no conserva el día: quedaría fechada HOY.\n`;
+  }catch(e){ return ""; }
 }
 /* 25-oct-2026 — CANDADO: no se reabre una cuenta de una jornada ya pasada.
    Pedido de Carla: "que no deje re abrir cuentas pasadas, que solo deje
@@ -2176,32 +2189,56 @@ async function _cuentaPasada(id){
 }
 const _fdia=f=>f.toLocaleDateString('es-MX',{weekday:'long',day:'2-digit',month:'2-digit'});
 
-/* Aviso + salida por PIN. Devuelve el PIN si el admin decide forzar, "" si la
-   cuenta es de hoy (no hace falta forzar), o null si se arrepintió. */
+/* 25-oct-2026 (tarde) — ¿ESTA base tiene el modulo 85-D?
+   Con el 85-D, una cuenta reabierta CONSERVA su dia y su turno sola, asi que
+   reabrir una cuenta de ayer ya no tiene peligro: no hay que bloquear nada.
+   Sin el 85-D (p.ej. una HP2 que todavia no se actualizo), reabrir si la mueve
+   de dia y la venta se cuenta dos veces: ahi el candado sigue haciendo falta.
+   Se averigua preguntando por la columna del 85-D. Se guarda la respuesta para
+   no preguntar en cada clic. Si no se puede saber, se asume lo prudente (que
+   NO esta) y se pide PIN. */
+let _tiene85D = null;
+async function _hay85D(){
+  if(_tiene85D !== null) return _tiene85D;
+  try{
+    const r = await sb.from("cuenta").select("cerrada_en_previa").limit(1);
+    _tiene85D = !r.error;
+  }catch(e){ _tiene85D = false; }
+  return _tiene85D;
+}
+
+/* Devuelve "" si se puede seguir sin mas tramite, el PIN si hubo que pedirlo,
+   o null si el admin se arrepintio. */
 async function _permisoReabrirPasada(id){
   const f = await _cuentaPasada(id);
   if(!f) return "";                                  // cuenta de hoy: camino normal
+
+  /* Camino bueno: la base conserva el dia sola, no hay nada que frenar ni que
+     preguntar aparte. El aviso de siempre (_avisoReabrir, el que dice cuanto
+     se va a borrar) lleva la nota del dia, para no encimar dos ventanas. */
+  if(await _hay85D()) return "";
+
+  /* Esta base todavia no tiene el 85-D: aqui si se mueve de dia. */
   const sigue = confirm(
       "⚠️ ESTA CUENTA ES DE UN DÍA ANTERIOR (" + _fdia(f) + ")\n\n"
-    + "Si la reabres y la vuelves a cobrar, se registra con la fecha de HOY y se pasa "
-    + "al turno de hoy. Como el Corte Z de su día ya está hecho y sí la incluyó, la "
-    + "venta quedaría contada DOS VECES.\n\n"
+    + "Esta base todavía no tiene el arreglo que conserva el día. Si la reabres y la "
+    + "vuelves a cobrar, se registra con la fecha de HOY y la venta quedaría contada "
+    + "DOS VECES.\n\n"
     + "CASI SIEMPRE NO HACE FALTA REABRIR:\n"
     + "• Cambiar la forma de pago → botón 💳 Cambiar forma, en el renglón del pago.\n"
-    + "• Corregir la propina → botón Propina, en ese mismo renglón.\n"
-    + "Las dos corrigen el día correcto y NO borran el cobro.\n\n"
+    + "• Corregir la propina → botón Propina, en ese mismo renglón.\n\n"
     + "¿Aun así reabrirla? Se pedirá el PIN de un administrador y quedará en Auditoría.");
   if(!sigue) return null;
   const pin = await pedirPin("PIN de administrador","para reabrir una cuenta de un día anterior");
   return pin || null;
 }
-/* Recordatorio despues de forzar: la cuenta YA quedo fechada hoy. */
+/* Solo se usa en una base SIN el 85-D: ahi la cuenta si quedo fechada hoy. */
 function _avisoDespuesDeForzar(f){
   alert("HECHO, pero ojo:\n\n"
-      + "Al volver a cobrarla, esta cuenta del " + _fdia(f) + " va a quedar con la fecha de HOY "
-      + "y en el turno de hoy.\n\n"
-      + "Para que no se cuente dos veces, hay que regresarla a su día corriendo en la HP "
-      + "el script «85A_regresar_cuenta_a_su_dia.sql». Avísale a Arturo.");
+      + "Esta base no tiene el arreglo que conserva el día, así que al volver a cobrarla "
+      + "esta cuenta del " + _fdia(f) + " va a quedar con la fecha de HOY.\n\n"
+      + "Para que no se cuente dos veces hay que regresarla a su día con el script "
+      + "«85A_regresar_cuenta_a_su_dia.sql». Avísale a Arturo.");
 }
 window.reabrirCuentaP=async(id)=>{
   const f = await _cuentaPasada(id);
