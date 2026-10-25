@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v9-propina</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v10-propforma</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
@@ -269,7 +269,11 @@ const SECCIONES=[{clave:"DESAYUNO",nombre:"Desayuno"},{clave:"COMIDA",nombre:"Co
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:null,mesaTipo:null,cuentaId:null,
              comensalNom:null,
-             seccionSel:null,grupoSel:null,filtro:"",cobro:null,propina:0,pagos:[]};
+             seccionSel:null,grupoSel:null,filtro:"",cobro:null,propina:0,pagos:[],
+             /* 25-oct-2026 (modulo 85-E) — en que forma dejo la propina.
+                null = junto con el pago, como siempre. Si trae una clave, la
+                propina se registra en SU PROPIO renglon con esa forma. */
+             propinaForma:null};
 const cache={mesas:[],productos:[],prodById:{},areaById:{},modsPorProd:{},ordenGrupo:{},formas:[]};
 
 window.addEventListener("DOMContentLoaded",init);
@@ -1031,7 +1035,7 @@ window.reimprimir=async()=>{
 
 /* ---- COBRAR (registrar cómo pagó y cerrar) ---- */
 async function renderCobro(){
-  state.vista="cobro";state.propina=0;state.pagos=[];$("footer").style.display="none";$("btnVolver").style.display="inline-block";
+  state.vista="cobro";state.propina=0;state.pagos=[];state.propinaForma=null;$("footer").style.display="none";$("btnVolver").style.display="inline-block";
   try{ await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId}); }catch(e){}
   try{const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;}catch(e){return err("No se pudo leer la cuenta.",e);}
   pintarCobro();
@@ -1041,7 +1045,11 @@ async function pintarCobro(){
   const mpl=await modsDe(l.map(x=>x.id));
   const filas=l.map(x=>{const nomBase=cache.prodById[x.producto_id]?.nombre||"";const cant=Number(x.cantidad)||1;const nom=(cant>1&&!x.peso_kg?cant+'x ':'')+nomBase;return `<div class="lin"><div class="info"><div class="n">${nom}</div></div>${x.es_cortesia?'<span class="cort">CORTESÍA</span>':`<span class="imp">$${Number(x.importe).toFixed(2)}</span>`}</div>`;}).join("");
   const total=Number(state.cobro.total);const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);
-  const restan=Math.max(total+state.propina-pagado,0);const cambio=Math.max(pagado-(total+state.propina),0);
+  /* 85-E: si la propina va en su propia forma, los pagos de aqui cubren SOLO el
+     consumo; la propina se registra sola al cobrar. */
+  const propAparte=state.propinaForma!==null && state.propina>0;
+  const objetivo=total+(propAparte?0:state.propina);
+  const restan=Math.max(objetivo-pagado,0);const cambio=Math.max(pagado-objetivo,0);
   const pOn10=state.propina>0&&Math.abs(state.propina-total*0.10)<0.01;
   const pOn15=state.propina>0&&Math.abs(state.propina-total*0.15)<0.01;
   const pOnLibre=state.propina>0&&!pOn10&&!pOn15;
@@ -1060,9 +1068,13 @@ async function pintarCobro(){
     <div class="sec-t">Propina</div><div class="chips2">
       <button class="chip2 ${pOn10?'on':''}" onclick="setProp(10)">10%</button><button class="chip2 ${pOn15?'on':''}" onclick="setProp(15)">15%</button>
       <button class="chip2 ${pOnLibre?'on':''}" onclick="setPropLibre()">Otro${state.propina>0&&pOnLibre?' ($'+state.propina.toFixed(0)+')':''}</button><button class="chip2 ${state.propina===0?'on':''}" onclick="setProp(0)">Sin propina</button></div>
+    ${state.propina>0?`<div class="sec-t">¿La propina en qué la dejó?</div><div class="chips2">
+      <button class="chip2 ${state.propinaForma===null?'on':''}" onclick="setPropForma(null)">Junto con el pago</button>
+      ${cache.formas.map(f=>`<button class="chip2 ${state.propinaForma===f.clave?'on':''}" onclick="setPropForma('${f.clave}')">${f.tipo==='EFECTIVO'?'💵 ':'💳 '}${esc(f.nombre)}</button>`).join("")}</div>
+      ${propAparte?`<div class="tenue" style="font-size:12px;margin:4px 0 8px">La propina de $${state.propina.toFixed(2)} se va a registrar aparte, en <b>${esc((cache.formas.find(f=>f.clave===state.propinaForma)||{}).nombre||'')}</b>. Abajo captura <b>solo el consumo ($${total.toFixed(2)})</b>.</div>`:''}`:''}
     <div class="sec-t">¿Cómo pagó? ${state.pagos.length?'(partido)':''} — restan $${restan.toFixed(2)}${cambio>0?` · cambio $${cambio.toFixed(2)}`:''}</div>
     <div class="fp">${fp}</div><div>${ph}</div>
-    ${(state.pagos.length&&restan>0.01)?`<div class="tenue" style="font-size:12px;margin:4px 0 8px">Faltan $${restan.toFixed(2)}. Si es por la propina, quita el pago (✕) y vuelve a capturarlo con el total nuevo; no agregues un pago solo por la propina.</div>`:''}
+    ${(state.pagos.length&&restan>0.01)?`<div class="tenue" style="font-size:12px;margin:4px 0 8px">Faltan $${restan.toFixed(2)}.${propAparte?' (La propina ya va aparte, aquí solo el consumo.)':' Si es por la propina, quita el pago (✕) y vuelve a capturarlo con el total nuevo. Y si la propina la dejó en otra forma, elígela arriba en «¿La propina en qué la dejó?».'}</div>`:''}
     <div class="acbar"><button class="cerrar" ${restan>0.01?'disabled':''} onclick="cobrarYCerrar()">Cobrar y cerrar</button></div></div>`;
 }
 /* Si la propina se elige DESPUES de capturar el pago (pasaba seguido), el pago
@@ -1070,13 +1082,38 @@ async function pintarCobro(){
    el cajero metia otro pago suelto de $45 -> el corte no cuadraba. */
 function ajustarPagoPorPropina(prev){
   const total=Number(state.cobro.total);
-  if(state.pagos.length===1 && Math.abs(state.pagos[0].importe-(total+prev))<0.01){
-    state.pagos[0].importe=Math.round((total+state.propina)*100)/100;
+  /* 85-E: con la propina aparte, el pago unico cubre SOLO el consumo. */
+  const prevAparte=state.propinaForma!==null && prev>0;
+  const hoyAparte =state.propinaForma!==null && state.propina>0;
+  const objetivoPrev=total+(prevAparte?0:prev);
+  const objetivoHoy =total+(hoyAparte ?0:state.propina);
+  if(state.pagos.length===1 && Math.abs(state.pagos[0].importe-objetivoPrev)<0.01){
+    state.pagos[0].importe=Math.round(objetivoHoy*100)/100;
   }
 }
-window.setProp=(pct)=>{const prev=state.propina;state.propina=pct?Math.round(Number(state.cobro.total)*pct)/100:0;ajustarPagoPorPropina(prev);pintarCobro();};
-window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(!isNaN(v)&&v>=0){const prev=state.propina;state.propina=v;ajustarPagoPorPropina(prev);pintarCobro();}};
-window.agregarPago=(clave,nombre)=>{const total=Number(state.cobro.total)+state.propina;const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);const restan=Math.max(total-pagado,0);
+window.setProp=(pct)=>{const prev=state.propina;state.propina=pct?Math.round(Number(state.cobro.total)*pct)/100:0;
+  if(state.propina===0) state.propinaForma=null;      // sin propina no hay forma que elegir
+  ajustarPagoPorPropina(prev);pintarCobro();};
+window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(!isNaN(v)&&v>=0){const prev=state.propina;state.propina=v;
+  if(state.propina===0) state.propinaForma=null;
+  ajustarPagoPorPropina(prev);pintarCobro();}};
+/* 85-E — en que forma quedo la propina. null = junto con el pago (lo de
+   siempre). Con una clave, la propina se registra en su propio renglon y los
+   pagos de abajo cubren solo el consumo, asi que el pago unico se reajusta. */
+window.setPropForma=(clave)=>{
+  const prev=state.propina;
+  const antes=state.propinaForma;
+  state.propinaForma=clave;
+  const total=Number(state.cobro.total);
+  const objetivoAntes=total+((antes!==null&&prev>0)?0:prev);
+  if(state.pagos.length===1 && Math.abs(state.pagos[0].importe-objetivoAntes)<0.01){
+    const hoyAparte=clave!==null && state.propina>0;
+    state.pagos[0].importe=Math.round((total+(hoyAparte?0:state.propina))*100)/100;
+  }
+  pintarCobro();
+};
+window.agregarPago=(clave,nombre)=>{const propAparte=state.propinaForma!==null&&state.propina>0;
+  const total=Number(state.cobro.total)+(propAparte?0:state.propina);const pagado=state.pagos.reduce((a,p)=>a+p.importe,0);const restan=Math.max(total-pagado,0);
   const v=parseFloat(prompt(`Monto en ${nombre}:`,restan.toFixed(2)));if(isNaN(v)||v<=0)return;state.pagos.push({clave,nombre,importe:v});pintarCobro();};
 window.quitarPago=(i)=>{state.pagos.splice(i,1);pintarCobro();};
 /* ---------------------------------------------------------------------
@@ -1668,6 +1705,21 @@ async function cobrarYCerrar(){
     // Lo que de verdad entra a caja: total + propina. Si con EFECTIVO dieron de
     // mas (cambio), se registra solo lo que se queda en caja, no el billete.
     const debe=Math.round((Number(state.cobro.total)+state.propina)*100)/100; let acum=0;
+    /* 85-E — LA PROPINA VA PRIMERO, y esto NO es un capricho de orden.
+       Si la propina se registrara al final, los pagos del consumo ya cubririan
+       el total mientras cuenta.propina sigue en 0, y el candado anti pago
+       duplicado (modulo 52, REGLA A) rechazaria el renglon de la propina
+       creyendo que es un doble toque. Registrandola primero, las dos reglas
+       pasan. Probado contra la nube el 25-oct: propina en efectivo $75 +
+       consumo en tarjeta $570 -> propinaEFECTIVO 75, propinaBANCO 0,
+       venta neta 570. */
+    const propAparte=state.propinaForma!==null && state.propina>0;
+    if(propAparte){
+      const rp=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:state.propinaForma,
+                 p_importe:state.propina,p_propina:state.propina,p_empleado_clave:state.mesero.clave,p_ref:null});
+      if(rp.error)throw rp.error;
+      acum+=state.propina;          // ya entro: cuenta para el recorte del efectivo
+    }
     for(let i=0;i<state.pagos.length;i++){
       const p=state.pagos[i];
       const tipo=(cache.formas.find(f=>f.clave===p.clave)||{}).tipo||'';
@@ -1675,14 +1727,15 @@ async function cobrarYCerrar(){
       if(tipo==='EFECTIVO' && acum+imp>debe+0.005) imp=Math.round((debe-acum)*100)/100;
       if(imp<=0){ continue; }                      // ya estaba cubierto: no registrar un pago en $0
       acum+=imp;
-      const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:imp,p_propina:i===0?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});
+      const r=await sb.rpc("registrar_pago",{p_cuenta:state.cuentaId,p_forma_clave:p.clave,p_importe:imp,
+                 p_propina:(!propAparte && i===0)?state.propina:0,p_empleado_clave:state.mesero.clave,p_ref:null});
       if(r.error)throw r.error;
     }
     const c=await sb.rpc("cerrar_cuenta",{p_cuenta:state.cuentaId});if(c.error)throw c.error;
     if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
     const pg=state.pagos.map(p=>`<div class="r"><span>${p.nombre}</span><span>$${p.importe.toFixed(2)}</span></div>`).join("");
     $("modal").innerHTML=`<h3>Cobrado ✓</h3><div class="ticket"><div class="r"><span>${state.mesaNom}</span><span>PAGADO</span></div><hr>${pg}
-      ${state.propina>0?`<div class="r"><span>Propina</span><span>$${state.propina.toFixed(2)}</span></div>`:''}</div>
+      ${state.propina>0?`<div class="r"><span>Propina${state.propinaForma!==null?' ('+esc((cache.formas.find(f=>f.clave===state.propinaForma)||{}).nombre||'')+')':''}</span><span>$${state.propina.toFixed(2)}</span></div>`:''}</div>
       <div class="acciones"><button class="ok" onclick="cerrarModal();renderInicio()">Listo</button></div>`;$("modalBg").classList.add("on");
   }catch(e){ if(btnC){btnC.disabled=false;btnC.textContent="Cobrar y cerrar";} err("No se pudo cerrar la cuenta.",e); }
   finally{ window._cobrando=false; }
