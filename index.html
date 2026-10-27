@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v10-propforma</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v11-folio</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
@@ -1544,11 +1544,27 @@ window.finParte=async(sub,clave,nombre,debe,prop)=>{
   try{
     const r=await sb.rpc("pagar_parte",{p_sub:sub,p_forma_clave:clave,p_importe:debe,p_propina:prop,p_empleado_clave:state.mesero.clave,p_ref:ref});
     if(r.error)throw r.error;
-    await imprimirParte(sub,nombre,debe,prop);
+    const imp=await imprimirParte(sub,nombre,debe,prop);
     const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
     const faltan=(partes||[]).filter(p=>!p.pagada).length;
-    if(faltan===0){
-      if(state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
+    if(faltan===0 && state.mesaTipo==="TEMPORAL"&&state.mesaId){await sb.from("mesa").update({activa:false}).eq("id",state.mesaId);}
+    /* v11-folio — C) si el ticket de ESTA parte no salió, se dice aquí mismo,
+       con el folio y un botón para reimprimir. El cobro ya quedó hecho. */
+    if(!imp.ok){
+      const etq=imp.etiqueta||'esta parte';
+      window._parteSinTicket={sub,nombre,debe,prop,etiqueta:etq,folio:imp.folio||'',todasPagadas:faltan===0};
+      $("modal").innerHTML=`<h3>${faltan===0?'Mesa cobrada ✓':'Cobrado ✓ — faltan '+faltan}</h3>
+        <div style="background:rgba(192,57,43,.15);border:1px solid #c0392b;color:#ff8f86;border-radius:10px;padding:12px;margin:8px 0">
+          <b>⚠ No salió el ticket de ${esc(etq)}</b>${imp.folio?` (folio <b>${esc(imp.folio)}</b>)`:''}.<br>
+          <span style="font-size:13px">Sin ese papel el cliente no puede facturar. Revisa la impresora de caja y reimprímelo.</span>
+          ${imp.error?`<div style="font-size:11px;opacity:.8;margin-top:4px">Motivo: ${esc(imp.error)}</div>`:''}
+        </div>
+        <div class="acciones">
+          <button class="cancelar" onclick="window._parteSinTicket=null;cerrarModal();${faltan===0?'renderInicio()':'pintarDivision()'}">Seguir sin ticket</button>
+          <button class="ok" onclick="reimprimirParte()">🖨️ Reimprimir</button>
+        </div>`;
+      $("modalBg").classList.add("on");
+    }else if(faltan===0){
       $("modal").innerHTML=`<h3>Mesa cobrada ✓</h3><p class="tenue">Todas las partes quedaron pagadas.</p>
         <div class="acciones"><button class="ok" onclick="cerrarModal();renderInicio()">Listo</button></div>`;
       $("modalBg").classList.add("on");
@@ -1562,6 +1578,14 @@ window.finParte=async(sub,clave,nombre,debe,prop)=>{
    del precio (coca $20 entre 2 = $10 en cada ticket), como SoftRestaurant.
    En CONSUMO lista solo lo asignado a esa persona. Se puede imprimir ANTES
    de cobrar (botón 🧾 Ticket) y se imprime solo al cobrar la parte.        */
+/* v11-folio (27 oct) — de quién es este ticket, en grande.
+   Caso L-002794: dos tickets casi iguales y al cliente de la Persona 2 le tocó
+   el de la Persona 1. "Persona 2" → "PERSONA 2 DE 2"; si la parte trae nombre
+   ("Juan") → "JUAN (2 DE 2)". El asistente lo imprime en letra grande. */
+function textoParte(p,n){
+  const et=String((p&&p.etiqueta)||('Persona '+(p&&p.numero))).trim();
+  return /^persona\s*\d+$/i.test(et) ? `${et} de ${n}` : `${et} (${p.numero} de ${n})`;
+}
 async function datosTicketParte(sub){
   const{data:partes}=await sb.rpc("estado_division",{p_cuenta:state.cuentaId});
   const p=(partes||[]).find(x=>x.subcuenta_id===sub); if(!p) throw new Error("La parte no existe");
@@ -1597,9 +1621,19 @@ window.verTicketParte=async(sub)=>{
     const apertura=_hm(c&&c.abierta_en), cierre=_hm(new Date());
     const totMesa=Number((c&&c.total)||0);
     const nota = d.n>1 && d.p.modo==='IGUAL' ? `<div style="text-align:center;font-size:11px">Cuenta de la mesa $${totMesa.toFixed(2)} dividida entre ${d.n} · Parte ${d.p.numero} de ${d.n}</div>` : '';
+    /* v11-folio — A) si la parte TODAVÍA NO se cobra, esto es solo la cuenta:
+       no es comprobante y no lleva QR de facturar. El ticket bueno sale solo
+       al cobrarla. Si ya se cobró, se reimprime como ticket normal.        */
+    const previa = !d.p.pagada;
+    const parteTxt = textoParte(d.p, d.n);
+    const avisoPrevia = previa ? `<div style="text-align:center;border:2px solid #000;padding:4px;margin:4px 0">
+        <div style="font-size:16px;font-weight:900;letter-spacing:1px">CUENTA</div>
+        <div style="font-weight:800">NO ES COMPROBANTE</div>
+        <div style="font-size:10px">Al pagar se entrega el ticket para facturar</div></div>` : '';
     const tk=`<div style="text-align:center;font-weight:800;letter-spacing:1px">LOS PARES 84×88</div>
       <div style="text-align:center;font-size:11px">Restaurante de carnes · Cortes premium</div>
-      <hr>
+      <hr>${avisoPrevia}
+      <div style="text-align:center;font-size:18px;font-weight:900;margin:2px 0">${esc(parteTxt.toUpperCase())}</div>
       <div class="r" style="font-size:11px"><span>${state.mesaNom} · ${d.p.etiqueta}</span><span>Folio ${d.p.folio||''}</span></div>
       <div style="font-size:11px">${new Date().toLocaleString('es-MX')} · Le atendió: ${state.mesero.nombre}</div>
       <div style="font-size:11px">Abierta ${apertura} · Ticket ${cierre}</div>${nota}
@@ -1609,17 +1643,24 @@ window.verTicketParte=async(sub)=>{
     window._ticket=tk;
     const itemsV=d.itemsImp.slice();
     if(d.p.modo==='IGUAL') itemsV.unshift({etq:`Cuenta de la mesa $${totMesa.toFixed(2)} entre ${d.n}`, imp:''});
-    window._ticketData={ area:'CAJA',
-      encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre, apertura, cierre, cierre_etq:'Ticket'},
+    window._ticketData={ area:'CAJA', previa,
+      encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), parte:parteTxt, folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre, apertura, cierre, cierre_etq:previa?'Ticket':'Cerrada'},
       items:itemsV, subtotal:'$'+d.debe.toFixed(2), descuento:'', total:'$'+d.debe.toFixed(2) };
-    $("modal").innerHTML=`<h3>Cuenta — ${esc(d.p.etiqueta)}</h3><div class="ticket">${tk}</div>
+    $("modal").innerHTML=`<h3>${previa?'Cuenta':'Ticket'} — ${esc(d.p.etiqueta)}</h3>
+      ${previa?`<p class="tenue" style="margin:-4px 0 8px;font-size:12px">Es solo la cuenta para que revisen. El ticket para facturar sale solo al cobrar esta parte.</p>`:''}
+      <div class="ticket">${tk}</div>
       <div class="acciones"><button class="cancelar" onclick="cerrarModal()">Cerrar</button>
       <button class="ok" style="background:var(--negro)" onclick="imprimirTicket()">🖨️ Imprimir</button></div>`;
     $("modalBg").classList.add("on");
   }catch(e){err("No se pudo armar el ticket de la parte.",e);}
 };
+/* v11-folio — C) imprimirParte ahora DICE si salió o no.
+   Antes se tragaba cualquier error ("si el asistente está apagado, no truena")
+   y nadie se enteraba de que un cliente se quedó sin su ticket. Ahora regresa
+   {ok, error} y finParte avisa con un botón para reimprimir.
+   En modo NUBE no hay impresión (§11): regresa ok para no avisar en cada cobro. */
 async function imprimirParte(sub,formaNom,debe,prop){
-  if(!PRINT_URL)return;
+  if(!PRINT_URL) return {ok:true, nube:true};
   try{
     const d=await datosTicketParte(sub);
     const{data:c}=await sb.from("cuenta").select("abierta_en,total").eq("id",state.cuentaId).single();
@@ -1629,13 +1670,34 @@ async function imprimirParte(sub,formaNom,debe,prop){
     if(d.p.modo==='IGUAL') items.unshift({etq:`Cuenta de la mesa $${totMesa.toFixed(2)} entre ${d.n}`, imp:''});
     if(prop>0) items.push({etq:'Propina', imp:'$'+Number(prop).toFixed(2)});
     items.push({etq:'Pago: '+formaNom, imp:''});
-    await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
+    const r=await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({area:'CAJA',
-        encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
+        encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), parte:textoParte(d.p,d.n), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
                     apertura:_hm(c&&c.abierta_en), cierre:_hm(new Date()), cierre_etq:'Cerrada'},
         items:items, subtotal:'$'+Number(debe).toFixed(2), descuento:'', total:'$'+(Number(debe)+Number(prop||0)).toFixed(2)})});
-  }catch(e){ /* si el asistente está apagado, no truena */ }
+    let j=null; try{ j=await r.json(); }catch(e){}
+    if(j && j.ok) return {ok:true, folio:d.p.folio, etiqueta:d.p.etiqueta};
+    return {ok:false, folio:d.p.folio, etiqueta:d.p.etiqueta,
+            error:(j&&j.resultado&&j.resultado.error)||(j&&j.error)||('respuesta '+r.status)};
+  }catch(e){
+    // el cobro YA quedó hecho; esto solo avisa que el papel no salió
+    return {ok:false, error:'el asistente de impresión no respondió'+((e&&e.message)?' ('+e.message+')':'')};
+  }
 }
+/* Reimprimir el ticket cobrado de una parte (desde el aviso de C). */
+window.reimprimirParte=async()=>{
+  const f=window._parteSinTicket; if(!f) return;
+  const r=await imprimirParte(f.sub,f.nombre,f.debe,f.prop);
+  if(r.ok){
+    window._parteSinTicket=null;
+    flash(`Ticket de ${f.etiqueta} impreso ✓`);
+    if(f.todasPagadas){ cerrarModal(); renderInicio(); } else { cerrarModal(); pintarDivision(); }
+  }else{
+    alert(`Sigue sin salir el ticket de ${f.etiqueta}.\n\nMotivo: ${r.error||'desconocido'}\n\n`
+      + "Revisa que la impresora de caja tenga papel y esté prendida, y vuelve a intentar.\n\n"
+      + `Si de plano no sale, anota el folio ${f.folio||''} y avísale al encargado: es el folio con el que esa persona factura.`);
+  }
+};
 
 async function hayTurnoAbierto(){
   try{ const {data,error}=await sb.from("turno").select("id").eq("estado","ABIERTO").limit(1);
