@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v11-folio</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v12-cola</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
@@ -265,6 +265,57 @@ async function conectar(){
 function badgeModo(){return modo==="LOCAL"
   ?'<span style="background:#2e7d46;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">● LOCAL</span>'
   :'<span style="background:#2f6fb0;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.5px">☁ NUBE</span>';}
+/* ============================================================
+   v12-cola (29 oct) — IMPRIMIR TAMBIEN EN MODO NUBE
+   ------------------------------------------------------------
+   Antes, en modo NUBE, PRINT_URL quedaba vacio y simplemente NO
+   se imprimia: cocina y barra se quedaban ciegas justo cuando
+   la HP estaba caida, que es cuando mas falta hace.
+   Ahora todo pasa por aqui:
+     - En LOCAL  -> igual que siempre, directo al asistente.
+     - En NUBE   -> se ENCOLA en la tabla cola_impresion (modulo
+                    87) y un agente dentro del restaurante la
+                    recoge en segundos y la manda al asistente.
+   El cuerpo que viaja es EL MISMO JSON de siempre, asi que el
+   asistente de impresion no se entera de por donde llego.
+   Devuelve {ok, via:'LOCAL'|'NUBE', error}.
+   ============================================================ */
+async function imprimirPOS(ruta, cuerpo, meta){
+  meta = meta || {};
+  if(PRINT_URL){
+    try{
+      const r=await fetch(PRINT_URL+ruta,{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify(cuerpo)});
+      let j=null; try{ j=await r.json(); }catch(e){}
+      if(j && j.ok) return {ok:true, via:"LOCAL", resp:j};
+      return {ok:false, via:"LOCAL",
+              error:(j&&j.resultado&&j.resultado.error)||(j&&j.error)||('respuesta '+r.status)};
+    }catch(e){
+      return {ok:false, via:"LOCAL",
+              error:'el asistente de impresión no respondió'+((e&&e.message)?' ('+e.message+')':'')};
+    }
+  }
+  // ---- MODO NUBE: formarse en la cola ----
+  try{
+    if(!sb) return {ok:false, via:"NUBE", error:'sin conexión a la base'};
+    let quien=null; try{ quien=(state&&state.mesero&&state.mesero.nombre)||null; }catch(e){}
+    const {data,error}=await sb.rpc("encolar_impresion",{
+      p_ruta: ruta,
+      p_cuerpo: cuerpo||{},
+      p_estacion: meta.estacion||null,
+      p_tipo: meta.tipo||null,
+      p_folio: meta.folio||null,
+      p_mesa: meta.mesa||null,
+      p_creada_por: quien,
+      p_origen: 'NUBE'
+    });
+    if(error) throw error;
+    return {ok:true, via:"NUBE", id:data};
+  }catch(e){
+    return {ok:false, via:"NUBE",
+            error:'no se pudo formar en la cola de impresión'+((e&&e.message)?' ('+e.message+')':'')};
+  }
+}
 const SECCIONES=[{clave:"DESAYUNO",nombre:"Desayuno"},{clave:"COMIDA",nombre:"Comida"},{clave:"BEBIDAS",nombre:"Bebidas"},{clave:"BOUTIQUE",nombre:"Boutique"}];
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:null,mesaTipo:null,cuentaId:null,
@@ -926,13 +977,11 @@ async function verCuenta(){
 }
 async function imprimirTicket(){
   // Si hay asistente, imprime directo en la impresora de CAJA por IP (sin diálogo de Windows)
-  if(PRINT_URL && window._ticketData){
-    try{
-      const r=await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(window._ticketData)});
-      const j=await r.json();
-      if(j.ok){ flash("Ticket impreso en caja ✓"); return; }
-      flash("No se pudo imprimir en caja; abriendo impresión…");
-    }catch(e){ flash("Asistente sin responder; abriendo impresión…"); }
+  if(window._ticketData){
+    const _r=await imprimirPOS("/ticket", window._ticketData,
+      {estacion:"CAJA", tipo:"CUENTA", mesa:(state.mesaNom||null)});
+    if(_r.ok){ flash(_r.via==="NUBE"?"Ticket mandado a caja por la nube ✓":"Ticket impreso en caja ✓"); return; }
+    flash("No se pudo imprimir en caja; abriendo impresión…");
   }
   // Respaldo: diálogo de impresión del navegador (si no hay asistente)
   const w=window.open('','_blank','width=360,height=640');
@@ -994,17 +1043,21 @@ window.confirmarEnvio=async()=>{
     const up=await sb.from("cuenta_producto").update({estado:"IMPRESO"})
       .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
     if(up.error)throw up.error;
-    if(PRINT_URL){
-      try{ await fetch(PRINT_URL+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:env.porAreaImp})}); }
-      catch(e){ /* si el asistente está apagado, no truena: solo no imprime */ }
-    }
-    cerrarModal(); flash("Enviado a cocina/barra ✓"); renderComanda();
+    /* v12-cola: en LOCAL va directo; en NUBE se forma en la cola.
+       Y si NO sale, ahora se dice — antes se lo tragaba en silencio. */
+    const _imp=await imprimirPOS("/imprimir", {porArea:env.porAreaImp},
+      {estacion:Object.keys(env.porAreaImp||{}).join("+")||null, tipo:"COMANDA",
+       mesa:(state.mesaNom||null)});
+    cerrarModal();
+    flash(_imp.ok
+      ? (_imp.via==="NUBE" ? "Enviado a cocina/barra por la nube ✓" : "Enviado a cocina/barra ✓")
+      : ("Enviado ✓ — pero la comanda NO se imprimió: "+(_imp.error||"")));
+    renderComanda();
   }catch(e){ window._envio=env; if(btn){btn.disabled=false;btn.textContent="LISTO — enviar";} err("No se pudo enviar.",e); }
   finally{ window._enviando=false; }
 };
 /* ---- REIMPRIMIR: reenvía a cocina/barra lo YA enviado (no cobra ni duplica) ---- */
 window.reimprimir=async()=>{
-  if(!PRINT_URL){ flash("El asistente de impresión no está disponible (modo NUBE)."); return; }
   try{
     const{data:l,error}=await sb.from("cuenta_producto")
       .select("id,cantidad,peso_kg,producto_id,area_impresion_id,nota_libre,tiempo")
@@ -1027,9 +1080,14 @@ window.reimprimir=async()=>{
       const ti=Number(x.tiempo)||1;
       (porAreaImp[clave]||={mesa:("REIMPRESIÓN · "+state.mesaNom),mesero:state.mesero.nombre,hora:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),items:[]}).items.push({nombre:nom,cantidad:cant,extra:partes,tiempo:ti});
     });
-    try{ await fetch(PRINT_URL+"/imprimir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({porArea:porAreaImp})}); }
-    catch(e){ /* si el asistente está apagado, no truena */ }
-    cerrarModal(); flash("Reimpreso en cocina/barra ✓"); renderComanda();
+    const _imp=await imprimirPOS("/imprimir", {porArea:porAreaImp},
+      {estacion:Object.keys(porAreaImp||{}).join("+")||null, tipo:"REIMPRESION",
+       mesa:(state.mesaNom||null)});
+    cerrarModal();
+    flash(_imp.ok
+      ? (_imp.via==="NUBE" ? "Reimpreso por la nube ✓" : "Reimpreso en cocina/barra ✓")
+      : ("No se pudo reimprimir: "+(_imp.error||"")));
+    renderComanda();
   }catch(e){err("No se pudo reimprimir.",e);}
 };
 
@@ -1658,9 +1716,12 @@ window.verTicketParte=async(sub)=>{
    Antes se tragaba cualquier error ("si el asistente está apagado, no truena")
    y nadie se enteraba de que un cliente se quedó sin su ticket. Ahora regresa
    {ok, error} y finParte avisa con un botón para reimprimir.
-   En modo NUBE no hay impresión (§11): regresa ok para no avisar en cada cobro. */
+   v12-cola (29 oct) — YA NO se rinde en modo NUBE. Antes regresaba
+   {ok:true, nube:true} sin imprimir nada, para no dar lata en cada cobro;
+   el resultado era que el cliente se quedaba sin su ticket y el sistema
+   decia que todo bien. Ahora pasa por imprimirPOS: en NUBE se forma en la
+   cola (modulo 87) y el agente del restaurante lo imprime en segundos. */
 async function imprimirParte(sub,formaNom,debe,prop){
-  if(!PRINT_URL) return {ok:true, nube:true};
   try{
     const d=await datosTicketParte(sub);
     const{data:c}=await sb.from("cuenta").select("abierta_en,total").eq("id",state.cuentaId).single();
@@ -1670,15 +1731,14 @@ async function imprimirParte(sub,formaNom,debe,prop){
     if(d.p.modo==='IGUAL') items.unshift({etq:`Cuenta de la mesa $${totMesa.toFixed(2)} entre ${d.n}`, imp:''});
     if(prop>0) items.push({etq:'Propina', imp:'$'+Number(prop).toFixed(2)});
     items.push({etq:'Pago: '+formaNom, imp:''});
-    const r=await fetch(PRINT_URL+"/ticket",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({area:'CAJA',
+    const _cuerpo={area:'CAJA',
         encabezado:{mesa:state.mesaNom+" · "+d.p.etiqueta+(d.p.modo==='IGUAL'?` (Parte ${d.p.numero} de ${d.n})`:''), parte:textoParte(d.p,d.n), folio:d.p.folio||'', fecha:new Date().toLocaleString('es-MX'), mesero:state.mesero.nombre,
                     apertura:_hm(c&&c.abierta_en), cierre:_hm(new Date()), cierre_etq:'Cerrada'},
-        items:items, subtotal:'$'+Number(debe).toFixed(2), descuento:'', total:'$'+(Number(debe)+Number(prop||0)).toFixed(2)})});
-    let j=null; try{ j=await r.json(); }catch(e){}
-    if(j && j.ok) return {ok:true, folio:d.p.folio, etiqueta:d.p.etiqueta};
-    return {ok:false, folio:d.p.folio, etiqueta:d.p.etiqueta,
-            error:(j&&j.resultado&&j.resultado.error)||(j&&j.error)||('respuesta '+r.status)};
+        items:items, subtotal:'$'+Number(debe).toFixed(2), descuento:'', total:'$'+(Number(debe)+Number(prop||0)).toFixed(2)};
+    const _r=await imprimirPOS("/ticket", _cuerpo,
+      {estacion:"CAJA", tipo:"CUENTA_PARTE", folio:(d.p.folio||null), mesa:(state.mesaNom||null)});
+    if(_r.ok) return {ok:true, via:_r.via, folio:d.p.folio, etiqueta:d.p.etiqueta};
+    return {ok:false, via:_r.via, folio:d.p.folio, etiqueta:d.p.etiqueta, error:_r.error};
   }catch(e){
     // el cobro YA quedó hecho; esto solo avisa que el papel no salió
     return {ok:false, error:'el asistente de impresión no respondió'+((e&&e.message)?' ('+e.message+')':'')};
