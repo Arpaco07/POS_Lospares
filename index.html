@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v12-cola</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v13-cerrada</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
@@ -762,9 +762,54 @@ async function confirmarAg(){const p=window._prod,mods=window._mods,sel=window._
   const tiempo=window._tiempo||1;
   cerrarModal();await agregar(p,cant,peso,op,nota,tiempo);}
 window.cerrarModal=()=>$("modalBg").classList.remove("on");
+/* ============================================================
+   v13-cerrada (30 oct) — LA MESA YA COBRADA NO ACEPTA NADA MAS
+   ------------------------------------------------------------
+   El 30 de octubre la Mesa 9 (L-002854) se cobro a las 15:44 y
+   CUATRO MINUTOS DESPUES se le capturo una copa de $260 que en
+   realidad era de la Mesa 7. La cuenta quedo en $1,540 con
+   $1,280 cobrados.
+   La mesa SI se libera al cobrar — renderInicio lo pregunta a la
+   base cada vez. Lo que no se cerraba era ESTA pantalla: el
+   comandero se guarda state.cuentaId y nunca volvia a preguntar
+   si esa cuenta seguia abierta. Una tableta metida en la mesa
+   podia capturar aunque el cobro hubiera ocurrido en otra.
+   Ahora se pregunta antes de agregar. El candado de verdad esta
+   en la base (modulo 89); esto es para que el mesero vea un
+   mensaje que entienda en vez del error de PostgreSQL.
+   ============================================================ */
+async function cuentaSigueAbierta(){
+  if(!state.cuentaId) return {ok:false, motivo:"No hay una cuenta abierta en esta pantalla."};
+  try{
+    const{data,error}=await sb.from("cuenta").select("estado,folio").eq("id",state.cuentaId).single();
+    if(error) throw error;
+    if(!data) return {ok:false, motivo:"Esa cuenta ya no existe."};
+    if(data.estado==="ABIERTA") return {ok:true};
+    if(data.estado==="CERRADA")
+      return {ok:false, cerrada:true,
+              motivo:(state.mesaNom||"Esa mesa")+" YA SE COBRO ("+(data.folio||"")+")."};
+    return {ok:false, cerrada:true,
+            motivo:(state.mesaNom||"Esa cuenta")+" esta "+String(data.estado).toLowerCase()+"."};
+  }catch(e){
+    // Si la base no contesta NO se traba al mesero: la base tiene
+    // el candado de verdad (modulo 89) y ahi se detendria.
+    return {ok:true, sinRevisar:true};
+  }
+}
+function avisarCuentaCerrada(motivo){
+  $("modal").innerHTML='<h3>Esta mesa ya se cobro</h3>'+
+    '<p style="line-height:1.5;margin:6px 0 2px">'+esc(motivo)+'</p>'+
+    '<p style="line-height:1.5;color:#d4af37;font-weight:700">Lo que captures aqui NO se va a cobrar. '+
+    'Regresa a Mesas y captura en la mesa correcta.</p>'+
+    '<div class="acciones"><button class="ok" onclick="cerrarModal();renderInicio()">Ir a Mesas</button></div>';
+  $("modalBg").classList.add("on");
+}
 async function agregar(p,cant,peso,op,nota,tiempo){
   // CANDADO DE TURNO (12 oct): sin turno no se agregan productos
   if(!(await exigirTurnoPara("agregar productos", ()=>agregar(p,cant,peso,op,nota,tiempo)))) return;
+  // CANDADO DE CUENTA COBRADA (30 oct)
+  const _ab=await cuentaSigueAbierta();
+  if(!_ab.ok){ avisarCuentaCerrada(_ab.motivo); return; }
   try{const{data:l,error}=await sb.rpc("agregar_producto",{p_cuenta:state.cuentaId,p_producto_clave:p.clave,p_cantidad:cant,p_peso_kg:peso,p_nota:nota||null,p_tiempo:tiempo||1});if(error)throw error;
   for(const id of op){const r=await sb.rpc("agregar_modificador",{p_linea:l,p_modificador_id:id});if(r.error)throw r.error;}await refrescarTotal();flash(`${p.nombre} agregado`);}catch(e){err("No se pudo agregar.",e);}}
 async function refrescarTotal(){try{const{data,error}=await sb.from("cuenta").select("total").eq("id",state.cuentaId).single();if(error)throw error;$("totTxt").textContent="$"+Number(data.total).toFixed(2);}catch(e){}}
