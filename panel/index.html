@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.7-orden</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.8-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -306,25 +306,36 @@ function catForma(id){
    En NUBE: ¿hace cuanto la cajita subio datos? Si pasan >10 min, aviso ROJO
    (asi nadie confunde "no hubo ventas" con "el espejo esta atrasado").
    En LOCAL: ¿esta vivo el sincronizador? ¿alcanza la nube? */
-function _pillLat(color,txt){ return `<span style="background:${color};color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap">${txt}</span>`; }
+function _pillLat(color,txt,titulo){ return `<span title="${String(titulo||'').replace(/"/g,'&quot;')}" style="background:${color};color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap">${txt}</span>`; }
 async function pintarLatido(){
   const el=$("latido"); if(!el||!sb) return;
   try{
-    const r=await sb.from("sync_latido").select("ultimo,ultimo_nube_ok,nube_ok,subieron,bajaron").eq("id",1).maybeSingle();
+    const r=await sb.from("sync_latido").select("ultimo,ultimo_nube_ok,nube_ok,subieron,bajaron,version,mensaje").eq("id",1).maybeSingle();
     if(r.error){ el.innerHTML=""; return; }                      // tabla aun no existe (modulo 49): no molestar
     const d=r.data||{};
     if(!d.ultimo){ el.innerHTML=_pillLat('#8a6d1f','⏳ Espejo: sin latido aún'); return; }
     const hm=(t)=>new Date(t).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
     const min=Math.max(0,Math.floor((Date.now()-new Date(d.ultimo).getTime())/60000));
     const hace= min<1 ? 'hace un momento' : `hace ${min} min`;
+    /* 31-oct-2026 — la tabla sync_latido SIEMPRE tuvo `mensaje` y `version` y
+       el Panel no los leia: cuando el sincronizador se trababa, el aviso decia
+       "detenido desde las 14:30" y nada mas, sin decir POR QUE. Ahora el
+       motivo sale en el propio aviso y la version va en el globito. */
+    const msg = (d.mensaje && String(d.mensaje).trim().toLowerCase()!=='ok') ? String(d.mensaje).trim() : '';
+    const tit = 'Sincronizador' + (d.version?(' v'+d.version):'')
+              + (d.ultimo?(' · último latido '+hm(d.ultimo)):'')
+              + (msg?(' · '+msg):' · ok')
+              + (d.subieron!=null?(' · subieron '+d.subieron+', bajaron '+d.bajaron):'');
+    const conMsg = (t)=> t + (msg?` — ${msg}`:'');
     if(modo==="NUBE"){
-      if(min<=3)       el.innerHTML=_pillLat('#2e7d46',`✓ Espejo al día · ${hace}`);
-      else if(min<=10) el.innerHTML=_pillLat('#b8860b',`⏳ Espejo ${hace}`);
-      else             el.innerHTML=_pillLat('#a1262d',`⚠ La cajita NO sincroniza desde las ${hm(d.ultimo)}`);
+      if(min<=3)       el.innerHTML=_pillLat('#2e7d46',`✓ Espejo al día · ${hace}`,tit);
+      else if(min<=10) el.innerHTML=_pillLat('#b8860b',conMsg(`⏳ Espejo ${hace}`),tit);
+      else             el.innerHTML=_pillLat('#a1262d',conMsg(`⚠ La cajita NO sincroniza desde las ${hm(d.ultimo)}`),tit);
     }else{
-      if(min>10)                 el.innerHTML=_pillLat('#a1262d',`⚠ Sincronizador detenido desde las ${hm(d.ultimo)}`);
-      else if(d.nube_ok===false) el.innerHTML=_pillLat('#b8860b',`☁ Sin nube${d.ultimo_nube_ok?` (último OK ${hm(d.ultimo_nube_ok)})`:''} · local sigue bien`);
-      else                       el.innerHTML=_pillLat('#2e7d46',`☁ Nube al día · ${hace}`);
+      if(min>10)                 el.innerHTML=_pillLat('#a1262d',conMsg(`⚠ Sincronizador detenido desde las ${hm(d.ultimo)}`),tit);
+      else if(d.nube_ok===false) el.innerHTML=_pillLat('#b8860b',conMsg(`☁ Sin nube${d.ultimo_nube_ok?` (último OK ${hm(d.ultimo_nube_ok)})`:''} · local sigue bien`),tit);
+      else if(msg)               el.innerHTML=_pillLat('#b8860b',`☁ Nube al día · ${hace} — ${msg}`,tit);
+      else                       el.innerHTML=_pillLat('#2e7d46',`☁ Nube al día · ${hace}`,tit);
     }
   }catch(e){ el.innerHTML=""; }
 }
@@ -1085,39 +1096,100 @@ async function pintarCancelaciones(){
       ${canceladas?'<p class="tenue" style="margin-top:6px">Si alguna se canceló por error, <b>Reactivar</b> la regresa a ABIERTA con todos sus productos. Pide PIN y queda en Auditoría.</p>':''}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
+/* ---------------------------------------------------------------------
+   REABRIR DESDE CANCELACIONES  ·  ventana propia, 31-oct-2026
+   Reabrir BORRA el cobro y pone la propina en cero: es la accion mas cara
+   del Panel y hasta hoy pedia el motivo con un prompt() y se autorizaba con
+   la clave. Ahora el aviso de lo que se pierde se LEE en la ventana (no en
+   un confirm() que en un navegador incrustado ni sale), el motivo se escribe
+   ahi mismo, y siempre pide PIN.
+--------------------------------------------------------------------- */
 window.reabrir=async(id)=>{
-  /* 25-oct-2026 — mismo candado con salida por PIN que en Cuentas del día */
-  const f = await _cuentaPasada(id);
-  const pin = await _permisoReabrirPasada(id);
-  if(pin===null) return;
-  if(!confirm(await _avisoReabrir(id)))return;
-  const motivo=prompt("Motivo de reapertura (ej. se cobró de más):"); if(motivo===null)return;
-  const clave=pin || state.admin.clave;
-  const mot = pin ? ("FORZADO dia anterior (" + _fdia(f) + "): " + motivo) : motivo;
   try{
-    const r=await sb.rpc("reabrir_cuenta",{p_cuenta:id,p_admin_clave:clave,p_motivo:mot});
+    const f    = await _cuentaPasada(id);
+    const pin  = await _permisoReabrirPasada(id);
+    if(pin===null) return;                      // se arrepintio o no dio PIN
+    const aviso = await _avisoReabrir(id);
+    window._reCta={id:id, dia:f, pinPasada:pin};
+    $("modal").innerHTML=`<h3>Reabrir cuenta</h3>
+      <div class="tenue" style="white-space:pre-wrap;font-size:13px;line-height:1.5">${esc(aviso)}</div>
+      <label style="display:block;margin-top:12px;font-weight:700">Motivo</label>
+      <input id="reMotivo" placeholder="Ej: se cobr&oacute; de m&aacute;s"
+             style="width:100%;padding:14px;font-size:16px;border-radius:10px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto)">
+      <div class="acc" style="margin-top:14px">
+        <button class="cancelar" onclick="cerrarModal()">Cancelar</button>
+        <button class="ok" style="background:#c0392b" onclick="reFin()">S&iacute;, reabrir</button>
+      </div>`;
+    $("mbg").classList.add("on");
+    setTimeout(()=>{const x=$("reMotivo"); if(x)x.focus();},60);
+  }catch(e){err("No se pudo preparar la reapertura.",e);}
+};
+window.reFin=async()=>{
+  const d=window._reCta; if(!d){ err("Se perdió la cuenta. Vuelve a empezar."); return; }
+  const motivo=((($("reMotivo")||{}).value)||"").trim();
+  if(!motivo){ alert("Escribe el motivo de la reapertura."); return; }
+  /* El PIN de la cuenta de dia anterior ya sirve de autorizacion; si no era
+     de dia anterior, se pide aqui. En los dos casos viaja un PIN, nunca la
+     clave: _exigir_admin lo valida con crypt. */
+  const pin = d.pinPasada || await pedirPin("PIN de ADMINISTRADOR","para reabrir esta cuenta");
+  if(!pin) return;
+  const mot = d.pinPasada ? ("FORZADO dia anterior (" + _fdia(d.dia) + "): " + motivo) : motivo;
+  try{
+    const r=await sb.rpc("reabrir_cuenta",{p_cuenta:d.id,p_admin_clave:pin,p_motivo:mot});
     if(r.error)throw r.error;
-    okmsg("Cuenta reabierta"); pintarCancelaciones();
-    if(pin) _avisoDespuesDeForzar(f);
+    cerrarModal(); okmsg("Cuenta reabierta"); pintarCancelaciones();
+    if(d.pinPasada) _avisoDespuesDeForzar(d.dia);
   }catch(e){err("No se pudo reabrir.",e);}
 };
+/* ---------------------------------------------------------------------
+   PASAR LA MESA A OTRO MESERO  ·  31-oct-2026
+   Antes era un prompt() que ensenaba la lista en TEXTO y pedia teclear el
+   NUMERO. En el iPhone de Carla ese cuadro ni aparece (leccion 4.7) y, aunque
+   apareciera, escoger por numero es pedir que se equivoque de mesero.
+   Ahora: un boton por mesero, el motivo en la misma ventana, y el PIN con el
+   teclado de puntitos — con eso reasignar deja de mandar la clave (10.12) y
+   de dejar AVISO_AUTORIZA_SIN_PIN en la bitacora.
+--------------------------------------------------------------------- */
 window.cambiarMesero=async(id)=>{
   try{
     const{data:emps,error}=await sb.from("empleado").select("clave,nombre").eq("activo",true).order("nombre");
     if(error)throw error;
-    const lista=(emps||[]).map((e,i)=>`${i+1}. ${e.nombre}`).join("\n");
-    const sel=prompt("¿A qué mesero le paso esta mesa?\n\n"+lista+"\n\nEscribe el NÚMERO:");
-    if(sel===null)return;
-    const idx=parseInt(sel,10)-1;
-    if(isNaN(idx)||idx<0||idx>=emps.length){alert("Número no válido.");return;}
-    const destino=emps[idx];
-    const motivo=prompt("Motivo del cambio (ej: terminó su turno):");
-    if(motivo===null)return;
-    const r=await sb.rpc("reasignar_mesero",{p_cuenta:id,p_nuevo_clave:destino.clave,p_admin_clave:state.admin.clave,p_motivo:motivo});
+    if(!(emps||[]).length){ err("No hay empleados activos que mostrar."); return; }
+    window._cmCuenta=id; window._cmEmps=emps;
+    const btns=emps.map((e,i)=>`<button class="op" style="display:block;width:100%;text-align:left;padding:14px;margin:8px 0;border:1px solid var(--gris2);border-radius:12px;background:var(--gris);color:var(--texto);font-weight:800;font-size:16px" onclick="cmElegir(${i})">${esc(e.nombre)}</button>`).join("");
+    $("modal").innerHTML=`<h3>&iquest;A qui&eacute;n le paso esta mesa?</h3>
+      <p class="tenue">Toca el nombre del mesero que se queda con la cuenta.</p>
+      ${btns}
+      <div class="acc" style="margin-top:6px"><button class="cancelar" onclick="cerrarModal()">Cancelar</button></div>`;
+    $("mbg").classList.add("on");
+  }catch(e){err("No se pudo leer la lista de meseros.",e);}
+};
+window.cmElegir=(i)=>{
+  const emp=(window._cmEmps||[])[i];
+  if(!emp){ err("Ese mesero ya no está en la lista. Vuelve a abrir la ventana."); return; }
+  window._cmDestino=emp;
+  $("modal").innerHTML=`<h3>Pasar la mesa a ${esc(emp.nombre)}</h3>
+    <p class="tenue">&iquest;Por qu&eacute; se cambia? Queda registrado en Auditor&iacute;a.</p>
+    <input id="cmMotivo" placeholder="Ej: termin&oacute; su turno" value="Termin&oacute; su turno"
+           style="width:100%;padding:14px;font-size:16px;border-radius:10px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto)">
+    <div class="acc" style="margin-top:14px">
+      <button class="cancelar" onclick="cambiarMesero(window._cmCuenta)">&lsaquo; Atr&aacute;s</button>
+      <button class="ok" onclick="cmConfirmar()">Pasar la mesa</button>
+    </div>`;
+  setTimeout(()=>{const x=$("cmMotivo"); if(x){x.focus();x.select();}},60);
+};
+window.cmConfirmar=async()=>{
+  const emp=window._cmDestino, id=window._cmCuenta;
+  if(!emp||!id){ err("Se perdió la mesa o el mesero. Vuelve a empezar."); return; }
+  const motivo=((($("cmMotivo")||{}).value)||"").trim();
+  if(!motivo){ alert("Escribe el motivo del cambio."); return; }
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para pasar la mesa a "+emp.nombre);
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("reasignar_mesero",{p_cuenta:id,p_nuevo_clave:emp.clave,p_admin_clave:pin,p_motivo:motivo});
     if(r.error)throw r.error;
-    okmsg("Mesa reasignada a "+destino.nombre);
-    pintarCancelaciones();
-  }catch(e){err("No se pudo cambiar el mesero.",e);}
+    cerrarModal(); okmsg("Mesa reasignada a "+emp.nombre); pintarCancelaciones();
+  }catch(ex){err("No se pudo cambiar el mesero.",ex);}
 };
 /* ======================================================================
    CANCELAR UNA CUENTA — con aviso de lo que se va a perder  (23 oct 2026)
@@ -2103,7 +2175,9 @@ async function _pintarProdsCuenta(cuentaId){
 }
 window.quitarPagoDup=async(pagoId)=>{
   if(!confirm("¿Quitar este pago?\n\nSolo se permite si la cuenta sigue cubierta con los demás pagos (es decir, si de verdad estaba duplicado). Queda en auditoría."))return;
-  try{const r=await sb.rpc("eliminar_pago_duplicado",{p_pago:pagoId,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para quitar el pago duplicado");
+  if(!pin) return;
+  try{const r=await sb.rpc("eliminar_pago_duplicado",{p_pago:pagoId,p_admin_clave:pin});if(r.error)throw r.error;
     cerrarModal();okmsg("Pago duplicado eliminado ✓ (propina y totales corregidos)");pintarCuentas();
   }catch(e){err("No se pudo quitar el pago.",e);}
 };
@@ -2313,7 +2387,11 @@ window.corrForma=(pagoId)=>{
   $("modal").innerHTML=`<h3>Cambiar forma de pago</h3><p class="tenue">Elige la forma correcta:</p>${opts}<div class="acc"><button class="cancelar" onclick="verCuentaPanel(window._verId)">‹ Cancelar</button></div>`;
 };
 window.finForma=async(pagoId,formaId)=>{
-  try{const r=await sb.rpc("corregir_forma_pago",{p_pago:pagoId,p_forma_id:formaId,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+  /* 31-oct-2026 — mandaba la CLAVE; _exigir_admin la aceptaba pero dejaba
+     AVISO_AUTORIZA_SIN_PIN en la bitacora en cada correccion (10.12). */
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para cambiar la forma de pago");
+  if(!pin) return;
+  try{const r=await sb.rpc("corregir_forma_pago",{p_pago:pagoId,p_forma_id:formaId,p_admin_clave:pin});if(r.error)throw r.error;
     cerrarModal();okmsg("Forma de pago corregida ✓");pintarCuentas();
   }catch(e){err("No se pudo corregir la forma de pago.",e);}
 };
@@ -2335,7 +2413,9 @@ window.corrPropina=(pagoId)=>{
 window.finPropina=async(pagoId)=>{
   const v=parseFloat(($("cpProp")||{}).value);
   if(isNaN(v)||v<0){ alert("Escribe un monto válido (0 o más)."); return; }
-  try{const r=await sb.rpc("corregir_propina",{p_pago:pagoId,p_propina:v,p_admin_clave:state.admin.clave});if(r.error)throw r.error;
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para corregir la propina");
+  if(!pin) return;
+  try{const r=await sb.rpc("corregir_propina",{p_pago:pagoId,p_propina:v,p_admin_clave:pin});if(r.error)throw r.error;
     cerrarModal();okmsg("Propina corregida ✓");pintarCuentas();
   }catch(e){err("No se pudo corregir la propina.",e);}
 };
@@ -2853,6 +2933,18 @@ async function pintarRevision(turnoId){
         });
         const orden=Object.values(grupos).sort((a,b)=>Number(b.turno)-Number(a.turno));
 
+        /* 31-oct-2026 · modulo 94 — hasta hoy el aviso SUPONIA la causa
+           ("alguien corrigio algo despues de cerrar") y el 31 de octubre la
+           causa fue otra: un platillo cargado que nadie pago. Ahora se le
+           pregunta a la base CUAL es la cuenta que no cuadra. Si el modulo 94
+           no esta puesto, el aviso sale igual que antes y no estorba. */
+        const descu={};
+        try{
+          const lista=orden.slice(0,6);
+          const res=await Promise.all(lista.map(g=>sb.rpc("cuentas_sin_cuadrar",{p_turno:Number(g.turno)})));
+          lista.forEach((g,i)=>{ if(res[i] && !res[i].error) descu[String(g.turno)]=res[i].data||[]; });
+        }catch(e){ /* sin modulo 94: el aviso sigue saliendo, solo sin detalle */ }
+
         const bloques=orden.slice(0,6).map(g=>{
           const renglones=g.filas.map(x=>`
             <div style="margin-top:6px">
@@ -2869,17 +2961,29 @@ async function pintarRevision(turnoId){
                  ✓ Ya lo revisé
                </button>
              </div>`;
+          const malas=descu[String(g.turno)]||[];
+          const pes=(v)=>'$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+          const detalle = malas.length ? `
+            <div style="margin-top:8px;padding:9px 11px;background:rgba(0,0,0,.20);border-radius:9px">
+              <b>La diferencia est&aacute; ${malas.length===1?'en esta cuenta':'en estas cuentas'}:</b>
+              ${malas.slice(0,5).map(x=>`<div style="margin-top:5px">&bull; <b>${esc(x.folio||'')}</b> &mdash; la cuenta dice <b>${pes(x.total)}</b> y se cobraron <b>${pes(x.cobrado)}</b> (faltan <b>${pes(x.diferencia)}</b>)${x.cobrada_a?` &middot; cobrada ${esc(x.cobrada_a)}`:''}</div>`).join('')}
+              ${malas.length>5?`<div class="tenue" style="margin-top:5px">&hellip;y ${malas.length-5} m&aacute;s.</div>`:''}
+              <div class="tenue" style="margin-top:6px;font-size:12px">Casi siempre es un platillo capturado despu&eacute;s de cobrar, o un pago que falt&oacute; registrar. Abre la cuenta en <b>Cuentas del d&iacute;a</b> para verla.</div>
+            </div>` : '';
           return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(128,128,128,.25)">
                     <b>Turno ${esc(String(g.turno))}</b> (${esc(g.cuando)})
                     ${renglones}
+                    ${detalle}
                     ${boton}
                   </div>`;
         }).join('');
 
         html+=`<div class="aviso err" style="margin:0 0 12px">
-          <b>⚠ Un corte ya cerrado dejó de cuadrar con la base</b><br>
-          Alguien corrigió, canceló o reabrió algo DESPUÉS de cerrar ese turno.
-          El papel que se imprimió esa noche ya no dice lo mismo.
+          <b>⚠ Un corte ya cerrado no cuadra con la base</b><br>
+          <span style="opacity:.92">Son dos formas de medir lo mismo: <b>&laquo;el corte dice&raquo;</b> es la suma de
+          las <b>cuentas</b>, y <b>&laquo;hoy hay&raquo;</b> es lo que de verdad <b>entr&oacute; a la caja</b>.
+          Si no coinciden, o alguien corrigi&oacute; algo despu&eacute;s de cerrar el turno, o hay un platillo
+          cargado que nadie pag&oacute;. El papel que se imprimi&oacute; esa noche ya no dice lo mismo.</span>
           ${bloques}
           ${orden.length>6?`<div class="tenue" style="margin-top:8px">…y ${orden.length-6} turno(s) más.</div>`:''}
         </div>`;
@@ -3767,7 +3871,27 @@ function _pllCard(p){
 }
 async function _pllPatch(id,campos){const r=await sb.from('pedido_whatsapp').update(campos).eq('id',id);if(r.error){err("No se pudo guardar el cambio",r.error);return false;}return true;}
 window.pllMover=async(id,estado)=>{const c={estado};const now=new Date().toISOString();if(estado==='en_cocina')c.en_cocina_en=now;if(estado==='listo')c.listo_en=now;if(estado==='entregado')c.entregado_en=now;if(await _pllPatch(id,c)){okmsg('Actualizado');pintarLlevar();}};
-window.pllCancelar=async(id)=>{const m=prompt('Rechazar / cancelar pedido — motivo (queda registrado):');if(m===null)return;if(await _pllPatch(id,{estado:'cancelado',cancelado_en:new Date().toISOString(),notas:m||'Rechazado'})){okmsg('Pedido rechazado');pintarLlevar();}};
+/* 31-oct-2026 — era el ultimo prompt() que pedia un dato. Ventana propia. */
+window.pllCancelar=(id)=>{
+  window._pllCanId=id;
+  $("modal").innerHTML=`<h3>Rechazar pedido</h3>
+    <p class="tenue">&iquest;Por qu&eacute; se rechaza? Queda registrado en el pedido.</p>
+    <input id="pllMot" placeholder="Ej: fuera de horario / sin producto"
+           style="width:100%;padding:14px;font-size:16px;border-radius:10px;border:1px solid var(--gris2);background:var(--gris);color:var(--texto)">
+    <div class="acc" style="margin-top:14px">
+      <button class="cancelar" onclick="cerrarModal()">Dejarlo como est&aacute;</button>
+      <button class="ok" style="background:#c0392b" onclick="pllCancelarFin()">Rechazar pedido</button>
+    </div>`;
+  $("mbg").classList.add("on");
+  setTimeout(()=>{const x=$("pllMot"); if(x)x.focus();},60);
+};
+window.pllCancelarFin=async()=>{
+  const id=window._pllCanId; if(!id){ err("Se perdió el pedido. Vuelve a abrirlo."); return; }
+  const m=((($("pllMot")||{}).value)||"").trim();
+  if(await _pllPatch(id,{estado:'cancelado',cancelado_en:new Date().toISOString(),notas:m||'Rechazado'})){
+    cerrarModal(); okmsg('Pedido rechazado'); pintarLlevar();
+  }
+};
 window.pllAceptar=async(id)=>{ if(await _pllPatch(id,{estado:'nuevo'})){okmsg('Aceptado → pasa a cocina');pintarLlevar();} };
 /* ---- COBRAR el pedido (lo mete a caja como una mesa e imprime ticket) ---- */
 window.cobrarPll=(id)=>{
