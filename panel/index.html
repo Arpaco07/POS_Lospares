@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.8-pin</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.9-jornada</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1023,7 +1023,10 @@ window.pintarAuditoria=async(iso)=>{
   $("main").innerHTML=`<div class="pad"><div class="cargando">Cargando auditoría…</div></div>`;
   try{
     let q=sb.from("auditoria").select("id,empleado_id,accion,entidad,entidad_id,detalle,creado_en").order("creado_en",{ascending:false}).limit(400);
-    if(iso){ const [y,m,dd]=iso.split('-').map(Number); const ini=new Date(y,m-1,dd,0,0,0,0), fin=new Date(y,m-1,dd+1,0,0,0,0); q=q.gte("creado_en",ini.toISOString()).lt("creado_en",fin.toISOString()); }
+    /* 31-oct-2026 — mismo arreglo que el Corte del dia: la jornada va de
+       6 am a 6 am. Si no, lo que pasa despues de medianoche aparece en el
+       dia siguiente y no junto al turno al que pertenece. */
+    if(iso){ const [y,m,dd]=iso.split('-').map(Number); const ini=iniJornada(new Date(y,m-1,dd)), fin=iniJornada(new Date(y,m-1,dd+1)); q=q.gte("creado_en",ini.toISOString()).lt("creado_en",fin.toISOString()); }
     const {data,error}=await q; if(error) throw error;
     const rows=data||[];
     const eids=[...new Set(rows.map(r=>r.empleado_id).filter(Boolean))]; let nom={};
@@ -3538,7 +3541,15 @@ window.pintarCorteHist=async(iso)=>{
   $("main").innerHTML=`<div class="pad"><div class="cargando">Reconstruyendo corte de ${iso}…</div></div>`;
   try{
     const [y,m,dd]=iso.split('-').map(Number);
-    const ini=new Date(y,m-1,dd,0,0,0,0), fin=new Date(y,m-1,dd+1,0,0,0,0);
+    /* 31-oct-2026 — ESTE ERA EL ERROR. Armaba el dia de MEDIANOCHE a
+       MEDIANOCHE, cuando la jornada del restaurante va de las 6 am a las
+       6 am (HORA_CORTE, arriba). Resultado: una cuenta cobrada a las 00:18
+       —la de Jorge, $9,640 del jueves— no salia en el Corte del dia de ese
+       jueves. El Corte Z si la traia, porque ese va por TURNO.
+       Es la misma falla que el modulo 90 arreglo del lado del SQL, pero
+       viviendo aqui en el JavaScript. Los ayudantes iniJornada() y
+       hoyJornada() YA existian en este archivo; esta funcion no los usaba. */
+    const ini=iniJornada(new Date(y,m-1,dd)), fin=iniJornada(new Date(y,m-1,dd+1));
     const cq=await sb.from("cuenta").select("id,total,turno_id,mesero_id,cerrada_en").eq("estado","CERRADA").gte("cerrada_en",ini.toISOString()).lt("cerrada_en",fin.toISOString());
     if(cq.error) throw cq.error;
     const cuentas=cq.data||[]; const ids=cuentas.map(c=>c.id); const turnos=[...new Set(cuentas.map(c=>c.turno_id).filter(Boolean))];
@@ -3608,7 +3619,9 @@ window.pintarCorteHist=async(iso)=>{
          <p class="tenue" style="margin-top:6px">Cada renglón es un Corte completo por sí solo — <b>no se suman entre ellos</b>. Si un turno se fue a la madrugada, la leyenda dice el día real (cuándo abrió y cuándo cerró). Toca 🖨 para abrir/imprimir cada uno.</p>`
       : `<div class="sec-t" style="margin-top:16px">Cortes X y Z guardados de este día</div><p class="tenue">Ese día no se guardó ningún Corte X ni Z (no se usó el botón 🧾 Corte X ni 🔒 Corte Z, o el turno cerró en la madrugada y cuenta en otro día). El bloque de arriba es la reconstrucción completa del día con el mismo cálculo del Corte Z.</p>`;
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
-    const hoy0=new Date(); hoy0.setHours(0,0,0,0); const esHoy=ini.getTime()===hoy0.getTime();
+    /* 31-oct-2026 — al pasar 'ini' a las 6 am, compararlo contra la
+       medianoche de hoy nunca daria igual. Se compara jornada con jornada. */
+    const esHoy = ini.getTime() === iniJornada(hoyJornada()).getTime();
     $("main").innerHTML=`<div class="pad">
       <h2>Corte de otros días</h2>
       <div class="rango" style="justify-content:space-between;align-items:center;margin:0 0 12px">
@@ -3676,7 +3689,7 @@ window.pintarCorteHist=async(iso)=>{
     </div>`;
   }catch(e){ err("No se pudo reconstruir el corte.",e); }
 };
-window.histDia=(delta)=>{ if(!window._histISO)return; const b=window._histISO.split('-').map(Number); const nd=new Date(b[0],b[1]-1,b[2]+delta); const hoy0=new Date(); hoy0.setHours(0,0,0,0); if(nd>hoy0)return; pintarCorteHist(`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`); };
+window.histDia=(delta)=>{ if(!window._histISO)return; const b=window._histISO.split('-').map(Number); const nd=new Date(b[0],b[1]-1,b[2]+delta); if(nd>hoyJornada())return; pintarCorteHist(`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`); };
 window.waCorteHist=(quien)=>{ const d=window._corteHistData; if(!d){alert("Primero abre un corte.");return;} window.open('https://wa.me/'+_WA[quien]+'?text='+encodeURIComponent(_corteTextoDe(d,'DEL DÍA '+d.fechaCorta)),'_blank'); };
 
 /* ===== VERIFICADOR DE CORTE (recalcula desde cero y compara con el corte guardado) ===== */
