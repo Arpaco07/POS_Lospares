@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.9-jornada</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.10-revisar</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -1072,7 +1072,14 @@ async function pintarCancelaciones(){
     // mostraba, asi que una cuenta cancelada por error desaparecia y no
     // habia forma de volver. Se filtran por abierta_en porque cancelar una
     // cuenta no le pone cerrada_en.
-    const rCa=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,abierta_en").eq("estado","CANCELADA")
+    /* v6.10-revisar — FUERA EL RUIDO.
+       En 30 dias hubo 71 cuentas canceladas y 62 eran mesas que se abrieron y
+       se abandonaron sin capturar nada: 87% de esta pantalla era basura y las
+       9 cancelaciones de verdad quedaban enterradas. El modulo 102 les pone
+       motivo_cancelacion='SIN_CONSUMO' al cerrarse, y aqui se sacan.
+       El filtro deja pasar las viejas, que traen el motivo en null. */
+    const rCa=await sb.from("cuenta").select("id,folio,tipo_venta,mesa_id,total,estado,mesero_id,abierta_en,motivo_cancelacion").eq("estado","CANCELADA")
+      .or("motivo_cancelacion.is.null,motivo_cancelacion.neq.SIN_CONSUMO")
       .gte("abierta_en",iso(state.rango.ini)).lt("abierta_en",iso(state.rango.fin)).order("id",{ascending:false}).limit(200);
     if(rAb.error)throw rAb.error; if(rCe.error)throw rCe.error; if(rCa.error)throw rCa.error;
     let mesaNom={};try{const m=await sb.from("mesa").select("id,numero,nombre");(m.data||[]).forEach(x=>mesaNom[x.id]=x.numero?("Mesa "+x.numero):x.nombre);}catch(e){}
@@ -1089,9 +1096,28 @@ async function pintarCancelaciones(){
     const abiertas=(rAb.data||[]).map(c=>fila(c,'Abierta ahora')).join("");
     const cerradas=(rCe.data||[]).map(c=>fila(c,'Cerrada')).join("");
     const canceladas=(rCa.data||[]).map(c=>fila(c,'CANCELADA')).join("");
+
+    /* v6.10-revisar — PRODUCTOS QUE UN MESERO QUITO CON SU PIN.
+       No se le pide a Carla que autorice: cuando ella lo ve, el cliente ya
+       pago y se fue. Es una lista de revision y un registro firmado. */
+    let porRev=[];
+    try{ const rr=await sb.rpc("cancelaciones_por_revisar",{p_dias:14});
+         if(!rr.error) porRev=rr.data||[]; }catch(e){}
+    const revHtml=porRev.map(x=>{
+      const h=new Date(x.cuando).toLocaleString('es-MX',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return `<div class="cta"><div class="info">
+        <div class="n">${esc(x.mesa)} · <span class="tenue">${esc(x.mesero)}</span></div>
+        <small>${esc(x.producto)} · ${h} · lo quitó <b>${esc(x.quito)}</b>${x.ya_impreso?' · <b style="color:var(--naranja)">ya estaba hecho</b>':''}</small>
+        <small><b>${esc(x.motivo_txt||'')}</b>${x.nota?' — '+esc(x.nota):''}</small>
+        </div><div class="t">$${Number(x.importe||0).toFixed(2)}</div>
+        <button style="background:var(--verde);color:#fff" onclick="marcarRevisada(${x.linea_id})">✓ Revisado</button></div>`;
+    }).join("");
     $("main").innerHTML=`<div class="pad"><h2>Cancelaciones</h2>${barraRango()}
       <p class="tenue">Cancelar te dice de qué mesa es y cuánto trae antes de hacerlo, pide motivo y PIN, y queda registrado con tu nombre.<br>
-      <b>Para quitar UN producto esto no es aquí:</b> es en el comandero, abriendo la mesa → 👁 Ver cuenta → botón ✕ de ese renglón.</p>
+      <b>Para quitar UN producto esto no es aquí:</b> es en el comandero, abriendo la mesa → 👁 Ver cuenta → botón ✕ de ese renglón.<br>
+      🆕 Desde el <b>comandero v14</b> ese botón ya <b>no pide PIN de administrador</b>: el mesero lo quita con el suyo y diciendo por qué, y te aparece arriba, en <b>por revisar</b>. Ya no hace falta abrir una mesa llamada "cancelaciones".</p>
+      ${porRev.length?`<div class="sec-t">⏳ Productos quitados — por revisar (${porRev.length})</div>${revHtml}
+      <p class="tenue" style="margin-top:6px">Los quitó un mesero con su PIN mientras el cliente seguía en la mesa, así que <b>ya salieron de la cuenta</b>. Esto es para que los veas y midas, no para autorizarlos.</p>`:''}
       <div class="sec-t">Abiertas ahora</div>${abiertas||'<div class="proximamente">No hay cuentas abiertas.</div>'}
       <div class="sec-t">Cerradas (${state.rango.label})</div>${cerradas||'<div class="proximamente">No hubo cuentas cerradas en el periodo.</div>'}
       <div class="sec-t">♻ Canceladas (${state.rango.label})</div>
@@ -1099,6 +1125,36 @@ async function pintarCancelaciones(){
       ${canceladas?'<p class="tenue" style="margin-top:6px">Si alguna se canceló por error, <b>Reactivar</b> la regresa a ABIERTA con todos sus productos. Pide PIN y queda en Auditoría.</p>':''}</div>`;
   }catch(e){err("No se pudieron leer las cuentas.",e);}
 }
+/* ---------------------------------------------------------------------
+   v6.10-revisar (1 nov 2026) — MARCAR UN PRODUCTO QUITADO COMO REVISADO
+   y el contador que avisa sin tener que entrar a la pantalla.
+   --------------------------------------------------------------------- */
+window.marcarRevisada=async(id)=>{
+  const pin=await pedirPin("Tu PIN de administrador","para marcarlo revisado");
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("marcar_cancelacion_revisada",{p_linea:id,p_admin_pin:pin,p_nota:null});
+    if(r.error) throw r.error;
+    await pintarCancelaciones();
+    refrescarAvisoCancel();
+  }catch(e){ err("No se pudo marcar como revisado.",e); }
+};
+async function refrescarAvisoCancel(){
+  try{
+    if(!sb) return;
+    const r=await sb.rpc("cancelaciones_por_revisar",{p_dias:14});
+    if(r.error) return;
+    const n=(r.data||[]).length;
+    const b=document.querySelector('nav button[data-v="cancelaciones"]');
+    if(!b) return;
+    b.innerHTML = 'Cancelaciones' + (n
+      ? ` <span style="background:var(--naranja);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:3px">${n}</span>`
+      : '');
+  }catch(e){}
+}
+setInterval(refrescarAvisoCancel, 60000);
+setTimeout(refrescarAvisoCancel, 4000);
+
 /* ---------------------------------------------------------------------
    REABRIR DESDE CANCELACIONES  ·  ventana propia, 31-oct-2026
    Reabrir BORRA el cobro y pone la propina en cero: es la accion mas cara
@@ -1397,7 +1453,7 @@ window.toggleVis=async(id,vis)=>{
 };
 
 /* ---- EMPLEADOS (alta / rol / PIN) ---- */
-const ROLES=[["MESERO","Mesero"],["CAJERO","Cajero"],["ADMIN","Administrador"]];
+const ROLES=[["MESERO","Mesero"],["COCINA","Cocina"],["BARRA","Barra"],["CAJERO","Cajero"],["ADMIN","Administrador"]];
 async function pintarEmpleados(){
   if(state.soloLectura){
     $("main").innerHTML=`<div class="pad"><h2>Empleados</h2>

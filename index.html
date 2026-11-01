@@ -208,7 +208,7 @@
 </script>
 <header>
   <button class="volver" id="btnVolver" style="display:none">‹ Atrás</button>
-  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v13-cerrada</span>
+  <span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span> <span id="modo"></span><span class="ver" title="Version del comandero">v14-cancela</span>
   <span class="ctx" id="ctx"></span>
   <button class="volver" id="btnPropina" title="Ver cuánto llevas de propina en este turno" style="display:none;margin-left:auto">💵 Propina</button><button class="volver" id="btnRefrescar" title="Actualizar menú" style="display:none">🔄 Menú</button>
 </header>
@@ -324,7 +324,11 @@ const state={mesero:null,pin:"",vista:null,tipoVenta:null,mesaId:null,mesaNom:nu
              /* 25-oct-2026 (modulo 85-E) — en que forma dejo la propina.
                 null = junto con el pago, como siempre. Si trae una clave, la
                 propina se registra en SU PROPIO renglon con esa forma. */
-             propinaForma:null};
+             propinaForma:null,
+/* v14-cancela: 'propinaForma' vale null tanto para "junto con el pago"
+   como para "nadie ha elegido", y por eso el chip salia preseleccionado y
+   el sistema decidia en silencio. Esta bandera separa las dos cosas. */
+             propFormaElegida:false};
 const cache={mesas:[],productos:[],prodById:{},areaById:{},modsPorProd:{},ordenGrupo:{},formas:[]};
 
 window.addEventListener("DOMContentLoaded",init);
@@ -957,16 +961,183 @@ window.quitarLinea=async(id,estado,nombre)=>{
       const l=await lineasCuenta(); if(l.length) verCuentaEditable(); else cerrarModal();
     }catch(e){err("No se pudo quitar.",e);}
   } else {
-    // YA enviado a cocina: cancelación con PIN de admin (queda registrado)
-    const a=await resolverAdmin(); if(!a)return;
-    const motivo=prompt("Motivo de la cancelación:")||null;
-    try{
-      const r=await sb.rpc("cancelar_producto",{p_linea:id,p_admin_clave:a,p_motivo:motivo}); if(r.error)throw r.error;
-      await refrescarTotal(); flash("Producto cancelado ✓");
-      const l=await lineasCuenta(); if(l.length) verCuentaEditable(); else cerrarModal();
-    }catch(e){err("No se pudo cancelar.",e);}
+    /* v14-cancela (1 nov) — YA NO PIDE PIN DE ADMINISTRADOR.
+       Antes este boton exigia un admin EN ESE MOMENTO, y Carla no siempre
+       esta. Entonces los meseros usaban el boton de junto (pasar el cargo a
+       otra cuenta) y abrian una mesa inventada: se encontraron CINCO nombres
+       distintos — "cancelacion", "cancelaciones", "cancela", "cancelar",
+       "cancel". Asi se perdia DONDE paso el error y el motivo nunca quedaba.
+       Ahora el mesero lo quita con SU PIN y diciendo por que. El producto
+       sale del total al instante (el cliente paga lo que consumio y se va,
+       igual que antes) pero se queda en SU mesa, marcado, y le aparece a
+       Carla en el Panel para que lo revise cuando pueda. */
+    quitarEnviado(id, nombre);
   }
 };
+
+/* ============================================================
+   v14-cancela (1 nov 2026) — PIEZAS NUEVAS
+   ============================================================ */
+
+/* Una ventanita para escribir, en vez de prompt().
+   Los prompt() del navegador NO salen en varias tabletas (leccion 4.7): en 30
+   dias, 30 de 86 cancelaciones quedaron SIN MOTIVO no porque nadie quisiera
+   escribirlo, sino porque la ventana nunca aparecio. */
+function pedirTexto(titulo, ph){
+  return new Promise(function(resolve){
+    var cerrado=false;
+    var bg=document.createElement("div"); bg.className="pinbg";
+    bg.innerHTML='<div class="pincard" style="min-width:270px">'
+      +'<h3>'+(titulo||"Escribe")+'</h3>'
+      +'<input id="txIn" type="text" maxlength="120" placeholder="'+(ph||'')+'" '
+      +'style="width:100%;box-sizing:border-box;font-size:17px;padding:10px;margin:10px 0;'
+      +'border-radius:8px;border:1px solid #666;background:#111;color:#fff">'
+      +'<button class="pinkey pinok" data-ok="1" style="width:100%;margin-bottom:8px">✓ Listo</button>'
+      +'<button class="pincancel" data-x="1">Cancelar</button>'
+      +'</div>';
+    document.body.appendChild(bg);
+    var inp=bg.querySelector("#txIn");
+    var fin=function(v){ if(cerrado)return; cerrado=true; bg.remove(); resolve(v); };
+    bg.addEventListener("click",function(e){
+      var t=e.target.closest("button");
+      if(!t){ if(e.target===bg) fin(null); return; }
+      if(t.dataset.x)  return fin(null);
+      if(t.dataset.ok) return fin((inp.value||"").trim()||null);
+    });
+    inp.addEventListener("keydown",function(e){
+      if(e.key==="Enter") fin((inp.value||"").trim()||null);
+    });
+    setTimeout(function(){ try{ inp.focus(); }catch(e){} },60);
+  });
+}
+
+/* ---- QUITAR UN PRODUCTO QUE YA SALIO A COCINA O BARRA ----
+   No es una autorizacion: cuando Carla lo ve, el cliente ya pago y se fue.
+   Es un REGISTRO FIRMADO y una lista de revision. El control esta en que
+   quede escrito quien, que, cuando y por que. */
+const MOTIVOS_CANCELA=[
+  ["CAPTURA_MAL",    "Lo capturé mal",              "#a12"],
+  ["CLIENTE_CAMBIO", "El cliente cambió de opinión","#c8781f"],
+  ["TARDO",          "Se tardó y lo canceló",       "#c8781f"],
+  ["SALIO_MAL",      "Salió mal de cocina",         "#a12"],
+  ["OTRO",           "Otro (escribir)",             "#555"]
+];
+window.quitarEnviado=(id,nombre)=>{
+  const bts=MOTIVOS_CANCELA.map(m=>
+    `<button class="op" style="background:${m[2]};color:#fff" onclick="qeMotivo(${id},'${m[0]}','${esc(nombre)}')">${m[1]}</button>`
+  ).join("");
+  $("modal").innerHTML=`<h3>Quitar ${esc(nombre)}</h3>
+    <p class="tenue">Ya salió a cocina o barra. Sale de la cuenta <b>ahora mismo</b> y Carla lo revisa después. ¿Qué pasó?</p>
+    ${bts}
+    <button class="op" style="text-align:center" onclick="verCuentaEditable()">‹ Regresar</button>`;
+  $("modalBg").classList.add("on");
+};
+window.qeMotivo=async(id,motivo,nombre)=>{
+  let nota=null;
+  if(motivo==='OTRO'){
+    nota=await pedirTexto("¿Qué pasó?","en pocas palabras");
+    if(nota===null) return quitarEnviado(id,nombre);
+  }
+  const pin=await pedirPin("Tu PIN","para quitar "+nombre);
+  if(!pin) return quitarEnviado(id,nombre);
+  try{
+    const r=await sb.rpc("pedir_cancelacion",{p_linea:id,p_pin:pin,p_motivo:motivo,p_nota:nota});
+    if(r.error) throw r.error;
+    await refrescarTotal();
+    flash("Quitado ✓ — queda para que Carla lo revise");
+    const l=await lineasCuenta(); if(l.length) verCuentaEditable(); else cerrarModal();
+  }catch(e){ err("No se pudo quitar.",e); }
+};
+
+/* ---- LA MESA QUE SE ABRE Y NO SE USA ----
+   En 30 dias hubo 34 mesas normales abiertas y abandonadas sin capturar nada.
+   No se borran: quedan como CANCELADA y le ensucian la lista a Carla (87% de
+   sus cancelaciones eran esto). El vigilante pregunta UNA VEZ a los 5 minutos;
+   NO cierra solo: una ventana que cierra la mesa sola mientras el mesero esta
+   con el cliente hace mas dano del que arregla. */
+let _vigMesa={id:null,desde:0,avisado:false};
+setInterval(async function(){
+  try{
+    const cid=state.cuentaId;
+    if(!cid){ _vigMesa={id:null,desde:0,avisado:false}; return; }
+    if(_vigMesa.id!==cid){ _vigMesa={id:cid,desde:Date.now(),avisado:false}; return; }
+    if(_vigMesa.avisado) return;
+    if(Date.now()-_vigMesa.desde < 5*60*1000) return;
+    if($("modalBg").classList.contains("on")) return;     // no estorbar otra ventana
+    const {data}=await sb.from("cuenta_producto").select("id")
+      .eq("cuenta_id",cid).neq("estado","CANCELADO").limit(1);
+    _vigMesa.avisado=true;                                 // de un modo u otro, no insiste
+    if(data && data.length) return;                        // ya tiene algo: todo bien
+    avisoMesaVacia(cid);
+  }catch(e){ /* si falla, no estorbamos la operacion */ }
+},30000);
+
+window.avisoMesaVacia=(cid)=>{
+  $("modal").innerHTML=`<h3>Esta mesa no tiene nada</h3>
+    <p class="tenue">Llevas rato con la mesa abierta y no se ha capturado ningún producto. ¿La sigues usando?</p>
+    <button class="op" style="background:var(--verde);color:#fff" onclick="cerrarModal()">Sí, la sigo usando</button>
+    <button class="op" onclick="cerrarMesaVaciaYa(${cid})">Ciérrala</button>`;
+  $("modalBg").classList.add("on");
+};
+window.cerrarMesaVaciaYa=async(cid)=>{
+  try{
+    const r=await sb.rpc("cerrar_mesa_vacia",{p_cuenta:cid});
+    if(r.error) throw r.error;
+    if(r.data && r.data.ok===false){ cerrarModal(); return flash("No se cerró: "+r.data.razon); }
+    if(state.mesaTipo==="TEMPORAL" && state.mesaId){
+      try{ await sb.from("mesa").update({activa:false}).eq("id",state.mesaId); }catch(e){}
+    }
+    state.cuentaId=null; state.comensalNom=null;
+    cerrarModal(); flash("Mesa cerrada"); renderInicio();
+  }catch(e){ err("No se pudo cerrar.",e); }
+};
+
+/* ---- LAS DOS REVISIONES ANTES DE COBRAR ----
+   1) La propina sin decir donde se dejo. Entre 1 y 6 cuentas por noche
+      quedaban con la propina en la forma equivocada.
+   2) Productos capturados que NUNCA se enviaron. En 30 dias fueron 87
+      renglones por $12,936 cobrados sin que cocina o barra tuvieran la
+      comanda, en 25 de 30 noches y con los seis meseros por igual. */
+window._cobrarConPendientes=false;
+async function revisarAntesDeCobrar(){
+  if(state.propina>0 && !state.propFormaElegida){
+    const fp=cache.formas.map(f=>
+      `<button class="op" onclick="setPropFormaYSigue('${f.clave}')">${f.tipo==='EFECTIVO'?'💵 ':'💳 '}${esc(f.nombre)}</button>`
+    ).join("");
+    $("modal").innerHTML=`<h3>¿Dónde dejó la propina?</h3>
+      <p class="tenue">Son $${state.propina.toFixed(2)}. Si el cliente la dejó en <b>billetes</b> y se cobra junto con la tarjeta, el cajón no cuadra al final de la noche.</p>
+      ${fp}
+      <button class="op" onclick="setPropFormaYSigue(null)">Junto con el pago</button>
+      <button class="op" style="text-align:center" onclick="cerrarModal()">‹ Regresar</button>`;
+    $("modalBg").classList.add("on");
+    return false;
+  }
+  if(!window._cobrarConPendientes){
+    try{
+      const {data:pend}=await sb.from("cuenta_producto")
+        .select("id,cantidad,importe,producto_id")
+        .eq("cuenta_id",state.cuentaId).eq("estado","PENDIENTE");
+      if(pend && pend.length){
+        const li=pend.map(p=>{
+          const nom=(cache.prodById[p.producto_id]||{}).nombre||"producto";
+          return `<div class="lin">${Number(p.cantidad)||1} × ${esc(nom)} — $${Number(p.importe||0).toFixed(2)}</div>`;
+        }).join("");
+        $("modal").innerHTML=`<h3>Hay ${pend.length} producto${pend.length>1?'s':''} sin enviar</h3>
+          <p class="tenue">Esto <b>no salió</b> a cocina ni a barra. Si se cobra así, el cliente paga algo de lo que allá nunca se enteraron.</p>
+          ${li}
+          <button class="op" style="background:var(--verde);color:#fff" onclick="enviarYLuegoCobrar()">Enviar ahora</button>
+          <button class="op" style="background:#a12;color:#fff" onclick="cobrarDeTodosModos()">Cobrar así</button>
+          <button class="op" style="text-align:center" onclick="cerrarModal()">‹ Regresar</button>`;
+        $("modalBg").classList.add("on");
+        return false;
+      }
+    }catch(e){ /* si la consulta falla, NO detenemos el cobro */ }
+  }
+  return true;
+}
+window.setPropFormaYSigue=(clave)=>{ setPropForma(clave); cerrarModal(); cobrarYCerrar(); };
+window.enviarYLuegoCobrar=async()=>{ cerrarModal(); await enviar(); };
+window.cobrarDeTodosModos=()=>{ window._cobrarConPendientes=true; cerrarModal(); cobrarYCerrar(); };
 
 /* ---- CUENTA (ticket en pantalla, sin pedir pago) ---- */
 async function verCuenta(){
@@ -1138,7 +1309,7 @@ window.reimprimir=async()=>{
 
 /* ---- COBRAR (registrar cómo pagó y cerrar) ---- */
 async function renderCobro(){
-  state.vista="cobro";state.propina=0;state.pagos=[];state.propinaForma=null;$("footer").style.display="none";$("btnVolver").style.display="inline-block";
+  state.vista="cobro";state.propina=0;state.pagos=[];state.propinaForma=null;state.propFormaElegida=false;$("footer").style.display="none";$("btnVolver").style.display="inline-block";
   try{ await sb.rpc("recalcular_cuenta",{p_cuenta:state.cuentaId}); }catch(e){}
   try{const{data:c}=await sb.from("cuenta").select("folio,subtotal,descuento_total,total").eq("id",state.cuentaId).single();state.cobro=c;}catch(e){return err("No se pudo leer la cuenta.",e);}
   pintarCobro();
@@ -1172,8 +1343,9 @@ async function pintarCobro(){
       <button class="chip2 ${pOn10?'on':''}" onclick="setProp(10)">10%</button><button class="chip2 ${pOn15?'on':''}" onclick="setProp(15)">15%</button>
       <button class="chip2 ${pOnLibre?'on':''}" onclick="setPropLibre()">Otro${state.propina>0&&pOnLibre?' ($'+state.propina.toFixed(0)+')':''}</button><button class="chip2 ${state.propina===0?'on':''}" onclick="setProp(0)">Sin propina</button></div>
     ${state.propina>0?`<div class="sec-t">¿La propina en qué la dejó?</div><div class="chips2">
-      <button class="chip2 ${state.propinaForma===null?'on':''}" onclick="setPropForma(null)">Junto con el pago</button>
+      <button class="chip2 ${state.propFormaElegida&&state.propinaForma===null?'on':''}" onclick="setPropForma(null)">Junto con el pago</button>
       ${cache.formas.map(f=>`<button class="chip2 ${state.propinaForma===f.clave?'on':''}" onclick="setPropForma('${f.clave}')">${f.tipo==='EFECTIVO'?'💵 ':'💳 '}${esc(f.nombre)}</button>`).join("")}</div>
+      ${!state.propFormaElegida?`<div style="background:#5a2d0c;border:1px solid var(--naranja);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.35"><b>Falta decir dónde dejó la propina.</b><br>Si la dejó en <b>billetes</b>, toca 💵 Efectivo. Si no se elige, se cobra junto con el pago.</div>`:''}
       ${propAparte?`<div class="tenue" style="font-size:12px;margin:4px 0 8px">La propina de $${state.propina.toFixed(2)} se va a registrar aparte, en <b>${esc((cache.formas.find(f=>f.clave===state.propinaForma)||{}).nombre||'')}</b>. Abajo captura <b>solo el consumo ($${total.toFixed(2)})</b>.</div>`:''}`:''}
     <div class="sec-t">¿Cómo pagó? ${state.pagos.length?'(partido)':''} — restan $${restan.toFixed(2)}${cambio>0?` · cambio $${cambio.toFixed(2)}`:''}</div>
     <div class="fp">${fp}</div><div>${ph}</div>
@@ -1195,15 +1367,21 @@ function ajustarPagoPorPropina(prev){
   }
 }
 window.setProp=(pct)=>{const prev=state.propina;state.propina=pct?Math.round(Number(state.cobro.total)*pct)/100:0;
-  if(state.propina===0) state.propinaForma=null;      // sin propina no hay forma que elegir
+  if(state.propina===0){ state.propinaForma=null; state.propFormaElegida=false; }   // sin propina no hay forma que elegir
   ajustarPagoPorPropina(prev);pintarCobro();};
-window.setPropLibre=()=>{const v=parseFloat(prompt("Propina en pesos:","0"));if(!isNaN(v)&&v>=0){const prev=state.propina;state.propina=v;
-  if(state.propina===0) state.propinaForma=null;
+window.setPropLibre=async()=>{
+  /* v14-cancela: prompt() -> ventanita propia. Los prompt() del navegador
+     NO salen en varias tabletas (leccion 4.7), y ahi la propina de plano
+     no se podia capturar. */
+  const v=parseFloat(await pedirTexto("Propina en pesos","¿cuánto dejó?"));
+  if(!isNaN(v)&&v>=0){const prev=state.propina;state.propina=v;
+  if(state.propina===0){ state.propinaForma=null; state.propFormaElegida=false; }
   ajustarPagoPorPropina(prev);pintarCobro();}};
 /* 85-E — en que forma quedo la propina. null = junto con el pago (lo de
    siempre). Con una clave, la propina se registra en su propio renglon y los
    pagos de abajo cubren solo el consumo, asi que el pago unico se reajusta. */
 window.setPropForma=(clave)=>{
+  state.propFormaElegida=true;   /* v14-cancela: alguien SI eligio */
   const prev=state.propina;
   const antes=state.propinaForma;
   state.propinaForma=clave;
@@ -1865,6 +2043,9 @@ window._cobrando=false;
 async function cobrarYCerrar(){
   // CANDADO anti doble-toque: si ya se está cobrando esta cuenta, el segundo toque no hace nada.
   if(window._cobrando) return;
+  /* v14-cancela: las dos revisiones van ANTES del candado, para que al
+     regresar de la ventana se pueda volver a intentar. */
+  if(!(await revisarAntesDeCobrar())) return;
   window._cobrando=true;
   const btnC=document.querySelector('button.cerrar'); if(btnC){btnC.disabled=true;btnC.textContent="Cobrando…";}
   try{
@@ -2035,7 +2216,12 @@ window.verCorteCompleto=async(tipo,turnoId)=>{
   let d;
   try{
     const args = tipo==='DIA'
-      ? {p_tipo:'DIA', p_turno:null, p_fecha:new Date().toISOString().slice(0,10)}
+      /* v14-cancela: ya NO se manda la fecha. toISOString() la da en UTC, que
+         va 6 horas adelante: despues de las 6 de la tarde pedia la jornada del
+         dia siguiente y salia en ceros. Sin p_fecha, la base la pone con
+         hoy_jornada(), que siempre sabe la hora de Tuxtepec aunque la tableta
+         traiga mal el reloj (modulos 99 y 100). */
+      ? {p_tipo:'DIA', p_turno:null}
       : {p_tipo:'TURNO', p_turno:turnoId, p_fecha:null};
     const r=await sb.rpc("reporte_corte",args); if(r.error)throw r.error; d=r.data;
   }catch(e){ return err("No se pudo calcular el corte.",e); }
@@ -2292,7 +2478,12 @@ async function limpiarSiVacia(cid){
     if(pgs && pgs.length) return;                      // tiene pagos: no tocar
     const {data:cta}=await sb.from("cuenta").select("estado,mesa_id").eq("id",cid).single();
     if(cta && cta.estado==="ABIERTA"){
-      await sb.from("cuenta").update({estado:"CANCELADA",cerrada_en:new Date().toISOString()}).eq("id",cid);
+      /* v14-cancela: ya no es un UPDATE crudo. La funcion deja dicho POR QUE
+         se cerro — SIN_CONSUMO si nunca tuvo nada, TODO_CANCELADO si le
+         cancelaron todo — para que el Panel saque las primeras de la lista
+         de Carla. Antes no quedaba ni rastro: 71 cuentas canceladas en 30
+         dias y solo 4 asientos en Auditoria. */
+      await sb.rpc("cerrar_mesa_vacia",{p_cuenta:cid});
       if(state.mesaTipo==="TEMPORAL" && cta.mesa_id){ await sb.from("mesa").update({activa:false}).eq("id",cta.mesa_id); }
     }
   }catch(e){ /* si falla, no estorbamos la navegacion */ }
