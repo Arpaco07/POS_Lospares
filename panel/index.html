@@ -2160,6 +2160,9 @@ window.verCuentaPanel=(id)=>{
       <p class="tenue">${esc(c.tipo_venta)} · ${esc(cache.empleados[c.mesero_id]?.nombre||'')} · Abrió ${_ab?_ab.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}):'—'} · lleva ${_txt}</p>
       <div class="kpi" style="margin:8px 0"><div class="l">Consumo hasta ahorita (sin cobrar)</div><div class="v" style="color:var(--oro)">${M(c.total)}</div></div>
       <div class="sec-t">Productos y tiempos</div><div id="ctaProds" class="tenue">Cargando…</div>
+      ${admin?`<div class="sec-t" style="margin-top:14px">Acciones de admin</div>
+        <div class="tenue" style="font-size:12px;margin:-4px 0 8px">Si el cliente se fue sin pagar y va a pasar después, <b>Dejar pendiente</b> cierra la cuenta como <b>cuenta por cobrar</b>: el consumo sí cuenta como venta, pero el dinero <b>no entra al cajón</b>, así que la cajera no sale corta.</div>
+        <button class="ok" style="background:#8a6d1f" onclick="dejarPendienteP(${id})">⏳ Dejar pendiente (por cobrar)</button>`:''}
       <div class="acc" style="margin-top:14px"><button class="cancelar" onclick="cerrarModal()">Cerrar</button><button class="ok" style="background:var(--negro)" onclick="verTicketP(${id})">👁 Ver ticket</button></div>`;
     $("mbg").classList.add("on"); _pintarProdsCuenta(id); return;
   }
@@ -2207,6 +2210,117 @@ window.verCuentaPanel=(id)=>{
   $("mbg").classList.add("on");
   _pintarProdsCuenta(id);
 };
+/* ======================================================================
+   MODULO 87 — DEJAR PENDIENTE  (12 nov 2026)
+
+   El caso: la cuenta N-016558 se quedo abierta desde las 02:21 con una
+   botella de $2,400 y trabo el cierre del turno 28 horas. Las salidas que
+   habia eran malas las dos: cobrarla en efectivo deja a la cajera corta por
+   un dinero que nunca vio, y dejarla abierta traba el turno.
+
+   Aqui se cierra como CUENTA POR COBRAR. La venta cuenta, el efectivo no se
+   toca (la forma PEND es tipo OTRO), y queda con nombre de quien autorizo.
+   Pide PIN de administrador: el fiado no lo da un mesero.
+====================================================================== */
+window.dejarPendienteP = async (id) => {
+  let folio='', total=0, mesero='';
+  try{
+    const c=await sb.from("cuenta").select("folio,total,mesero_id").eq("id",id).single();
+    const d=c.data||{}; folio=d.folio||('#'+id); total=Number(d.total||0);
+    mesero=(cache.empleados[d.mesero_id]||{}).nombre||'';
+  }catch(e){}
+  $("modal").innerHTML =
+     `<h3>⏳ Dejar pendiente (cuenta por cobrar)</h3>`
+    +`<p class="tenue">${esc(folio)}${mesero?' · '+esc(mesero):''}<br>`
+    +`<b style="font-size:19px">$${total.toFixed(2)}</b> que el cliente no pagó.</p>`
+    +`<p class="tenue" style="border-left:3px solid var(--oro);padding-left:9px">`
+    +`La cuenta se <b>cierra</b> y el turno ya podrá cortarse.<br>`
+    +`El consumo <b>sí cuenta como venta</b>, pero el dinero <b>no entra al cajón</b>: `
+    +`sale en el Corte Z como <b>pendiente por cobrar</b>, no como efectivo.</p>`
+    +`<label style="margin-top:10px">¿Quién debe? <b>(obligatorio)</b></label>`
+    +`<input id="pendCliente" maxlength="60" placeholder="Ej: Lic. Ramírez, Mesa 1" autocomplete="off">`
+    +`<label style="margin-top:8px">Nota (opcional)</label>`
+    +`<input id="pendMotivo" maxlength="80" placeholder="Ej: pasa mañana a pagar" autocomplete="off">`
+    +`<button class="op" style="background:#8a6d1f;color:#fff;text-align:center" onclick="_pendienteYa(${id})">Sí, dejarla pendiente</button>`
+    +`<button class="op" style="text-align:center" onclick="cerrarModal()">No, dejarla abierta</button>`;
+  $("mbg").classList.add("on");
+  setTimeout(()=>{ const i=$("pendCliente"); if(i) i.focus(); }, 60);
+};
+
+window._pendienteYa = async (id) => {
+  const cliente=($("pendCliente")?.value||"").trim();
+  const motivo =($("pendMotivo") ?.value||"").trim();
+  if(!cliente){ alert("Escribe quién debe la cuenta. Queda en la bitácora y en el corte."); return; }
+  cerrarModal();
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para dejar la cuenta por cobrar");
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("cobrar_pendiente",{
+      p_cuenta:id, p_admin_pin:pin, p_cliente:cliente,
+      p_motivo:motivo||null, p_empleado_clave:state.admin.clave});
+    if(r.error) throw r.error;
+    const d=r.data||{};
+    okmsg("Cuenta "+(d.folio||'')+" dejada pendiente por $"+Number(d.importe||0).toFixed(2)+" ✓");
+    pintarCaja();
+  }catch(e){ err("No se pudo dejar pendiente.",e); }
+};
+
+/* El cliente llego a pagar. No es una venta nueva: la venta ya se conto en
+   su corte. Si paga en efectivo, entra como DEPOSITO a la caja de hoy. */
+window.liquidarPendienteP = async (folio, importe) => {
+  const formas=(Object.values(cache.formas)||[]).filter(f=>f.clave!=='PEND');
+  $("modal").innerHTML =
+     `<h3>💵 Cobrar cuenta pendiente</h3>`
+    +`<p class="tenue">${esc(folio)} · <b style="font-size:19px">$${Number(importe||0).toFixed(2)}</b></p>`
+    +`<p class="tenue" style="border-left:3px solid var(--oro);padding-left:9px">`
+    +`Esta venta ya se contó en su corte. Esto registra <b>la cobranza</b>: `
+    +`si es efectivo, entra como depósito a la caja del turno de hoy.</p>`
+    +`<label style="margin-top:10px">¿Con qué pagó?</label>`
+    + formas.map(f=>`<button class="op" style="text-align:center" onclick="_liquidarYa('${esc(folio)}','${esc(f.clave)}')">${esc(f.nombre)}</button>`).join('')
+    +`<button class="op" style="text-align:center;opacity:.7" onclick="cerrarModal()">Cancelar</button>`;
+  $("mbg").classList.add("on");
+};
+
+window._liquidarYa = async (folio, formaClave) => {
+  cerrarModal();
+  const pin=await pedirPin("PIN de ADMINISTRADOR","para registrar el cobro");
+  if(!pin) return;
+  try{
+    const r=await sb.rpc("liquidar_pendiente",{
+      p_folio:folio, p_forma_clave:formaClave,
+      p_empleado_clave:state.admin.clave, p_admin_pin:pin});
+    if(r.error) throw r.error;
+    const d=r.data||{};
+    okmsg("Cobrado "+(d.folio||'')+" con "+(d.forma||'')+" ✓"+(d.entro_a_caja?" — entró como depósito a la caja":""));
+    pintarCaja();
+  }catch(e){ err("No se pudo registrar el cobro.",e); }
+};
+
+/* El bloque de cuentas por cobrar dentro de Caja. Se pinta aparte para que
+   la caja aparezca al instante; si falla, no estorba. */
+async function pintarPorCobrar(){
+  const cont=$("porCobrarCaja"); if(!cont) return;
+  try{
+    const r=await sb.rpc("pendientes_por_cobrar");
+    if(r.error) throw r.error;
+    const filas=r.data||[];
+    if(!filas.length){ cont.innerHTML=''; return; }
+    const M=v=>'$'+Number(v||0).toFixed(2);
+    const total=filas.reduce((a,x)=>a+Number(x.importe||0),0);
+    cont.innerHTML=`<div class="sec-t" style="margin-top:16px">Cuentas por cobrar (${filas.length}) — ${M(total)}</div>
+      <p class="tenue" style="margin:-4px 0 8px;font-size:12px">Consumo que ya se contó como venta pero que el cliente no ha pagado. No está en el cajón.</p>
+      <table><thead><tr><th>Folio</th><th>Día</th><th>Mesero</th><th>Quién debe</th><th class="n">Importe</th><th class="n"></th></tr></thead>
+      <tbody>${filas.map(f=>`<tr>
+        <td>${esc(f.folio||'')}</td>
+        <td>${esc(f.dia||'')}${Number(f.dias)>0?` <span class="tenue">(${f.dias} d)</span>`:''}</td>
+        <td>${esc(f.mesero||'—')}</td>
+        <td class="tenue" style="font-size:12px">${esc(String(f.detalle||'').replace(/^PENDIENTE · /,''))}</td>
+        <td class="n">${M(f.importe)}</td>
+        <td class="n">${state.soloLectura?'':`<button class="nuevo" style="width:auto;margin:0;padding:6px 12px;background:#2e7d46" onclick="liquidarPendienteP('${esc(f.folio)}',${Number(f.importe||0)})">💵 Cobrar</button>`}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }catch(e){ cont.innerHTML=''; }
+}
+
 /* Productos de la cuenta con HORAS (pedido de caja, 29 sep): hora de captura,
    hora en que se envió a cocina/barra (impreso_en, módulo 51) y tiempo de
    servicio (1er/2do...). Sirve para llevar control de tiempos. */
@@ -2845,7 +2959,7 @@ async function pintarCaja(){
     const row=(l,v,b)=>`<tr${b?' class="tot-row"':''}><td>${l}</td><td class="n">${typeof v==='number'?M(v):v}</td></tr>`;
     $("main").innerHTML=`<div class="pad"><h2>Caja / Turno</h2>
       <p class="tenue">Turno abierto desde ${new Date(turno.abierto_en).toLocaleString('es-MX')} · Fondo ${M(turno.fondo_inicial)}</p>
-      ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s). Ciérralas (cóbralas) antes del Corte Z.</div>`:''}
+      ${t.abiertas>0?`<div class="aviso err" style="margin:0 0 12px">Hay ${t.abiertas} cuenta(s) abierta(s). Lo normal es <b>cobrarlas</b>. Si el cliente no pagó, ábrela y usa <b>⏳ Dejar pendiente</b>: se cierra como cuenta por cobrar y no toca el efectivo. El Corte Z también se puede hacer así como está, pero <b>pide PIN de administrador</b> y queda anotado en la bitácora.</div>`:''}
       <div id="revisionTurno"></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:280px">
@@ -2913,14 +3027,18 @@ async function pintarCaja(){
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('CARLA')">📱 Carla</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('ARTURO')">📱 Arturo</button>
         <button class="nuevo" style="${bb};background:#128C7E" onclick="waCaja('PARES')">📱 Los Pares</button>
-        <button class="nuevo" style="${bb};background:#c0392b" ${t.abiertas>0?'disabled':''} onclick="corteZP(${turno.id})">🔒 Corte Z (cerrar turno)</button>
+        <button class="nuevo" style="${bb};background:${t.abiertas>0?'#8a3d1f':'#c0392b'}"
+                title="${t.abiertas>0?'Quedan cuentas abiertas: se puede cerrar, pero pide PIN de administrador y queda en la bitácora':'Cierra el turno y genera el Corte Z'}"
+                onclick="corteZP(${turno.id},${t.abiertas})">🔒 Corte Z (cerrar turno)${t.abiertas>0?' 🔑':''}</button>
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="nuevo" style="${bb};background:#8a6d1f" onclick="pintarCorteHist()">📋 Ver cortes de otros días</button><button class="nuevo" style="${bb};background:#2f6fb0" onclick="pintarVerificar()">🔎 Verificar corte</button></div>
-      ${t.abiertas>0?'<p class="tenue" style="margin-top:6px">Para el Corte Z primero cobra las cuentas abiertas.</p>':''}
+      ${t.abiertas>0?'<p class="tenue" style="margin-top:6px">El 🔑 en el Corte Z quiere decir que hay cuentas abiertas y va a pedir PIN de administrador.</p>':''}
+      <div id="porCobrarCaja"></div>
     </div>`;
     /* La revisión del turno se pinta aparte para que la caja aparezca al
        instante y no se quede esperando. Si algo falla, no estorba. */
     try{ pintarRevision(turno.id); }catch(e){}
+    try{ pintarPorCobrar(); }catch(e){}   /* modulo 87 */
   }catch(e){err("No se pudo cargar la caja.",e);}
 }
 
@@ -3548,9 +3666,26 @@ window.corteXP=async(id)=>{
     okmsg("Corte X guardado ✓ — se imprimió y se generó la imagen. El turno sigue abierto.");pintarCaja();
   }catch(e){err("No se pudo hacer el Corte X.",e); document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=false; });}
   finally{ window._cortando=false; }};
-window.corteZP=async(id)=>{
+/* MODULO 87 (12 nov 2026) — el Corte Z ya no sale APAGADO cuando hay mesas
+   abiertas. Antes el boton se deshabilitaba y el turno se quedaba trabado:
+   el 8 y el 12 de noviembre hubo que destrabarlo a mano desde la nube.
+   La base siempre supo dejar pasar el cierre con PIN de administrador
+   (_exigir_mesas_cerradas lo anota como CORTE_FORZADO_CON_MESAS_ABIERTAS);
+   lo que faltaba era que esta pantalla lo pidiera.
+   OJO: ese candado exige PIN de verdad, no la clave del empleado. */
+window.corteZP=async(id,abiertas)=>{
   if(window._cortando) return;
-  if(!confirm("¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla."))return;
+  abiertas=Number(abiertas||0);
+  const base="¿Hacer el Corte Z y CERRAR el turno? Ya no se podrá modificar.\n\nSe pagarán automáticamente las propinas (70%) que aún estén pendientes, para que no quede nada colgando. El bote de cocina (30%) se queda en la caja y se reparte al día siguiente.\n\nAl cerrar se enviará el corte a WhatsApp de Carla.";
+  const aviso = abiertas>0
+    ? "⚠ QUEDAN "+abiertas+" CUENTA(S) ABIERTA(S)\n\nEse consumo NO entra en este corte: se va al turno siguiente.\n\nSi el cliente ya se fue sin pagar, lo correcto es cerrar esa cuenta con ⏳ Dejar pendiente, para que sí cuente como venta y quede como cuenta por cobrar.\n\n"+base+"\n\nSe te va a pedir PIN de administrador y queda anotado en la bitácora."
+    : base;
+  if(!confirm(aviso))return;
+  let pin=null;
+  if(abiertas>0){
+    pin=await pedirPin("PIN de ADMINISTRADOR","para cerrar con "+abiertas+" cuenta(s) abierta(s)");
+    if(!pin) return;
+  }
   if(window._cortando) return;
   window._cortando=true;
   document.querySelectorAll('button').forEach(b=>{ if(/Corte X|Corte Z/.test(b.textContent)) b.disabled=true; });
@@ -3577,8 +3712,8 @@ window.corteZP=async(id)=>{
       }
     }catch(e){}
     // 3) Generar y cerrar
-    const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave});if(r.error)throw r.error;
-    const c=await sb.rpc("cerrar_turno",{p_turno:id});if(c.error)throw c.error;
+    const r=await sb.rpc("generar_corte",{p_tipo:'TURNO',p_turno:id,p_empleado_clave:state.admin.clave,p_admin_pin:pin});if(r.error)throw r.error;
+    const c=await sb.rpc("cerrar_turno",{p_turno:id,p_admin_pin:pin});if(c.error)throw c.error;
     try{ imprimirCorte(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     try{ compartirCorteImagen(window._cajaData,'CORTE Z - '+new Date().toLocaleDateString('es-MX')); }catch(e){}
     okmsg("Corte Z hecho ✓"+(pagAuto>0?(" — se pagaron $"+pagAuto.toFixed(2)+" de propinas pendientes"):"")+" · se imprimió y se generó la imagen para WhatsApp");pintarCaja();
