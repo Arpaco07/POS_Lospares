@@ -1,3 +1,22 @@
+<!-- ============================================================================
+     ⚠️  ESTA PANTALLA EXISTE EN DOS LUGARES, Y TIENE QUE SER ASI
+     ----------------------------------------------------------------------------
+     1) Arpaco07/factura          -> factura.lospares.com   (el que ven los
+                                     clientes desde su celular, por internet)
+     2) POS_Lospares/factura/     -> pos.lospares.com/factura/  (el de la caja,
+                                     servido por Caddy desde la propia HP)
+
+     NO se puede borrar la segunda ni convertirla en un desvio: la regla de oro
+     del proyecto es que el restaurante opera SIN internet, y el hub LOCAL manda
+     a la copia de la HP (RUTAS_LOCAL.factura = "factura/").
+
+     POR ESO: si cambias una, CAMBIA LA OTRA EL MISMO DIA, y sube la version de
+     abajo en las dos. La version impresa al pie es como se detecta que se
+     separaron. Si ves dos versiones distintas, alguien edito solo una.
+
+     El 18 nov 2026 se perdieron tres publicaciones por no saber cual era cual.
+     Ver claude/DIRECCIONES_del_sistema.md
+     ============================================================================ -->
 <!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Los Pares 84×88 — Facturación</title>
@@ -120,7 +139,7 @@
     <div id="msg2"></div>
   </div>
 
-  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v7 · 7 oct 2026</span></div>
+  <div class="pie">Los Pares 84×88 · Tuxtepec, Oaxaca · Facturación electrónica CFDI 4.0<br><span style="font-size:10px">v8 · 18 nov 2026</span></div>
 </div>
 
 <script>
