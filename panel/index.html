@@ -223,7 +223,7 @@
   const LOCAL_LLAVE="sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
   const LOCAL_IP_URL="http://192.168.88.254:8080";   /* IP directa: funciona SIN internet */
 </script>
-<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.10-revisar</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
+<header><span class="marca">Los <b>Pares</b><i class="mnum">84×88</i></span><span class="tag">PANEL</span><span class="ver" title="Version del Panel">v6.11-pendientes</span> <span id="modo"></span> <span id="latido" title="Estado del espejo local ↔ nube"></span><span class="ctx" id="ctx"></span></header>
 <nav id="nav" style="display:none">
   <button data-v="monitor" onclick="irA('monitor')">📊 Monitor</button>
   <button data-v="llevar" onclick="irA('llevar')">🛍 Para llevar</button>
@@ -232,6 +232,7 @@
   <button data-v="clientes" onclick="irA('clientes')">👥 Clientes</button>
 
   <button data-v="caja" onclick="irA('caja')">Caja / Turno</button>
+  <button data-v="pendientes" onclick="irA('pendientes')">📌 Pendientes</button>
   <button data-v="propinas" onclick="irA('propinas')">Propinas</button>
   <button data-v="cancelaciones" onclick="irA('cancelaciones')">Cancelaciones</button>
   <button data-v="auditoria" onclick="irA('auditoria')">Auditoría</button>
@@ -376,7 +377,7 @@ window.pinE=async()=>{ if(state.pin.length<3){$("err").textContent="PIN muy cort
     if(!(u.es_admin||u.rol==='ADMIN'||u.rol==='CAJERO')){state.pin="";dots();$("err").textContent="Solo administrador o cajero";return;}
     state.admin=u; state.soloLectura=!(u.es_admin||u.rol==='ADMIN');
     $("nav").style.display="flex";$("ctx").textContent=u.nombre+(state.soloLectura?" · solo lectura":"");
-    const _permCajero=['cuentas','caja','llevar','clientes']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
+    const _permCajero=['cuentas','caja','llevar','clientes','pendientes']; document.querySelectorAll('nav button').forEach(b=>{ b.style.display=(state.soloLectura && !_permCajero.includes(b.dataset.v))?'none':''; });
     state.rango=rangoHoy(); irA(state.soloLectura?'cuentas':'ventas');
   }catch(e){err("No se pudo entrar.",e);}
 };
@@ -830,7 +831,7 @@ window.repSecciones=()=>{state.rep={cat:null,sub:null,all:false,modo:state.rep&&
    y ademas cada accion sensible pide PIN de administrador.
    El candado de verdad vive en la base (modulo 68): aunque alguien se
    brinque la pantalla, la base rechaza la orden sin PIN de admin.      */
-const VISTAS_CAJERO = ['cuentas','caja','llevar','clientes'];
+const VISTAS_CAJERO = ['cuentas','caja','llevar','clientes','pendientes'];
 function puedeVer(v){ return !state.soloLectura || VISTAS_CAJERO.includes(v); }
 
 function irA(v){
@@ -856,6 +857,7 @@ async function render(){
   if(state.vista==='cuentas'){return pintarCuentas();}
 
   if(state.vista==='caja'){return pintarCaja();}
+  if(state.vista==='pendientes'){return pintarPendientes();}
   $("main").innerHTML=`<div class="pad"><div class="cargando">Calculando…</div></div>`;
   try{
     const d=await datosRango();
@@ -2316,6 +2318,95 @@ window._liquidarYa = async (folio, formaClave) => {
   }catch(e){ err("No se pudo registrar el cobro.",e); }
 };
 
+/* ==========================================================================
+   PENDIENTES POR COBRAR — pantalla propia (v6.11 · 13 nov 2026)
+
+   Un fiado NO es un error: es una cuenta por cobrar. Hasta hoy solo vivia
+   como un bloque adentro de Caja y como aviso antes del Corte Z. Un aviso
+   que sale todos los dias deja de leerse, que es justo lo peligroso.
+
+   Aqui tiene su lugar: se consulta, se ve quien debe y desde cuando, se le
+   REIMPRIME EL TICKET cuando el cliente regresa, y se cobra.
+
+   No inventa nada: reusa lo que ya existe —
+     pendientes_por_cobrar()  (modulo 87, la base)
+     liquidarPendienteP()     cobrar, con PIN de admin
+     verTicketP() / reimprimirTicketP()
+   FALLA ABIERTO: si la base no trae el modulo 87, lo dice y no estorba.
+   ========================================================================== */
+async function pintarPendientes(){
+  const M  = v => '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const bb = 'width:auto;margin:0;padding:10px 14px';
+  $("main").innerHTML = `<div class="pad"><div class="cargando">Cargando cuentas por cobrar…</div></div>`;
+  try{
+    const r = await sb.rpc("pendientes_por_cobrar");
+    if(r.error) throw r.error;
+    const lst = r.data || [];
+
+    if(!lst.length){
+      $("main").innerHTML = `<div class="pad"><h2>📌 Pendientes por cobrar</h2>
+        <div class="aviso ok" style="margin:0 0 12px"><b>✅ No hay nada fiado.</b><br>
+          Todas las cuentas cerradas están pagadas.</div>
+        <p class="tenue" style="font-size:13px">Cuando en la caja se use <b>⏳ Dejar pendiente</b>, la cuenta aparece aquí hasta que el cliente pase a pagar.</p>
+        <div style="margin-top:12px"><button class="nuevo" style="${bb}" onclick="pintarPendientes()">🔄 Actualizar</button></div></div>`;
+      return;
+    }
+
+    const total  = lst.reduce((a,x)=>a+Number(x.importe||0),0);
+    const viejas = lst.filter(x=>Number(x.dias||0) >= 7);
+
+    const filas = lst.map(x=>{
+      const d    = Number(x.dias||0);
+      const col  = d>=15 ? '#ff9c90' : (d>=7 ? '#ffd77a' : '');
+      const ant  = d===0 ? 'hoy' : (d===1 ? 'ayer' : d+' días');
+      const quien= String(x.detalle||'').replace(/^PENDIENTE · /,'');
+      return `<tr>
+        <td><b>${esc(x.folio||'')}</b><div class="tenue" style="font-size:12px">${esc(x.mesero||'—')}</div></td>
+        <td>${esc(String(x.dia||''))}<div style="font-size:12px;opacity:.8${col?';color:'+col+';font-weight:700':''}">${ant}</div></td>
+        <td class="n"><b>${M(x.importe)}</b></td>
+        <td class="tenue" style="font-size:12px">${esc(quien)}</td>
+        <td class="n" style="white-space:nowrap">
+          <button class="nuevo" style="width:auto;margin:0 0 4px;padding:6px 10px;background:var(--negro)" onclick="verTicketP(${Number(x.cuenta_id)})">👁 Ver</button>
+          <button class="nuevo" style="width:auto;margin:0 0 4px;padding:6px 10px;background:var(--negro)" onclick="reimprimirTicketP(${Number(x.cuenta_id)})">🖨 Reimprimir</button>
+          ${state.soloLectura?'':`<button class="nuevo" style="width:auto;margin:0;padding:6px 10px;background:#2e7d46" onclick="liquidarPendienteP('${esc(x.folio||'')}',${Number(x.importe||0)})">💵 Cobrar</button>`}
+        </td></tr>`;
+    }).join('');
+
+    $("main").innerHTML = `<div class="pad"><h2>📌 Pendientes por cobrar</h2>
+      <p class="tenue">Cuentas que ya se consumieron y se cerraron, pero que el cliente todavía no paga. El consumo ya contó como venta el día que se hizo; el dinero no está en el cajón.</p>
+
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:12px 0">
+        <div style="flex:1;min-width:210px;background:var(--gris);border:1px solid var(--gris2);border-radius:10px;padding:12px 14px">
+          <div class="tenue" style="font-size:12px">TOTAL POR COBRAR</div>
+          <div style="font-size:26px;font-weight:800;color:#ffd77a">${M(total)}</div>
+          <div class="tenue" style="font-size:12px">${lst.length} cuenta(s)</div>
+        </div>
+        ${viejas.length?`<div style="flex:1;min-width:210px;background:rgba(224,165,44,.14);border:1px solid rgba(224,165,44,.45);border-radius:10px;padding:12px 14px">
+          <div style="font-size:12px;color:#ffd77a">LLEVAN MÁS DE UNA SEMANA</div>
+          <div style="font-size:26px;font-weight:800;color:#ffd77a">${viejas.length}</div>
+          <div class="tenue" style="font-size:12px">${M(viejas.reduce((a,x)=>a+Number(x.importe||0),0))} · vale la pena hablarles</div>
+        </div>`:''}
+      </div>
+
+      <table><thead><tr><th>Folio / mesero</th><th>Día</th><th class="n">Importe</th><th>Quién debe y por qué</th><th class="n">Cuando llegue el cliente</th></tr></thead>
+      <tbody>${filas}</tbody></table>
+
+      <p class="tenue" style="font-size:12px;margin-top:10px">Al cobrar: si paga en <b>efectivo</b>, entra como <b>depósito</b> a la caja del turno de hoy — la venta ya se contó el día del consumo y no se cuenta dos veces. Si paga con tarjeta o transferencia, solo se marca liquidada.</p>
+
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="nuevo" style="${bb}" onclick="pintarPendientes()">🔄 Actualizar</button>
+        <button class="nuevo" style="${bb};background:#2f6fb0" onclick="irA('caja')">← Caja / Turno</button>
+      </div></div>`;
+
+  }catch(e){
+    $("main").innerHTML = `<div class="pad"><h2>📌 Pendientes por cobrar</h2>
+      <div class="aviso err" style="margin:0 0 12px"><b>No se pudo leer la lista.</b><br>
+        Lo más probable es que esta base todavía no tenga el módulo 87 (pago pendiente).<br>
+        <span class="tenue" style="font-size:12px">${esc(String((e&&e.message)||e||''))}</span></div>
+      <div style="margin-top:12px"><button class="nuevo" style="${bb}" onclick="pintarPendientes()">🔄 Reintentar</button></div></div>`;
+  }
+}
+
 /* El bloque de cuentas por cobrar dentro de Caja. Se pinta aparte para que
    la caja aparezca al instante; si falla, no estorba. */
 async function pintarPorCobrar(){
@@ -2327,7 +2418,7 @@ async function pintarPorCobrar(){
     if(!filas.length){ cont.innerHTML=''; return; }
     const M=v=>'$'+Number(v||0).toFixed(2);
     const total=filas.reduce((a,x)=>a+Number(x.importe||0),0);
-    cont.innerHTML=`<div class="sec-t" style="margin-top:16px">Cuentas por cobrar (${filas.length}) — ${M(total)}</div>
+    cont.innerHTML=`<div class="sec-t" style="margin-top:16px">Cuentas por cobrar (${filas.length}) — ${M(total)} <a href="#" onclick="irA('pendientes');return false" style="font-size:12px;font-weight:400;color:#7fb3e0">ver todo →</a></div>
       <p class="tenue" style="margin:-4px 0 8px;font-size:12px">Consumo que ya se contó como venta pero que el cliente no ha pagado. No está en el cajón.</p>
       <table><thead><tr><th>Folio</th><th>Día</th><th>Mesero</th><th>Quién debe</th><th class="n">Importe</th><th class="n"></th></tr></thead>
       <tbody>${filas.map(f=>`<tr>
